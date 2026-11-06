@@ -1,0 +1,21 @@
+# Build outputs
+decomp/build/
+decomp/__pycache__/
+tools/__pycache__/
+*.pyc
+
+# Generated captures / test output
+out/
+!out/.gitkeep
+
+# Mesen / model caches
+*.mss
+*.sav
+.cache/
+__pycache__/
+
+# Editor/OS noise
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

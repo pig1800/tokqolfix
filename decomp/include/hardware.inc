@@ -1,0 +1,15 @@
+; Hardware register symbols (used by the generated assembly).
+PPUCTRL              = $2000
+PPUMASK              = $2001
+PPUSTATUS            = $2002
+OAMADDR              = $2003
+OAMDATA              = $2004
+PPUSCROLL            = $2005
+PPUADDR              = $2006
+PPUDATA              = $2007
+OAMDMA               = $4014
+APUSTATUS            = $4015
+JOY1                 = $4016
+JOY2_APUFRAME        = $4017
+MMC1_CONTROL         = $9FFE
+MMC1_PRG_BANK        = $FFF9

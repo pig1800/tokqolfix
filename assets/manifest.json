@@ -1,0 +1,204 @@
+{
+  "version": 1,
+  "rom_sha256": "40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367",
+  "resources": [
+    {
+      "id": "bank00_chr",
+      "kind": "chr2",
+      "bank": 0,
+      "offset": 0,
+      "length": 16384,
+      "path": "graphics/bank00_chr.png",
+      "sha256": "f916f1397cb863992b95a085f1d8a125444e8c2964910bb01c523fe0f1feaab5"
+    },
+    {
+      "id": "bank01_header",
+      "kind": "bin",
+      "bank": 1,
+      "offset": 0,
+      "length": 16,
+      "path": "data/bank01_header.bin",
+      "sha256": "e42016a35051d898e9f88a087862da44d0509d255f4f43d228c1dd6a98c4aac2"
+    },
+    {
+      "id": "bank01_kanji",
+      "kind": "glyph16",
+      "bank": 1,
+      "offset": 16,
+      "length": 6656,
+      "path": "fonts/kanji_16x16_bank01.png",
+      "sha256": "eb7ae8e91268c51e805924c59008aa7a2fa7f368c797c6c61fb5661ea271052f"
+    },
+    {
+      "id": "bank01_gfx",
+      "kind": "chr2",
+      "bank": 1,
+      "offset": 6672,
+      "length": 9712,
+      "path": "graphics/bank01_chr.png",
+      "sha256": "0dc8dca68cc103d35374e460882a0e1d07466df14f82e435e591a20d67a6957b"
+    },
+    {
+      "id": "bank02_header",
+      "kind": "bin",
+      "bank": 2,
+      "offset": 0,
+      "length": 16,
+      "path": "data/bank02_header.bin",
+      "sha256": "b856f794ad73e3dc7ba65ad8900b8ac6812f140c5bfc222a0272dde05d132e27"
+    },
+    {
+      "id": "bank02_kanji",
+      "kind": "glyph16",
+      "bank": 2,
+      "offset": 16,
+      "length": 2048,
+      "path": "fonts/kanji_16x16_bank02.png",
+      "sha256": "f524849ddba083751c8ff544754e81c82d0ccdf04e49225ed7f81cb3beef2c6e"
+    },
+    {
+      "id": "bank02_gfx",
+      "kind": "chr2",
+      "bank": 2,
+      "offset": 2064,
+      "length": 14320,
+      "path": "graphics/bank02_chr.png",
+      "sha256": "43ee3a6b3c78cc804769f93b20e3bbddc862c55db5327508ccb13a3af46438e3"
+    },
+    {
+      "id": "bank03_chr",
+      "kind": "chr2",
+      "bank": 3,
+      "offset": 0,
+      "length": 16384,
+      "path": "graphics/bank03_chr.png",
+      "sha256": "00ee38f05c60902f8d6b09b784130984b0a1eb34e6767dd3cf70846e486d583a"
+    },
+    {
+      "id": "bank04_chr",
+      "kind": "chr2",
+      "bank": 4,
+      "offset": 0,
+      "length": 16384,
+      "path": "graphics/bank04_chr.png",
+      "sha256": "b02eac2d383633e613e3d41f5b330fc56e4eecf7efc39e76d126b48f855aa322"
+    },
+    {
+      "id": "bank05_chr",
+      "kind": "chr2",
+      "bank": 5,
+      "offset": 0,
+      "length": 16384,
+      "path": "graphics/bank05_chr.png",
+      "sha256": "2e81e6e0f9fb80c7c61d34fd8cf25ffced778be328c5854b1ff8faa8ad15e478"
+    },
+    {
+      "id": "bank09_ui_a",
+      "kind": "chr2",
+      "bank": 9,
+      "offset": 0,
+      "length": 14848,
+      "path": "graphics/bank09_ui_a.png",
+      "sha256": "0a7c9d3a8aa46f1a416b876f5614210e0dffa420c7679c70497b7d568cd35d22"
+    },
+    {
+      "id": "bank09_kana",
+      "kind": "font1",
+      "bank": 9,
+      "offset": 14848,
+      "length": 1024,
+      "path": "fonts/kana_8x8.png",
+      "sha256": "747c386efe0eefa11d4f09874943a62faf03ade6018d8d3b1e933abcf46dbcbd"
+    },
+    {
+      "id": "bank09_ui_b",
+      "kind": "chr2",
+      "bank": 9,
+      "offset": 15872,
+      "length": 512,
+      "path": "graphics/bank09_ui_b.png",
+      "sha256": "4757f718b47281947d40373dc5f83e5b88f0303cc888408784f0b6b21715f933"
+    },
+    {
+      "id": "bank06_map",
+      "kind": "bin",
+      "bank": 6,
+      "offset": 0,
+      "length": 16384,
+      "path": "data/bank06_map.bin",
+      "sha256": "ce35aba3a07cac928c89035f7c3cb5f27827a25d0a36c2a89d115548e123ac45"
+    },
+    {
+      "id": "bank10_messages",
+      "kind": "bin",
+      "bank": 10,
+      "offset": 0,
+      "length": 16384,
+      "path": "text/bank10_messages.bin",
+      "sha256": "9b2142eced108b7c1406944b26ee190f93b1012b2657aae2cde025cdcc1c3ef9"
+    },
+    {
+      "id": "bank11_messages",
+      "kind": "bin",
+      "bank": 11,
+      "offset": 0,
+      "length": 16384,
+      "path": "text/bank11_messages.bin",
+      "sha256": "2e5de7bff759d0713e8ba8dbf2c466512b2789c27e82c366ed75ad7b9c73e092"
+    },
+    {
+      "id": "bank12_tables",
+      "kind": "bin",
+      "bank": 12,
+      "offset": 0,
+      "length": 16384,
+      "path": "data/bank12_tables.bin",
+      "sha256": "9e7a380a0876c3bc70cca72fd9c4376e8a17895f8ecefc79b83658281f8a50b3"
+    },
+    {
+      "id": "bank07_data",
+      "kind": "bin",
+      "bank": 7,
+      "offset": 0,
+      "length": 16384,
+      "path": "data/bank07.bin",
+      "sha256": "30ab2552b1f0555861955fed2391c3b1c0d8ff03557b997846af67da1957a393"
+    },
+    {
+      "id": "bank08_data",
+      "kind": "bin",
+      "bank": 8,
+      "offset": 0,
+      "length": 16384,
+      "path": "data/bank08.bin",
+      "sha256": "a4cbfe3af4f2a7fd936e134171501a1c9f0f75ff5a20cb3f549b4713ddff957d"
+    },
+    {
+      "id": "bank13_data",
+      "kind": "bin",
+      "bank": 13,
+      "offset": 0,
+      "length": 16384,
+      "path": "data/bank13.bin",
+      "sha256": "c802a898149836596160156a1901c809de8f212d2283131219e72ddf468c4530"
+    },
+    {
+      "id": "bank14_data",
+      "kind": "bin",
+      "bank": 14,
+      "offset": 0,
+      "length": 16384,
+      "path": "data/bank14.bin",
+      "sha256": "37902b3c72d405d065c5934b214dffcc970b4e160989d915e8032a7d4d1f662b"
+    },
+    {
+      "id": "bank15_data",
+      "kind": "bin",
+      "bank": 15,
+      "offset": 0,
+      "length": 16384,
+      "path": "data/bank15.bin",
+      "sha256": "8ec7de53a98d33428cad83494d4e7b3d9b537375d6321524e158a90609e48946"
+    }
+  ]
+}
