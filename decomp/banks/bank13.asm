@@ -22,11 +22,17 @@ b13_code_aux = $A075
 
 
 b13_data_tables:
+.ifdef KANJI_TARGET
+    ; The kanji target uses the audited free run at $8317-$87FF for the
+    ; far-text loader and its RAM-resident trampoline.
+    .incbin "build/kanji/bank13_head.bin", $0000, $0800
+.else
 ; editable source: assets/data/bank13.bin (bin)
     .incbin "build/assets/bank13_data.bin", $0000, $0400
 
 b13_data_8400:
     .incbin "build/assets/bank13_data.bin", $0400, $0400
+.endif
 
 ; ----------------------------------------------------------------------
 ; b13_load_status_screen

@@ -10,5 +10,9 @@
 ;   $8380-$BFFF  b11_messages: Editable compressed message bytecode.
 ; ======================================================================
 
+.ifdef KANJI_TARGET
+    .incbin "build/kanji/bank11.bin"
+.else
 .include "build/text/bank11_table.inc"
 .include "build/text/bank11_data.inc"
+.endif

@@ -44,6 +44,17 @@ references such as `b10_msg_index_036`.  See
 conversion (SUROM expansion, font pipeline, renderer, text relocation, script
 proofread, UI screens, QA), with per-task exit criteria.
 
+The current implementation state is tracked in [`STATUS.md`](STATUS.md) and
+[`CHANGELOG.md`](CHANGELOG.md).  The expanded target is built with:
+
+```bat
+python decomp\build.py --target kanji
+```
+
+It writes `decomp/build/rom_kanji.nes` (524,304 bytes) and leaves the original
+256 KiB target byte-identical.  The expanded build is not yet a finished hack;
+see `STATUS.md` for the remaining CHR/UI blocker.
+
 ## Handoff / expansion plan
 
 [`HANDOFF.md`](HANDOFF.md) is a self-contained planning handoff covering the
