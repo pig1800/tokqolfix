@@ -1,54 +1,60 @@
--- Watch writes to the kanji SRAM range ($6800-$7FFF) during the long run.
--- Writes from the RAM far loader ($0600-$06FF) and the RAM overlay
--- ($7002-$73FF) are expected; any other PC is a conflict.
+-- Assert that the kanji hack never writes battery-backed PRG RAM.
+-- The game itself still writes save slots and the $6800 work buffer; those
+-- writes must all come from the original game banks, never from the overlay
+-- ($B800-$BFFF) or the RAM font stub ($0140-$015F).
 local outdir = "D:/EMU/NES/tokqolfix/out/test"
 local frame = 0
-local seen = {}
+local hack = 0
 local total = 0
-local samples = {}
+local pcs = {}
+local log = assert(io.open(outdir .. "/sram_watch.txt", "w"))
 local function onInput()
   if frame >= 300 and frame < 600 and (frame % 60) < 3 then
     emu.setInput({start=true}, 0)
   elseif frame >= 600 and frame < 760 and (frame % 60) < 3 then
     emu.setInput({a=true}, 0)
-  elseif frame >= 800 then
-    if frame % 20 < 3 then emu.setInput({a=true}, 0)
-    else emu.setInput({start=false, a=false, b=false, select=false, down=false}, 0) end
+  elseif frame >= 800 and frame < 4200 then
+    local phase = math.floor((frame - 800) / 40) % 6
+    if phase == 0 then emu.setInput({start=true}, 0)
+    elseif phase == 2 then emu.setInput({a=true}, 0)
+    elseif phase == 4 then emu.setInput({down=true}, 0)
+    else emu.setInput({start=false, a=false, b=false, select=false, down=false}, 0)
+    end
+  elseif frame >= 4200 and frame < 6000 then
+    local phase = math.floor((frame - 4200) / 30) % 4
+    if phase == 0 then emu.setInput({a=true}, 0)
+    elseif phase == 2 then emu.setInput({right=true}, 0)
+    else emu.setInput({a=false, right=false}, 0) end
   else
     emu.setInput({start=false, a=false, b=false, select=false, down=false}, 0)
   end
 end
 local function onWrite(addr, value)
   total = total + 1
-  local c = emu.getCpuState()
-  local pc = c.pc or 0
-  local in_loader = pc >= 0x0600 and pc < 0x0700
-  local in_overlay = pc >= 0x7002 and pc < 0x8000
-  if pc >= 0 and not in_loader and not in_overlay then
-    local key = string.format("%04X", pc)
-    seen[key] = (seen[key] or 0) + 1
-  end
-  if total <= 5 then
-    samples[#samples+1] = string.format("sample addr=%04X value=%02X PC=%04X", addr, value or 0, pc)
+  local pc = emu.getCpuState().pc or 0
+  local bankb = emu.read(0x44, emu.memType.nesMemory)
+  pcs[pc] = (pcs[pc] or 0) + 1
+  local ours = (pc >= 0x0140 and pc <= 0x015F)
+      or ((pc >= 0xB800 and pc <= 0xBFFF) and bankb >= 18 and bankb <= 22)
+  if ours then
+    hack = hack + 1
+    log:write(string.format("HACK f=%d pc=%04X bankb=%02X addr=%04X val=%02X\n",
+      frame, pc, bankb, addr, value or 0))
   end
 end
 local function onFrame()
   frame = frame + 1
   if frame == 6000 then
-    local keys = {}
-    for k in pairs(seen) do keys[#keys+1] = k end
-    table.sort(keys)
-    local f = assert(io.open(outdir .. "/sram_watch.txt", "w"))
-    f:write(string.format("total_writes=%d\n", total))
-    for _, s in ipairs(samples) do f:write(s .. "\n") end
-    for _, k in ipairs(keys) do
-      f:write(string.format("%s %d\n", k, seen[k]))
+    local list = {}
+    for pc, n in pairs(pcs) do list[#list+1] = {pc, n} end
+    table.sort(list, function(a, b) return a[2] > b[2] end)
+    log:write(string.format("total SRAM writes: %d; hack writes: %d\n", total, hack))
+    for i = 1, math.min(#list, 20) do
+      log:write(string.format("  pc=%04X count=%d\n", list[i][1], list[i][2]))
     end
-    f:close()
-    emu.stop(0)
+    log:close(); emu.stop(0)
   end
 end
+emu.addMemoryCallback(onWrite, emu.callbackType.write, 0x6000, 0x7FFF, emu.memType.nesMemory, emu.cpuType.nes)
 emu.addEventCallback(onInput, emu.eventType.inputPolled)
 emu.addEventCallback(onFrame, emu.eventType.endFrame)
-emu.addMemoryCallback(onWrite, emu.callbackType.write, 0x6800, 0x7FFF,
-  emu.memType.nesMemory, emu.cpuType.nes)

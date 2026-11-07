@@ -1,12 +1,52 @@
-# SITREP — kanji target handoff (revision 3 + revision-4/5 addenda)
+# SITREP — kanji target handoff (revision 3 + revision-4/5/6 addenda)
 
-Date: 2026-11-07.  Commit: `b967d80` for the code baseline; this pass adds
-the revision-5 evidence and the diagnostics listed below.
+Date: 2026-11-07.  Baseline: `1a9abec` plus this revision-6 work.  The code
+baseline before the pivot was `b967d80`; the revision-5 evidence is in the
+section below.
 
 This is the handoff document for the next planning iteration (Fable).
 `PLAN.md` revision 3 contains the original work list; this file records what
 is actually implemented, measured, and still open so the plan can be revised
 from evidence instead of from the earlier assumptions.
+
+## Revision 6 addendum (2026-11-07) — ROM-resident pivot implemented
+
+`PLAN.md` revision 6 is implemented. The runtime no longer uses battery RAM
+or NMI code:
+
+- **Overlay** 1,042 bytes at `$B800`, included byte-identically in text banks
+  18-22. The fixed-bank `F8 3A C6` trampoline maps bank 10/11, reads the five
+  inline bytes, maps the text bank and enters `$B800`. Fixed-bank block is
+  94 bytes at `$C611-$C66E`; 7 patch ranges; bank 31 mirrors bank 15.
+- **State** entirely in internal RAM: `$0131-$013F` (text bank/address, page
+  pointer, code, page count, entry index, four tiles, uploaded flags),
+  `$0140-$015F` (RAM font-copy stub), `$0160-$016F` (half-glyph/kana row),
+  `$0170-$017F` (dirty-CHR bitmap), `$01E0-$01E7` (scratch).
+- **Uploads** go through the game's `$0400` VRAM queue. The overlay waits for
+  the queue to drain, writes the four 16-byte tile entries, and marks the
+  tiles dirty. `restore_exit` restores kana for dirty tiles not referenced by
+  `$0180`/`$0300`; `kana_prepare` restores a borrowed kana tile before page
+  reuse.
+- **Compiler** assigns the four CHR tiles per kanji from the page's free kana
+  set and emits page records `count, count*(code_lo,code_hi,t0..t3)`. It
+  consumes `decomp/text/kanji_plan/scene_borrow.tsv` (9 surveyed labels) and
+  prompt list tags. Current max page entries 11, `min_free_static = 4`,
+  `pages_over_capacity = 0`.
+- **Name-entry charset**: the `savename` set is the exact 65 tiles drawn on
+  the original name-entry screen, extracted from PPU `$2000/$2400`; the
+  history prompts use it.
+- **Gates**: `sram_watch` 0 hack writes (21,923 game SRAM writes);
+  `iram_watch` 0 foreign writes to the reserved ranges; `mask_restore` 0
+  visible-scanline frames; `stack_check` min SP `$18` at NMI and `$28` at
+  overlay entry. Prompt/name-entry screenshots and field message
+  `b10_msg_129` are clean; the 6,000-frame survey is healthy.
+
+Final hashes: original
+`40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367`;
+kanji `b1e33ab17ad4b41d4a1c6c34386aec0679b36eed3f7df149f2a71857b447bb4c`.
+Remaining: Phase-2 all-message QA, per-prompt field list tags beyond the
+`menu` heuristic, broader scene-borrow coverage, outer-bank/N8 checks, then
+script/table/menu conversion.
 
 ## Revision 5 addendum (2026-11-07)
 

@@ -14,29 +14,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ORIGINAL = ROOT / "Tenchi o Kurau (Japan) (Rev 1).nes"
 KANJI = ROOT / "decomp" / "build" / "rom_kanji.nes"
-OVERLAY_BANK = ROOT / "decomp" / "build" / "kanji" / "bank24.bin"
+TEXT_BANKS = range(18, 23)
+OVERLAY_OFF = 0x3800
+OVERLAY_SIZE = 0x800
 
 PATCHES = [
     (0xC4B7, 0xC4B9),   # jmp SUROM switcher
-    (0xC611, 0xC675),   # switcher + far stub + NMI guards
-    (0xCC02, 0xCC04),   # jsr kana_prepare (menu text)
+    (0xC611, 0xC675),   # switcher + F8 trampoline + cell check
     (0xD1FA, 0xD1FC),   # jmp restore_exit
     (0xD28E, 0xD290),   # jmp text_dispatch
     (0xD2BB, 0xD2BD),   # jsr kana_prepare
     (0xD2C7, 0xD2C9),   # jsr ctrl_store
-    (0xD32B, 0xD32D),   # jsr kana_prepare (word handler)
-    (0xD388, 0xD38A),   # jsr redraw_hook
-    (0xDBE7, 0xDBE9),   # jsr cell_check
-    (0xDBEA, 0xDBEA),   # bcc (tiles $00-$F9)
-    (0xD4C0, 0xD4C2),   # jsr kana_prepare (name handler)
-    (0xD57D, 0xD57F),   # jsr kana_prepare (item name)
-    (0xD582, 0xD584),   # jsr kana_prepare (item name)
-    (0xD5C0, 0xD5C2),   # jsr kana_prepare (item name)
-    (0xEE7F, 0xEE81),   # jmp nmi_entry_guard
-    (0xEECB, 0xEECD),   # jsr nmi_palette_guard
+    (0xDBE7, 0xDBEA),   # jsr cell_check + bcc
 ]
-
-FAR_STUB = bytes((0xA9, 0x0D, 0x20, 0x82, 0xC4, 0x4C, 0x17, 0x83))
 
 
 def main() -> int:
@@ -66,14 +56,15 @@ def main() -> int:
         print(f"lint: {len(bad)} unexpected bank-15 changes; first at "
               f"${0xC000 + bad[0]:04X}", file=sys.stderr)
         return 1
-    off = 0xC63A - 0xC000
-    if got[off:off + len(FAR_STUB)] != FAR_STUB:
-        print("lint: far stub at $C63A has unexpected bytes", file=sys.stderr)
-        return 1
-    if OVERLAY_BANK.exists():
-        overlay = OVERLAY_BANK.read_bytes()
-        if overlay[0:2] != b"KO":
-            print("lint: overlay bank has no signature", file=sys.stderr)
+    overlay = None
+    for bank in TEXT_BANKS:
+        base = 16 + bank * 0x4000 + OVERLAY_OFF
+        block = data[base:base + OVERLAY_SIZE]
+        if overlay is None:
+            overlay = block
+        elif block != overlay:
+            print(f"lint: bank {bank} overlay differs from bank 18",
+                  file=sys.stderr)
             return 1
     print(f"bank15 lint: OK ({len(PATCHES)} registered patch ranges, "
           f"bank31 == bank15)")

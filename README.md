@@ -52,8 +52,9 @@ python decomp\build.py --target kanji
 ```
 
 It writes `decomp/build/rom_kanji.nes` (524,304 bytes) and leaves the original
-256 KiB target byte-identical.  The expanded build is not yet a finished hack;
-see `STATUS.md` for the remaining CHR/UI blocker.
+256 KiB target byte-identical.  The revision-6 runtime is ROM-resident in text
+banks 18-22, uses no battery RAM and has no NMI PPU work.  See `STATUS.md` for
+the verified gates and the remaining Phase-2 QA work.
 
 ## Handoff / expansion plan
 

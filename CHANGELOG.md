@@ -1,5 +1,56 @@
 # Changelog
 
+## 2026-11-07 — revision-6 execution: ROM-resident runtime, no battery RAM
+
+- Replaced the battery-RAM/SRAM overlay with a **ROM-resident overlay**:
+  1,042 bytes at `$B800`, assembled once and included identically in text
+  banks 18-22. The `F8 3A C6` trampoline now maps bank 10/11, reads the five
+  inline bytes, maps the text bank and enters `$B800`.
+- Removed the `$0600` far loader, bank-24 overlay install, signature check,
+  NMI entry/palette guards, `cell_check` signature dependency, all seven extra
+  `kana_prepare` sites and the bank-13 patches. Fixed-bank block is 94 bytes;
+  the lint now registers 7 patch ranges.
+- Moved all hack state to internal RAM: `$0131-$013F` (text/page/entry state),
+  `$0140-$015F` (RAM font-copy stub), `$0160-$016F` (glyph/kana buffer),
+  `$0170-$017F` (dirty-CHR bitmap), `$01E0-$01E7` (scratch). No hack write
+  reaches battery PRG RAM.
+- Replaced dynamic CHR allocation with **compiler-assigned tiles**: page
+  records now carry `(code_lo, code_hi, t0, t1, t2, t3)`. Uploads and restores
+  go through the game's `$0400` VRAM queue; a 16-byte dirty bitmap restores
+  kana at exit and before page reuse. `mask_restore.lua` reports 0 visible-
+  scanline PPUMASK restores.
+- Added `scene_borrow_kanji.lua` (survey build with `upload_glyph` patched to
+  RTS, so the scene CHR is never touched), `scene_borrow.tsv` (9 surveyed
+  labels; oath scene = `$42-$5B`) and an exact 65-tile name-entry `savename`
+  set extracted from the original PPU. Compiler consumes both; max page
+  entries 11, `min_free_static = 4`, `pages_over_capacity = 0`.
+- Added `sram_watch.lua`, `iram_watch.lua` and `stack_check.lua`. Verified:
+  0 hack SRAM writes, 0 foreign internal-RAM writes, min SP `$18` at NMI and
+  `$28` at overlay entry; history prompt/name entry and field message
+  `b10_msg_129` render correctly; 6,000-frame survey healthy.
+- Removed the obsolete `tools/asm/kanji_fixed.asm` and `kanji_far.asm`.
+- Final hashes: original
+  `40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367`;
+  kanji `b1e33ab17ad4b41d4a1c6c34386aec0679b36eed3f7df149f2a71857b447bb4c`.
+
+## 2026-11-07 — planning iteration 6: battery RAM is the game's; pivot
+
+- `tools/lua/slot_ptr_watch2.lua` (original ROM, frames 302-303): the boot
+  slot check calls `b13_init_name_entry` with copy pointers `$6800`, `$7000`
+  and `$7800`. The three history books occupy all battery RAM above the
+  live state at `$6000`. The RAM overlay at `$7002` therefore sits inside
+  books 2 and 3; no hack state may live in `$6000-$7FFF`.
+- `tools/lua/iram_audit.lua` (original ROM, 6,000 frames): untouched
+  internal RAM is `$0131-$017F`, `$01E0-$01EB`, `$010B-$0112`, `$0100-$0103`
+  only; `$03C0-$03FF` and `$0700-$07FF` are fully used; the stack is
+  confined to about `$01EC-$01FF` by the text tile buffer at `$0180-$01DF`.
+- `tools/lua/mask_off_log.lua`: rendering-off windows on the original are
+  1-19 frames at scene transitions.
+- `PLAN.md` revision 6: ROM-resident overlay in every text bank, 64-byte
+  far-copy stub in `$0140-$017F`, compiler-assigned tiles with scene-borrow
+  and list tags, uploads through the game's VRAM queue, no NMI code, no
+  scans, seven patch ranges.
+
 ## 2026-11-07 — revision-5 execution attempt and evidence
 
 - Executed the revision-5 plan and falsified its central premise: the upper

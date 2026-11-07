@@ -1,18 +1,13 @@
 ; ======================================================================
 ; Patched fixed-bank support code for the kanji target.
 ;
-; Lives in the audited 102-byte unused gap $C611-$C676 of bank 15.  The
-; layout is registered in tools/bank15_lint.py:
+; Lives in the audited unused gap $C611-$C676 of bank 15:
 ;
 ;   $C611-$C639  SUROM write_prg_bank replacement (41 bytes)
-;   $C63A-$C641  far-loader stub (8 bytes)
-;   $C642-$C64E  overlay signature check (13 bytes)
-;   $C64F-$C659  NMI-palette guard (11 bytes)
+;   $C63A-$C668  F8 trampoline + cell check
 ;
-; The guard stub exists because NMI can fire before the RAM overlay has been
-; installed (fresh cartridge / random SRAM).  CHR work now runs only from the
-; palette hook, after the NMI handler has read PPUSTATUS and disabled
-; rendering, so the old pre-handler upload stub is gone.
+; There is no NMI code and no signature check: the text-engine overlay is
+; ROM-resident in every text bank and all hack state is in internal RAM.
 ; ======================================================================
 .include "../../decomp/include/hardware.inc"
 .include "../../decomp/include/ram.inc"
@@ -59,15 +54,37 @@ surom_write_prg_bank_b15:
     rts
 
 ; ----------------------------------------------------------------------
-; Far-loader stub.  The bank 10/11 trampoline is F8 3A C6, so the text
-; engine takes the "high byte >= $80" path (set_bank_current) and does not
-; clobber current_bank_a.  This stub maps bank 13 and enters the RAM copy
-; of the far loader at $8317.
+; F8 trampoline.  The message stub in bank 10/11 is
+;   F8 3A C6 <text bank> <text addr lo/hi> <meta addr lo/hi>
+; The engine has already advanced text_col by three; read the five inline
+; bytes, map the text bank, and enter the overlay at $B800.
 ; ----------------------------------------------------------------------
+.org $C63A
 far_stub:
-    lda #$0D
+    ; The inline operands live in the bank-10/11 message stub.  The engine
+    ; mapped current_bank_a (which is not necessarily the message bank), so
+    ; map text_window_x (10 or 11) before reading them.
+    lda text_window_x
     jsr SET_BANK_B
-    jmp $8317
+    ldy text_col
+    lda ($51),y
+    sta KANJI_TEXT_BANK
+    iny
+    lda ($51),y
+    sta KANJI_TEXT_ADDR
+    iny
+    lda ($51),y
+    sta KANJI_TEXT_ADDR+1
+    iny
+    lda ($51),y
+    sta KANJI_PAGE_PTR
+    iny
+    lda ($51),y
+    sta KANJI_PAGE_PTR+1
+    lda KANJI_TEXT_BANK
+    sta text_window_x
+    jsr SET_BANK_B
+    jmp RAM_OVERLAY_ENTRY
 
 ; ----------------------------------------------------------------------
 ; Cell-buffer tile test for text_render_cell.  Replaces the original
@@ -78,45 +95,3 @@ cell_check:
     lda $0300,y
     cmp #$FA
     rts
-
-; ----------------------------------------------------------------------
-; Return with Z=1 when the RAM overlay signature is valid, Z=0 otherwise.
-; ----------------------------------------------------------------------
-check_sig:
-    lda KANJI_SIGNATURE
-    cmp #KANJI_SIG0
-    bne @no
-    lda KANJI_SIGNATURE+1
-    cmp #KANJI_SIG1
-@no:
-    rts
-
-; ----------------------------------------------------------------------
-; NMI entry guard.  Replaces "lda nmi_busy / bne $EEE0" at $EE7F.  Runs the
-; bounded CHR job runner immediately with rendering disabled, then lets the
-; original handler decide whether to do the full frame work.  Running here
-; (rather than only from the palette hook) means a main-thread glyph upload
-; cannot stall on a frame whose nmi_update_budget happens to be zero.
-; ----------------------------------------------------------------------
-nmi_entry_guard:
-    jsr check_sig
-    bne @orig
-    jmp RAM_NMI_ENTRY
-@orig:
-    lda nmi_busy
-    bne @busy
-    jmp $EE83
-@busy:
-    jmp $EEE0
-
-; ----------------------------------------------------------------------
-; NMI palette guard.  Replaces "jsr flush_palette" at $EECB.  The CHR jobs
-; normally ran at the top of the handler; this is a fallback for any NMI
-; path that reaches the palette hook without the entry guard.
-; ----------------------------------------------------------------------
-nmi_palette_guard:
-    jsr check_sig
-    bne @orig
-    jmp RAM_NMI_HOOK
-@orig:
-    jmp FLUSH_PALETTE

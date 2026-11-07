@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """Compile the proofread kanji draft into the expanded text banks.
 
-The original text engine keeps its index scheme (index < $200 -> bank 10,
-otherwise bank 11).  In the kanji target those banks contain only pointer
-tables plus 8-byte trampolines.  Each trampoline calls the far-text loader in
-bank 13, which switches to one of banks 18-21 and continues in the patched
-fixed bank.
+Each unique message is packed into a text bank (18-22) together with its
+page records.  Bank 10/11 keep the original pointer tables and hold an
+8-byte trampoline per message:
 
-Page records in banks 22/23 give the runtime a compact per-page map:
-    count byte
-    16-byte bitmap of kana/menu/frame tiles the page may draw
-    count * (code_lo, code_hi)
-The overlay scans CHR at message open, then allocates four resident,
-text-unused tiles per distinct kanji.  Capacity is checked against the
-measured worst-case scene borrowing (26 tiles in the oath scene).
+    F8 3A C6 <text bank> <text addr lo/hi> <meta addr lo/hi>
+
+The F8 trampoline maps the text bank and enters the ROM-resident overlay at
+$B800.  Page records are static:
+
+    count byte, count * (code_lo, code_hi, tile0, tile1, tile2, tile3)
+
+The compiler assigns the four CHR tiles for every kanji from the free kana
+tiles of that page.  Runtime state is a dirty-CHR bitmap in internal RAM;
+there is no CHR scan, no allocation and no battery-RAM use.
 """
 from __future__ import annotations
 
@@ -38,9 +39,57 @@ BANK_INFO = {
 }
 DATA_START = {10: 0x03E8, 11: 0x0380}
 FAR_STUB = 0xC63A            # fixed-bank far stub (F8 3A C6 trampoline)
-MAX_PAGES = 16
-MAX_META_BYTES = 509        # KANJI_META is 512 bytes including the 3-byte header
-SCENE_BORROW_ALLOWANCE = 26 # measured: oath scene overwrites kana $42-$5B
+MAX_PAGES = 32
+MAX_PAGE_ENTRIES = 16
+PAGE_TILE_MARGIN = 4       # keep a little CHR slack for unmeasured scene tiles
+TEXT_BANKS = [18, 19, 20, 21, 22]
+TEXT_BANK_LIMIT = 0x3800     # overlay occupies $B800-$BFFF
+OVERLAY_SIZE = 0x800
+SCENE_BORROW = set(range(0x42, 0x5C))  # measured oath-scene overwrite range
+SCENE_BORROW_FILE = PLAN / "scene_borrow.tsv"
+
+
+def load_scene_borrow() -> dict[str, set[int]]:
+    table: dict[str, set[int]] = {}
+    if not SCENE_BORROW_FILE.exists():
+        return table
+    for line in SCENE_BORROW_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        label, spec = line.split("\t")
+        table[label] = set() if spec == "-" else {
+            int(tile, 16) for tile in spec.split(",")}
+    return table
+
+
+SCENE_BORROW_BY_LABEL = load_scene_borrow()
+
+
+# Lower kana tiles drawn by the original name-entry screen (extracted from
+# PPU $2000/$2400 at the name-entry frame).  The two history prompts run on
+# that screen, so their kanji must not borrow any of these tiles.
+SAVENAME_TILES = {
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A,
+    0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x29, 0x2A,
+    0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35,
+    0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x40,
+    0x41, 0x5D, 0x5E, 0x5F, 0x60, 0x61, 0x70, 0x72, 0x73, 0x79,
+}
+
+# Prompt list tags.  The default heuristic tags any question-ending message
+# as "menu"; the history prompts use the name-entry charset (hiragana and
+# symbols), which leaves the katakana block free for their kanji.
+LIST_TAG_OVERRIDES = {
+    "b11_msg_146": "savename",
+    "b11_msg_147": "savename",
+    "b11_msg_148": "savename",
+    "b11_msg_149": "savename",
+    "b11_msg_150": "savename",
+    "b11_msg_151": "savename",
+    "b11_msg_152": "savename",
+}
 
 # Tiles that must survive while a message page owns the CHR cache.
 #   digits 0-9, blank, cursor arrow, dakuten/handakuten marks, frame pieces
@@ -469,34 +518,64 @@ def page_from_bytes(data: bytes, extra_used: set[int] | None = None) -> tuple[li
     return pages, True
 
 
-def page_free_after_alloc(page: Page) -> int:
-    """Free tiles left after the page's kanji, ignoring scene borrowing."""
-    return 128 - len(page.used) - 4 * len(page.kanji_order)
+_LIST_CACHE: dict[str, set[int]] = {}
 
 
-def page_fits(page: Page, allowance: int = SCENE_BORROW_ALLOWANCE) -> bool:
-    """True when the page fits even in the worst measured scene.
-
-    Pages without kanji need no CHR slots and always fit.  Prompt pages
-    already reserve the full menu kana set and are shown in scenes where the
-    kana font is resident, so they do not also need the oath-scene allowance.
-    """
-    if not page.kanji_order:
-        return True
-    return page_free_after_alloc(page) >= allowance
-
-
-def record_allowance(extra: set[int]) -> int:
-    # Prompt pages reserve the menu kana; keep a small margin for tiles that
-    # the runtime nametable scan may additionally find visible.
-    return 8 if extra else SCENE_BORROW_ALLOWANCE
+def list_tile_set(tag: str) -> set[int]:
+    if tag not in _LIST_CACHE:
+        if tag == "menu":
+            _LIST_CACHE[tag] = set(MENU_TILES)
+        elif tag == "item":
+            _LIST_CACHE[tag] = set(item_name_tiles())
+        elif tag == "savename":
+            _LIST_CACHE[tag] = set(SAVENAME_TILES)
+        elif tag == "party":
+            _LIST_CACHE[tag] = set(party_name_tiles())
+        else:
+            _LIST_CACHE[tag] = set()
+    return _LIST_CACHE[tag]
 
 
-def used_bitmap(tiles: set[int]) -> bytes:
-    bitmap = bytearray(16)
-    for tile in tiles:
-        bitmap[tile >> 3] |= 0x80 >> (tile & 7)
-    return bytes(bitmap)
+def message_list_tag(rec: Record) -> str:
+    for label in rec.labels:
+        if label in LIST_TAG_OVERRIDES:
+            return LIST_TAG_OVERRIDES[label]
+    stripped = rec.text.rstrip()
+    visible = re.sub(r"<[^>]*>", "", stripped).rstrip()
+    if stripped.endswith(("<END_NOWAIT>", "<WAIT>")):
+        return "menu"
+    if visible.endswith(("?", "\uff1f")):
+        return "menu"
+    return "none"
+
+
+def extra_for(rec: Record) -> set[int]:
+    tag = message_list_tag(rec)
+    if tag != "none":
+        return set(list_tile_set(tag))
+    borrowed: set[int] = set()
+    found = False
+    for label in rec.labels:
+        if label in SCENE_BORROW_BY_LABEL:
+            found = True
+            borrowed |= SCENE_BORROW_BY_LABEL[label]
+    return borrowed if found else set(SCENE_BORROW)
+
+
+def assign_page_tiles(page: Page, extra: set[int]) -> dict[int, tuple[int, int, int, int]] | None:
+    """Assign four free kana tiles to every distinct kanji on the page."""
+    if len(page.kanji_order) > MAX_PAGE_ENTRIES:
+        return None
+    reserved = set(page.used) | set(extra)
+    free = [tile for tile in range(128) if tile not in reserved]
+    if len(free) < 4 * len(page.kanji_order) + PAGE_TILE_MARGIN:
+        return None
+    return {code: tuple(free[i * 4:i * 4 + 4])
+            for i, code in enumerate(page.kanji_order)}
+
+
+def page_fits_static(page: Page, extra: set[int]) -> bool:
+    return assign_page_tiles(page, extra) is not None
 
 
 def page_token_width(tokens: list[str]) -> list[int]:
@@ -578,161 +657,136 @@ def build() -> int:
                         raise ValueError(f"{label}: bad index")
                     index_rec[(bank, idx)] = rec
 
-    # Reflow and page-split until every page fits.
-    for rec in {id(r): r for r in records}.values():
+    # Reflow and page-split until every page has enough free kana tiles.
+    for rec in records:
+        extra = extra_for(rec)
         tokens = reflow(tokenize(rec.text))
-        extra = extra_reserved(rec.text)
-        allowance = record_allowance(extra)
-        for _ in range(20):
+        for _ in range(60):
             pages_tokens = split_pages(tokens)
-            ok = True
-            for p in pages_tokens:
-                data = compile_tokens(p, cmap)
-                pages, _ = page_from_bytes(data + b"\xff", extra)
-                for page in pages[:-1] if len(pages) > 1 else pages:
-                    if not page_fits(page, allowance):
-                        ok = False
-                        break
-                if not ok:
-                    break
-            if ok:
-                rec.data = compile_tokens(tokens, cmap)
-                break
-            # find the first failing page and split it
             failed = None
             for pi, p in enumerate(pages_tokens):
                 data = compile_tokens(p, cmap)
                 pages, _ = page_from_bytes(data + b"\xff", extra)
-                if any(not page_fits(page, allowance) for page in pages):
+                if any(not page_fits_static(page, extra) for page in pages):
                     failed = pi
                     break
             if failed is None:
-                raise RuntimeError("internal split failure")
+                break
             tokens = split_failing_page(tokens, failed)
         else:
-            raise RuntimeError("could not fit message after 20 splits")
-        rec.pages = [Page(p) for p in split_pages(tokens)]
+            raise RuntimeError(f"{rec.labels[:1]}: could not fit after 60 splits")
 
-    # Pack unique message streams into banks 18-21.
-    for rec in records:
-        if not rec.data:
-            rec.data = b"\xff"
-    unique: dict[bytes, Record] = {}
-    for rec in records:
-        if rec.data not in unique:
-            unique[rec.data] = rec
-    bank = 18
-    off = 0
-    for rec in unique.values():
-        if off + len(rec.data) > 0x4000:
-            bank += 1
-            off = 0
-        if bank > 21:
-            raise SystemExit("text data exceeds banks 18-21")
-        rec.data_bank = bank
-        rec.data_addr = 0x8000 + off
-        off += len(rec.data)
-    canon = {data: rec for data, rec in unique.items()}
-    for rec in records:
-        c = canon[rec.data]
-        rec.data_bank = c.data_bank
-        rec.data_addr = c.data_addr
-
-    bank_data = {b: bytearray(0x4000) for b in range(18, 22)}
-    for rec in unique.values():
-        base = (rec.data_bank - 18) * 0x4000 + (rec.data_addr - 0x8000)
-        flat = bytearray().join([bank_data[18 + j] for j in range(4)])
-        flat[base:base + len(rec.data)] = rec.data
-        for j in range(4):
-            bank_data[18 + j][:] = flat[j * 0x4000:(j + 1) * 0x4000]
-
-    # Build page records per unique message.
-    meta: dict[int, tuple[int, bytes]] = {}
-    for rec in unique.values():
-        page_blobs = []
-        extra = extra_reserved(rec.text)
-        allowance = record_allowance(extra)
+        rec.data = compile_tokens(tokens, cmap)
         pages = page_from_bytes(rec.data, extra)[0]
+        page_blobs = []
         for page in pages:
-            if not page_fits(page, allowance):
-                raise RuntimeError("page did not fit after splitting")
+            tiles = assign_page_tiles(page, extra)
+            if tiles is None:
+                raise RuntimeError(f"{rec.labels[:1]}: page assignment failed")
             blob = bytearray((len(page.kanji_order),))
-            blob += used_bitmap(page.used)
             for code in page.kanji_order:
-                blob += bytes((code & 0xFF, code >> 8))
+                blob += bytes((code & 0xFF, code >> 8, *tiles[code]))
             page_blobs.append(bytes(blob))
-        payload = b"".join(page_blobs)
         if len(page_blobs) > MAX_PAGES:
             raise SystemExit(f"message has {len(page_blobs)} pages > {MAX_PAGES}")
-        if len(payload) > MAX_META_BYTES:
-            raise SystemExit(f"message metadata {len(payload)} bytes > "
-                             f"{MAX_META_BYTES}; KANJI_META would overflow")
-        meta[id(rec)] = (len(page_blobs), payload)
-    for rec in records:
-        c = canon[rec.data]
-        meta[id(rec)] = meta[id(c)]
+        rec.meta_blob = bytes((len(page_blobs),)) + b"".join(page_blobs)
+        rec.pages = pages
 
-    # Build banks 10/11.
+    # Deduplicate identical message streams and page assignments.
+    canon: dict[tuple[bytes, bytes], Record] = {}
+    for rec in records:
+        key = (rec.data, rec.meta_blob)
+        if key not in canon:
+            canon[key] = rec
+    unique = list(canon.values())
+
+    # Pack every unique message and its page records into a text bank.  The
+    # overlay is identical at $BC00 in every bank.
+    overlay_path = OUT / "kanji_overlay_padded.bin"
+    if not overlay_path.exists():
+        raise SystemExit("missing kanji_overlay_padded.bin; assemble first")
+    overlay = overlay_path.read_bytes()
+    if len(overlay) != OVERLAY_SIZE:
+        raise SystemExit(f"overlay padding is {len(overlay)} bytes, expected {OVERLAY_SIZE}")
+    bank_data = {b: bytearray(0x4000) for b in TEXT_BANKS}
+    for b in TEXT_BANKS:
+        bank_data[b][TEXT_BANK_LIMIT:TEXT_BANK_LIMIT + OVERLAY_SIZE] = overlay
+
+    bank_index = 0
+    off = 0
+    for rec in unique:
+        need = len(rec.data) + len(rec.meta_blob)
+        if off + need > TEXT_BANK_LIMIT:
+            bank_index += 1
+            off = 0
+        if bank_index >= len(TEXT_BANKS):
+            raise SystemExit("text data exceeds banks 18-22")
+        b = TEXT_BANKS[bank_index]
+        rec.data_bank = b
+        rec.data_addr = 0x8000 + off
+        bank_data[b][off:off + len(rec.data)] = rec.data
+        off += len(rec.data)
+        rec.meta_addr = 0x8000 + off
+        bank_data[b][off:off + len(rec.meta_blob)] = rec.meta_blob
+        off += len(rec.meta_blob)
+
+    for rec in records:
+        c = canon[(rec.data, rec.meta_blob)]
+        rec.data_bank = c.data_bank
+        rec.data_addr = c.data_addr
+        rec.meta_addr = c.meta_addr
+    message_map = {}
+    for rec in records:
+        for label in rec.labels:
+            message_map[label] = [rec.data_bank, rec.data_addr]
+    (OUT / "message_map.json").write_text(json.dumps(message_map, indent=2),
+                                          encoding="utf-8")
+
+    # Build banks 10/11 pointer tables and per-message F8 trampolines.
     original = textdata.prg()
     for bank in (10, 11):
         info = BANK_INFO[bank]
         count = info["count"]
         start = DATA_START[bank]
         data_area = bytearray()
-        stub_addr: dict[bytes, int] = {}
-        # unique records used by this bank, in first-seen index order
-        used_recs: list[Record] = []
-        used_data: set[bytes] = set()
+        stub_addr: dict[tuple[bytes, bytes], int] = {}
+        used: list[Record] = []
+        seen: set[tuple[bytes, bytes]] = set()
         for i in range(count):
             rec = index_rec.get((bank, i))
-            if rec is not None and rec.data not in used_data:
-                used_recs.append(rec)
-                used_data.add(rec.data)
-        meta_bank = 22 if bank == 10 else 23
-        meta_area = bytearray()
-        for rec in used_recs:
-            stub_addr[rec.data] = 0x8000 + start + len(data_area)
+            if rec is None:
+                raise SystemExit(f"bank {bank}: missing index {i}")
+            key = (rec.data, rec.meta_blob)
+            if key not in seen:
+                seen.add(key)
+                used.append(rec)
+        for rec in used:
+            key = (rec.data, rec.meta_blob)
+            stub_addr[key] = 0x8000 + start + len(data_area)
             data_area += bytes((0xF8, FAR_STUB & 0xFF, FAR_STUB >> 8,
                                 rec.data_bank,
                                 rec.data_addr & 0xFF, rec.data_addr >> 8,
-                                0, 0))  # meta pointer filled below
-        for rec in used_recs:
-            meta_addr = 0x8000 + len(meta_area)
-            stub_off = stub_addr[rec.data] - (0x8000 + start)
-            data_area[stub_off + 6] = meta_addr & 0xFF
-            data_area[stub_off + 7] = meta_addr >> 8
-            pages, payload = meta[id(rec)]
-            meta_area += bytes((pages, len(payload) & 0xFF, (len(payload) >> 8) & 0xFF))
-            meta_area += payload
+                                rec.meta_addr & 0xFF, rec.meta_addr >> 8))
         if start + len(data_area) > 0x4000:
             raise SystemExit(f"bank {bank}: stubs overflow: {start + len(data_area):X}")
-        if len(meta_area) > 0x4000:
-            raise SystemExit(f"metadata bank {meta_bank}: overflow: {len(meta_area):X}")
 
-        # pointer tables + gap from the original bank
         orig = original[bank * 0x4000:(bank + 1) * 0x4000]
         out = bytearray(orig)
         lo = bytearray()
         hi = bytearray()
         for i in range(count):
             rec = index_rec.get((bank, i))
-            if rec is None:
-                raise SystemExit(f"bank {bank}: missing index {i}")
-            a = stub_addr[rec.data]
+            a = stub_addr[(rec.data, rec.meta_blob)]
             lo.append(a & 0xFF)
             hi.append(a >> 8)
         out[info["lo"]:info["lo"] + count] = lo
         out[info["hi"]:info["hi"] + count] = hi
         out[start:start + len(data_area)] = data_area
         (OUT / f"bank{bank:02d}.bin").write_bytes(bytes(out))
+        print(f"bank {bank}: {len(used)} stubs, {len(data_area)} bytes "
+              f"at ${start:04X}")
 
-        md = bytearray(0x4000)
-        md[:len(meta_area)] = meta_area
-        (OUT / f"bank{meta_bank:02d}.bin").write_bytes(bytes(md))
-        print(f"bank {bank}: stubs {len(data_area)} bytes at ${start:04X}; "
-              f"metadata {len(meta_area)} bytes in bank {meta_bank}")
-
-    for b in range(18, 22):
+    for b in TEXT_BANKS:
         (OUT / f"bank{b:02d}.bin").write_bytes(bytes(bank_data[b]))
 
     # Report / debug dump
@@ -741,41 +795,51 @@ def build() -> int:
     min_free_with_kanji = 128
     max_slots = 0
     over_capacity = 0
-    for r in unique.values():
-        extra = extra_reserved(r.text)
-        allowance = record_allowance(extra)
-        pages = page_from_bytes(r.data, extra)[0]
-        for p in pages:
-            free = page_free_after_alloc(p)
-            if not page_fits(p, allowance):
+    for rec in unique:
+        extra = extra_for(rec)
+        pages = page_from_bytes(rec.data, extra)[0]
+        for page in pages:
+            tiles = assign_page_tiles(page, extra)
+            if tiles is None:
                 over_capacity += 1
+                continue
+            reserved = set(page.used) | extra
+            free = 128 - len(reserved) - 4 * len(page.kanji_order)
             min_free = min(min_free, free)
-            if p.kanji_order:
+            if page.kanji_order:
                 min_free_with_kanji = min(min_free_with_kanji, free)
-            max_slots = max(max_slots, len(p.kanji_order))
-            all_pages.append(p)
+            max_slots = max(max_slots, len(page.kanji_order))
+            all_pages.append(page)
+
+    tags = {rec.labels[0]: message_list_tag(rec) for rec in unique if rec.labels}
     report = {
         "inventory": len(cmap),
         "messages": len(unique),
         "pages": len(all_pages),
         "max_page_slots": max_slots,
-        "min_free_after_allocation": min_free,
+        "min_free_static": min_free,
         "min_free_with_kanji": min_free_with_kanji,
         "pages_over_capacity": over_capacity,
-        "scene_borrow_allowance": SCENE_BORROW_ALLOWANCE,
         "reserved_count": len(RESERVED_TILES),
         "reserved_tiles": sorted(RESERVED_TILES),
+        "scene_borrow_tiles": sorted(SCENE_BORROW),
+        "scene_borrow_labels": len(SCENE_BORROW_BY_LABEL),
+        "scene_borrow_surveyed": sorted(SCENE_BORROW_BY_LABEL),
         "menu_stream_tiles": len(MENU_TILES),
         "party_name_tiles": len(party_name_tiles()),
         "item_name_tiles": len(item_name_tiles()),
-        "max_meta_bytes": max((len(meta[id(r)][1]) for r in unique.values()), default=0),
-        "data_banks": sorted({r.data_bank for r in unique.values()}),
+        "list_tags": {tag: sum(1 for value in tags.values() if value == tag)
+                      for tag in ("none", "menu", "party", "item", "savename")},
+        "max_meta_bytes": max((len(rec.meta_blob) for rec in unique), default=0),
+        "max_meta_pages": max((rec.meta_blob[0] for rec in unique), default=0),
+        "data_banks": sorted({rec.data_bank for rec in unique}),
+        "overlay_bytes": len(overlay),
     }
     (OUT / "kanji_text_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    if max_slots > 13:
-        raise RuntimeError(f"page needs {max_slots} slots; runtime buffer allows 13")
-    if report["max_meta_bytes"] > 256:
-        raise RuntimeError(f"metadata is {report['max_meta_bytes']} bytes; runtime buffer is 256")
+    if max_slots > MAX_PAGE_ENTRIES:
+        raise RuntimeError(f"page needs {max_slots} entries; limit is {MAX_PAGE_ENTRIES}")
+    if over_capacity:
+        raise RuntimeError(f"{over_capacity} pages do not fit after splitting")
     print(json.dumps(report, indent=2))
     return 0
 
