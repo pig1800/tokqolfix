@@ -19,15 +19,19 @@ OVERLAY_OFF = 0x3800
 OVERLAY_SIZE = 0x800
 
 PATCHES = [
+    (0xC469, 0xC469),   # mmc1_init control: 4K CHR mode
     (0xC4B7, 0xC4B9),   # jmp SUROM switcher
-    (0xC611, 0xC675),   # switcher + F8 trampoline + cell check
+    (0xC611, 0xC676),   # switcher + far head + band stub + reset hook
     (0xD190, 0xD192),   # jsr jump_exit_13 (<JUMP>)
     (0xD198, 0xD19A),   # jsr jump_exit_14 (<JUMP>)
-    (0xD1FA, 0xD1FC),   # jmp restore_exit
+    (0xD1FA, 0xD1FC),   # jmp exit_clear
     (0xD28E, 0xD290),   # jmp text_dispatch
-    (0xD2BB, 0xD2BD),   # jsr kana_prepare
     (0xD2C7, 0xD2C9),   # jsr ctrl_store
     (0xDBE7, 0xDBEA),   # jsr cell_check + bcc
+    (0xD420, 0xD422),   # jmp redraw_high
+    (0xEEDD, 0xEEDF),   # jsr band_stub
+    (0xF022, 0xF022),   # reset CHR reg 1 = page 1
+    (0xF036, 0xF039),   # jsr reset_extra + nop
 ]
 
 

@@ -71,7 +71,7 @@ def message_locations(index: int, base: bytes) -> tuple[int, int, int, list[int]
     off = 16 + bank * 0x4000
     stub = base[off + table_index] | (base[off + 0x200 + table_index] << 8)
     so = off + (stub - 0x8000)
-    if base[so:so + 3] != b"\xF8\x3A\xC6":
+    if base[so] != 0xF8:
         return None
     text_bank = base[so + 3]
     data_addr = base[so + 4] | (base[so + 5] << 8)
@@ -169,7 +169,7 @@ local function onFrame()
     for i = 0, 0x2FFF do p[#p+1] = string.char(emu.read(i, emu.memType.nesPpuDebug)) end
     w("page1_ppu.bin", table.concat(p))
     local c = {{}}
-    for i = 0, 0x1FFF do c[#c+1] = string.char(emu.read(i, emu.memType.nesChrRam)) end
+    for i = 0, 0x3FFF do c[#c+1] = string.char(emu.read(i, emu.memType.nesChrRam)) end
     w("page1_chr.bin", table.concat(c))
     local r = {{}}
     for i = 0, 0x7FF do r[#r+1] = string.char(emu.read(i, emu.memType.nesMemory)) end
@@ -241,7 +241,7 @@ def first_page_for(index: int, base: bytes) -> tuple[int, int, list[int]] | None
     off = 16 + bank * 0x4000
     stub = base[off + table_index] | (base[off + 0x200 + table_index] << 8)
     so = off + (stub - 0x8000)
-    if base[so:so + 3] != b"\xF8\x3A\xC6":
+    if base[so] != 0xF8:
         return None
     text_bank = base[so + 3]
     meta = base[so + 6] | (base[so + 7] << 8)

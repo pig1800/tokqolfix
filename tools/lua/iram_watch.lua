@@ -32,8 +32,9 @@ local function onWrite(addr, value)
   local pc = emu.getCpuState().pc or 0
   local bankb = emu.read(0x44, emu.memType.nesMemory)
   pcs[pc] = (pcs[pc] or 0) + 1
-  local ours = (pc >= 0x0140 and pc <= 0x015F) or (pc >= 0xC63A and pc <= 0xC675)
+  local ours = (pc >= 0x0140 and pc <= 0x015F) or (pc >= 0xC611 and pc <= 0xC679)
       or ((pc >= 0xB800 and pc <= 0xBFFF) and bankb >= 18 and bankb <= 22)
+      or ((pc >= 0xBF00 and pc <= 0xBFBF) and bankb >= 10 and bankb <= 11)
   if not ours then
     bad = bad + 1
     if bad <= 40 then
@@ -56,6 +57,6 @@ local function onFrame()
   end
 end
 emu.addMemoryCallback(onWrite, emu.callbackType.write, 0x0131, 0x017F, emu.memType.nesMemory, emu.cpuType.nes)
-emu.addMemoryCallback(onWrite, emu.callbackType.write, 0x01E0, 0x01E7, emu.memType.nesMemory, emu.cpuType.nes)
+emu.addMemoryCallback(onWrite, emu.callbackType.write, 0x01E0, 0x01EB, emu.memType.nesMemory, emu.cpuType.nes)
 emu.addEventCallback(onInput, emu.eventType.inputPolled)
 emu.addEventCallback(onFrame, emu.eventType.endFrame)

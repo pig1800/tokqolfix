@@ -52,6 +52,9 @@ local function onExec()
   local f = assert(io.open(statepath, "rb"))
   local data = f:read("*a"); f:close()
   emu.loadSavestate(data)
+  emu.write(0x1E8, 0, emu.memType.nesMemory)
+  emu.write(0x1E9, 0, emu.memType.nesMemory)
+  emu.write(0x1EA, 0, emu.memType.nesMemory)
   frame = 0
 end
 local function onInput()
@@ -85,7 +88,7 @@ local function dump()
   for i = 0, 0x2FFF do p[#p+1] = string.char(emu.read(i, emu.memType.nesPpuDebug)) end
   w("page1_ppu.bin", table.concat(p))
   local c = {{}}
-  for i = 0, 0x1FFF do c[#c+1] = string.char(emu.read(i, emu.memType.nesChrRam)) end
+  for i = 0, 0x3FFF do c[#c+1] = string.char(emu.read(i, emu.memType.nesChrRam)) end
   w("page1_chr.bin", table.concat(c))
   local r = {{}}
   for i = 0, 0x7FF do r[#r+1] = string.char(emu.read(i, emu.memType.nesMemory)) end

@@ -1,14 +1,38 @@
-# SITREP — kanji target handoff (revision 3 + revision-4/5/6/7/8 addenda)
+# SITREP — kanji target handoff (revision 3 + revision-4/5/6/7/8/9 addenda)
 
-Date: 2026-11-08.  Baseline: revision-6 architecture plus the revision-7
-page-handling pass and the revision-8 field-context pass.  The code baseline
-before the pivot was `b967d80`; the revision-5 evidence is in the section
-below.
+Date: 2026-11-08.  Baseline: revision-6 architecture plus the revision-9
+private CHR page pivot.  The code baseline before the pivot was `b967d80`;
+the revision-5 evidence is in the section below.
 
 This is the handoff document for the next planning iteration (Fable).
 `PLAN.md` revision 3 contains the original work list; this file records what
 is actually implemented, measured, and still open so the plan can be revised
 from evidence instead of from the earlier assumptions.
+
+## Revision 9 addendum (2026-11-08) — private CHR page
+
+The target now uses 16 KiB CHR RAM in 4 KiB mode: page 0 sprites, page 1
+scene, page 2 the text band.  The hack never writes page 1.  The band page
+holds a kana-font copy and the compiler-assigned kanji tiles; it is filled
+from bank 9 six tiles per vblank at the first message.
+
+The NMI band stub selects the scene page for the visible top, waits to
+scanlines 144-146, selects the band page for the window, and restores the
+scene page for the next frame.  `<JUMP>`/exit hooks clear the band flag.
+The overlay's dirty bitmap, kana restore and reservation machinery are
+removed.  The compiler uses the proven revision-8 low-tile assignment; the
+oath is 9 pages.
+
+Gates on `c8f61a09...`: original byte-identical; lint 13 ranges;
+`sram_watch` 0/5,491; `iram_watch` 0/15,948; `mask_restore` 0; stack SP
+`$18`/`$28`; oath pages 1-3 clean.
+
+Open: field frame tiles can be blanked because the game and hack share the
+`$0400` queue and the NMI flush selects the band page during messages.  A
+split `$0500` queue was prototyped but destabilised the flow; it needs a
+larger fixed-bank gap or an overlay-resident NMI helper.  The field QA save
+state is still the revision-8 state and must be regenerated on the new ROM.
+Automated `band_switch`/`scene_page_check` gates remain to be written.
 
 ## Revision 8 addendum (2026-11-08) — field context and stale CHR
 

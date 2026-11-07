@@ -163,7 +163,7 @@ local function dump()
   for i = 0, 0x2FFF do p[#p+1] = string.char(emu.read(i, emu.memType.nesPpuDebug)) end
   w(tag .. "_ppu.bin", table.concat(p))
   local c = {{}}
-  for i = 0, 0x1FFF do c[#c+1] = string.char(emu.read(i, emu.memType.nesChrRam)) end
+  for i = 0, 0x3FFF do c[#c+1] = string.char(emu.read(i, emu.memType.nesChrRam)) end
   w(tag .. "_chr.bin", table.concat(c))
   local r = {{}}
   for i = 0, 0x7FF do r[#r+1] = string.char(emu.read(i, emu.memType.nesMemory)) end

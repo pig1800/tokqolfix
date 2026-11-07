@@ -13,4 +13,5 @@ JOY1                 = $4016
 JOY2_APUFRAME        = $4017
 MMC1_CONTROL         = $9FFE
 MMC1_CHR_BANK0       = $BFFF
+MMC1_CHR_BANK1       = $DFFF
 MMC1_PRG_BANK        = $FFF9

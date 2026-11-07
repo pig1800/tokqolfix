@@ -38,15 +38,22 @@ BANK_INFO = {
     11: {"count": 384, "lo": 0x0000, "hi": 0x0200, "data": 0x0380, "tail": 0x33F0},
 }
 DATA_START = {10: 0x03E8, 11: 0x0380}
-FAR_STUB = 0xC63A            # fixed-bank far stub (F8 3A C6 trampoline)
+TRAMPOLINE_ADDR = 0xBF00     # F8 body, identical in banks 10/11
 MAX_PAGES = 32
 MAX_PAGE_ENTRIES = 16
-PAGE_TILE_MARGIN = 0       # scene tiles are surveyed/reserved; no extra slack
+PAGE_TILE_MARGIN = 4       # small slack on the private band page
 TEXT_BANKS = [18, 19, 20, 21, 22]
 TEXT_BANK_LIMIT = 0x3800     # overlay occupies $B800-$BFFF
 OVERLAY_SIZE = 0x800
 SCENE_BORROW = set(range(0x42, 0x5C))  # measured oath-scene overwrite range
 SCENE_BORROW_FILE = PLAN / "scene_borrow.tsv"
+
+
+def far_stub_addr() -> int:
+    path = OUT / "far_stub.txt"
+    if not path.exists():
+        raise SystemExit("missing far_stub.txt; assemble the fixed hooks first")
+    return int(path.read_text(encoding="utf-8").strip(), 16)
 
 
 def load_scene_borrow() -> dict[str, set[int]]:
@@ -610,26 +617,15 @@ def message_kana_used(rec: Record) -> set[int]:
 
 
 def extra_for(rec: Record) -> set[int]:
+    """Kana that must stay on the private band page for this message.
+
+    The scene is no longer shared, so only prompt lists that keep their own
+    kana on screen need extra reservations.
+    """
     tag = message_list_tag(rec)
-    # Per-label survey tiles when we have them; otherwise the measured field
-    # scene fallback (command-menu kana, HUD and the oath-scene borrow).
-    borrowed: set[int] = set()
-    found = False
-    for label in rec.labels:
-        if label in SCENE_BORROW_BY_LABEL:
-            found = True
-            borrowed |= SCENE_BORROW_BY_LABEL[label]
-    if found and borrowed:
-        # The survey includes the message window's own kana; page.used already
-        # reserves those.  Keep only the scene tiles (menu/HUD) and add the
-        # measured field command-menu/HUD floor.
-        scene = borrowed - message_kana_used(rec)
-        return set(FIELD_SCENE_TILES) | scene
-    # Bootstrap: unsurveyed prompts keep their menu/name-entry kana on
-    # screen; the field survey pass replaces this with measured tiles.
     if tag != "none":
-        return set(list_tile_set(tag)) | set(SCENE_FALLBACK)
-    return set(SCENE_FALLBACK) | borrowed
+        return set(list_tile_set(tag))
+    return set()
 
 
 def page_future_used(pages: list[Page], index: int) -> set[int]:
@@ -881,6 +877,13 @@ def build() -> int:
 
     # Build banks 10/11 pointer tables and per-message F8 trampolines.
     original = textdata.prg()
+    far_stub = far_stub_addr()
+    trampoline_path = OUT / "trampoline.bin"
+    if not trampoline_path.exists():
+        raise SystemExit("missing trampoline.bin; assemble it first")
+    trampoline = trampoline_path.read_bytes()
+    if len(trampoline) > 0x100:
+        raise SystemExit(f"trampoline is {len(trampoline)} bytes, max 256")
     for bank in (10, 11):
         info = BANK_INFO[bank]
         count = info["count"]
@@ -900,7 +903,7 @@ def build() -> int:
         for rec in used:
             key = (rec.data, rec.meta_blob)
             stub_addr[key] = 0x8000 + start + len(data_area)
-            data_area += bytes((0xF8, FAR_STUB & 0xFF, FAR_STUB >> 8,
+            data_area += bytes((0xF8, far_stub & 0xFF, far_stub >> 8,
                                 rec.data_bank,
                                 rec.data_addr & 0xFF, rec.data_addr >> 8,
                                 rec.meta_addr & 0xFF, rec.meta_addr >> 8))
@@ -919,6 +922,8 @@ def build() -> int:
         out[info["lo"]:info["lo"] + count] = lo
         out[info["hi"]:info["hi"] + count] = hi
         out[start:start + len(data_area)] = data_area
+        toff = TRAMPOLINE_ADDR - 0x8000
+        out[toff:toff + len(trampoline)] = trampoline
         (OUT / f"bank{bank:02d}.bin").write_bytes(bytes(out))
         print(f"bank {bank}: {len(used)} stubs, {len(data_area)} bytes "
               f"at ${start:04X}")

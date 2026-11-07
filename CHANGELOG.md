@@ -1,5 +1,58 @@
 # Changelog
 
+## 2026-11-08 — revision-9 CHR-page pivot (work in progress)
+
+- Header byte 11 `$08` (16 KiB CHR RAM), `mmc1_init` control `$1E`
+  (4 KiB CHR mode), reset CHR register 1 = page 1.
+- Fixed bank `$C611-$C676`: SUROM switcher with an NMI lock, F8 far head,
+  fixed-bank `enter_text`, CHR-register-1 writer, NMI band stub, reset
+  hook (102 bytes).
+- F8 trampoline body at `$BF00` in banks 10/11: reads the five inline
+  operands, installs the RAM band routines and enters the overlay.
+- CHR page 2 is the private text band: kana font in `$00-$7F`, kanji in
+  compiler-assigned low tiles.  Fill is six tiles per vblank (22 frames at
+  the first message) so the NMI flush fits vblank (`mask_restore` 0).
+- NMI band stub: scene page for the visible top, band page at scanlines
+  144-146 for the window, scene page restored for the next frame.  A
+  manual `bandwrites` log shows 144-146.
+- Dirty bitmap, kana restore, `<JUMP>` restore and scene reservations are
+  removed.  `exit_clear`/jump hooks clear the band flag and restore the
+  scene page.  The hack never writes CHR page 1.
+- Compiler reverted to the proven revision-8 low-tile per-page
+  assignment: 760 messages, 1,190 pages, max 10/page, oath 9 pages.
+- Final gates: original byte-identical; kanji
+  `c8f61a090b33169f7ead8fccb11c8bcc0d6aae245110401017c0f55858907980`;
+  lint 13 ranges; `sram_watch` 0/5,491; `iram_watch` 0/15,948;
+  `mask_restore` 0; stack SP `$18`/`$28`.
+- Remaining: field frame tiles can be blanked because the game and hack
+  share the `$0400` queue and the NMI flush selects the band page during
+  messages.  A split `$0500` queue was prototyped but destabilised the
+  message flow; it needs a larger fixed-bank gap or an overlay-resident
+  NMI helper.  The field QA save state is still the revision-8 state and
+  must be regenerated on the new ROM.  Automated `band_switch` and
+  `scene_page_check` gates are still to be written.
+
+## 2026-11-08 — planning iteration 9: private CHR page for the text band
+
+- User play test: garbled name input; next page garbles the previous page.
+  The revision-8 harness is green, so the harness paths and the player's
+  paths differ; the per-case protection design cannot close that gap.
+- Feasibility probe for the user's suggestion (larger CHR RAM):
+  `out/test/chr16_probe2.nes` = kanji ROM + header byte 11 `$08` (16 KiB
+  CHR RAM) + `mmc1_init` control `$1E` (4 KiB CHR mode) + reset immediate
+  at `$F022` `$00`→`$01` (CHR register 1 = page 1), in banks 15 and 31.
+  Frames 900-2300 pixel-identical to the current build (`probe_c16e.lua`
+  vs `probe_basetr.lua`); mapper state shows 4 KiB mode, `$1000` on page
+  1, outer bit still via register 0. Two pitfalls recorded: Lua writes to
+  mapper registers are ignored, and a reused Mesen ROM name reuses its
+  battery save and changes the game flow.
+- `PLAN.md` revision 9: page 2 becomes a private band page (kana copy +
+  32-glyph kanji cache), switched in mid-frame at the window's top border
+  row by a timed NMI delay, scene page never written by the hack; all
+  restore/reservation machinery removed; new gate "scene page CHR equals
+  the original at every sampled frame"; hardware caveat for 16 KiB CHR RAM
+  on MMC1.
+
 ## 2026-11-07 — revision-8 execution: field context and stale CHR
 
 - Hooked the `<JUMP>` exit at `$D190`/`$D198` (`jump_exit_13`/`jump_exit_14`):

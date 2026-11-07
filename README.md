@@ -52,12 +52,12 @@ python decomp\build.py --target kanji
 ```
 
 It writes `decomp/build/rom_kanji.nes` (524,304 bytes) and leaves the original
-256 KiB target byte-identical.  The revision-6 runtime is ROM-resident in text
-banks 18-22, uses no battery RAM and has no NMI PPU work.  Revision 7 fixes
-multi-page text; revision 8 restores stale CHR at message open and `<JUMP>`
-exit and reserves measured scene tiles per message, so field/shop/menu
-contexts no longer show kanji fragments.  See `STATUS.md` for the verified
-gates and the remaining Phase-2b/3 work.
+256 KiB target byte-identical.  The runtime is ROM-resident in text banks
+18-22, uses no battery RAM and has no NMI PPU work.  Revision 9 moves the
+dialogue to a private 4 KiB CHR page (16 KiB CHR RAM, 4 KiB mode) and
+switches it in at the window's top border, so the hack never writes the
+scene's pattern table.  See `STATUS.md` for the verified gates and the
+remaining field-queue/Phase-2b/3 work.
 
 ## Handoff / expansion plan
 
