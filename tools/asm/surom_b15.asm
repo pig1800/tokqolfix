@@ -1,11 +1,30 @@
-; SUROM write_prg_bank replacement for the kanji target.
-; Assembled at $C611, inside a 102-byte unused gap in bank 15's data table.
-; Bank 15 patches $C4B7 with JMP $C611; the bank-31 copy inherits the same
-; bytes, so fixed-bank code can switch the outer bit from either half.
+; ======================================================================
+; Patched fixed-bank support code for the kanji target.
+;
+; Lives in the audited 102-byte unused gap $C611-$C676 of bank 15.  The
+; layout is registered in tools/bank15_lint.py:
+;
+;   $C611-$C639  SUROM write_prg_bank replacement (41 bytes)
+;   $C63A-$C641  far-loader stub (8 bytes)
+;   $C642-$C64E  overlay signature check (13 bytes)
+;   $C64F-$C660  NMI-entry guard (18 bytes)
+;   $C661-$C66B  NMI-palette guard (11 bytes)
+;
+; The guard stubs exist because NMI can fire before the RAM overlay has been
+; installed (fresh cartridge / random SRAM).
+; ======================================================================
 .include "../../decomp/include/hardware.inc"
+.include "../../decomp/include/ram.inc"
+.include "../../decomp/include/kanji.inc"
+.include "../../decomp/build/kanji/fixed_hooks.inc"
 
 .base $C611
 .org $C611
+
+; ----------------------------------------------------------------------
+; SUROM write_prg_bank.  A = low 4 PRG bits plus outer bit 4; also writes
+; the outer bit through CHR bank 0 before the low four PRG bits.
+; ----------------------------------------------------------------------
 surom_write_prg_bank_b15:
     pha
     tya
@@ -37,3 +56,50 @@ surom_write_prg_bank_b15:
     pla
     lda #0
     rts
+
+; ----------------------------------------------------------------------
+; Far-loader stub.  The bank 10/11 trampoline is F8 3A C6, so the text
+; engine takes the "high byte >= $80" path (set_bank_current) and does not
+; clobber current_bank_a.  This stub maps bank 13 and enters the RAM copy
+; of the far loader at $8317.
+; ----------------------------------------------------------------------
+far_stub:
+    lda #$0D
+    jsr SET_BANK_B
+    jmp $8317
+
+; ----------------------------------------------------------------------
+; Return with Z=1 when the RAM overlay signature is valid, Z=0 otherwise.
+; ----------------------------------------------------------------------
+check_sig:
+    lda KANJI_SIGNATURE
+    cmp #KANJI_SIG0
+    bne @no
+    lda KANJI_SIGNATURE+1
+    cmp #KANJI_SIG1
+@no:
+    rts
+
+; ----------------------------------------------------------------------
+; NMI entry guard.  Replaces "lda nmi_busy / bne $EEE0" at $EE7F.
+; ----------------------------------------------------------------------
+nmi_entry_guard:
+    jsr check_sig
+    bne @orig
+    jmp RAM_NMI_ENTRY
+@orig:
+    lda nmi_busy
+    bne @busy
+    jmp $EE83
+@busy:
+    jmp $EEE0
+
+; ----------------------------------------------------------------------
+; NMI palette guard.  Replaces "jsr flush_palette" at $EECB.
+; ----------------------------------------------------------------------
+nmi_palette_guard:
+    jsr check_sig
+    bne @orig
+    jmp RAM_NMI_HOOK
+@orig:
+    jmp FLUSH_PALETTE

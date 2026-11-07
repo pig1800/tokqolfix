@@ -35,14 +35,114 @@ BANK_INFO = {
     11: {"count": 384, "lo": 0x0000, "hi": 0x0200, "data": 0x0380, "tail": 0x33F0},
 }
 DATA_START = {10: 0x03E8, 11: 0x0380}
-FAR_LOADER = 0x8317          # bank 13 routine entry (and stub operand $0317)
+FAR_STUB = 0xC63A            # fixed-bank far stub (F8 3A C6 trampoline)
 MAX_PAGES = 16
-RESERVED_TILES = {
-    0x0A, 0x71, 0x72, 0x73,
-    0x7D, 0x7E, 0x6D, 0x6E, 0x6F,
-    0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
-}
+MAX_META_BYTES = 0xFF       # KANJI_META is $6E00-$6FFF; copy uses an 8-bit count
+
+# Tiles that must survive while a message page owns the CHR cache.
+#   digits 0-9, blank, cursor arrow, dakuten/handakuten marks, frame pieces
+FRAME_TILES = set(textdata.FRAME_BYTE_TO_TOKEN)
+CURSOR_TILES = {0x0A, 0x71, 0x72, 0x73}
+DIGIT_TILES = set(range(0x0A))
+
+# Inline bank-15 menu scripts.  They are redrawn after the message closes and
+# the restore-at-exit hook puts the kana font back, so they are not part of the
+# per-page reservation.  Kept for reporting and later conversion work.
+MENU_REGIONS = ((0x2948, 0x2C00), (0x2C00, 0x2DA1))
+
+
+def menu_stream_tiles() -> set[int]:
+    b = textdata.bank_bytes(15)
+    used: set[int] = set()
+    for start, end in MENU_REGIONS:
+        data = b[start:end]
+        i = 0
+        while i < len(data):
+            x = data[i]
+            if x in (0xEF, 0xF0, 0xF1, 0xF2) and i + 1 < len(data):
+                i += 2
+                continue
+            if x in (0xF8, 0xF9) and i + 2 < len(data):
+                i += 3
+                continue
+            if 0xF3 <= x <= 0xF7 or x >= 0xFA:
+                i += 1
+                continue
+            if x >= 0x80:
+                used.add(0x72)
+                base = x & 0x7F
+                used.add((base - 0x0A) & 0xFF if base >= 0x62 else base)
+            else:
+                used.add(x)
+            i += 1
+    return used
+
+
+MENU_TILES = menu_stream_tiles()
+RESERVED_TILES = FRAME_TILES | CURSOR_TILES | DIGIT_TILES
+
+
+def tiles_for_string(s: str) -> set[int]:
+    used: set[int] = set()
+    for ch in re.sub(r"<[^>]*>", "", s):
+        b = char_to_byte(ch)
+        if b is not None:
+            kana_tiles_for_byte(b, used)
+    return used
+
+
+def name_table_entry(idx: int) -> bytes:
+    b12 = textdata.bank_bytes(12)
+    p = b12[0x2800 + idx] | (b12[0x2900 + idx] << 8)
+    if not (0x8000 <= p < 0xC000):
+        return b""
+    off = p - 0x8000 + 0x14
+    end = b12.find(b"\xff", off)
+    return b"" if end < 0 else b12[off:end]
+
+
+_NAME_TILE_CACHE: dict[int, set[int]] = {}
+
+
+def name_tiles_for_index(idx: int) -> set[int]:
+    if idx not in _NAME_TILE_CACHE:
+        try:
+            s = textdata.encode_record(name_table_entry(idx))
+        except Exception:
+            s = ""
+        _NAME_TILE_CACHE[idx] = tiles_for_string(s)
+    return _NAME_TILE_CACHE[idx]
+
+
+def item_name_tiles() -> set[int]:
+    global _ITEM_NAME_TILES
+    try:
+        return _ITEM_NAME_TILES
+    except NameError:
+        pass
+    used: set[int] = set()
+    for data in textdata.item_entries().values():
+        try:
+            used |= tiles_for_string(textdata.encode_record(data))
+        except Exception:
+            continue
+    _ITEM_NAME_TILES = used
+    return used
+
+
+def party_name_tiles() -> set[int]:
+    global _PARTY_NAME_TILES
+    try:
+        return _PARTY_NAME_TILES
+    except NameError:
+        pass
+    used: set[int] = set()
+    for i in range(256):
+        used |= name_tiles_for_index(i)
+    _PARTY_NAME_TILES = used
+    return used
+
+
 KANJI_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
 LINE_CTRL = {"<NL>", "<NL2>", "<WAIT>", "<PAGE>", "<END>", "<END_NOWAIT>"}
 
@@ -256,31 +356,6 @@ def kana_tiles_for_byte(b: int, used: set[int]) -> None:
         used.add(b)
 
 
-def name_tiles() -> set[int]:
-    b12 = textdata.bank_bytes(12)
-    used: set[int] = set()
-    for i in range(256):
-        p = b12[0x2800 + i] | (b12[0x2900 + i] << 8)
-        if not (0x8000 <= p < 0xC000):
-            continue
-        off = p - 0x8000 + 0x14
-        end = b12.find(b"\xff", off)
-        if end < 0:
-            continue
-        try:
-            s = textdata.encode_record(b12[off:end])
-        except Exception:
-            continue
-        for ch in re.sub(r"<[^>]*>", "", s):
-            b = char_to_byte(ch)
-            if b is not None:
-                kana_tiles_for_byte(b, used)
-    return used
-
-
-NAME_TILES = name_tiles()
-
-
 def call_tiles(ptr: int) -> set[int]:
     used: set[int] = set()
     s = textdata.CALL_ANNOTATIONS.get(ptr, "")
@@ -292,25 +367,28 @@ def call_tiles(ptr: int) -> set[int]:
 
 
 def page_from_bytes(data: bytes) -> tuple[list[Page], bool]:
-    """Split one compiled message into pages and collect tile demand."""
+    """Split one compiled message into pages and collect tile demand.
+
+    Only tiles that can be on screen at the same time as a kanji are reserved:
+    frame/cursor/digits plus the exact kana strings of table insertions.  The
+    dynamic runtime name insertions use a bounded union (party-name table and
+    item-name table).  Menu scripts are redrawn after the message and are
+    restored by the exit hook, so they are not reserved per page.
+    """
     pages: list[Page] = []
     page = Page([])
     used: set[int] = set(RESERVED_TILES)
     kanji: list[int] = []
-    has_name = False
     i = 0
 
     def finish() -> None:
-        nonlocal page, used, kanji, has_name
-        if has_name:
-            used |= NAME_TILES
+        nonlocal page, used, kanji
         page.used = set(used)
         page.kanji_order = list(kanji)
         pages.append(page)
         page = Page([])
         used = set(RESERVED_TILES)
         kanji = []
-        has_name = False
 
     while i < len(data):
         b = data[i]
@@ -331,25 +409,30 @@ def page_from_bytes(data: bytes) -> tuple[list[Page], bool]:
             }.get(b)
             if table is not None:
                 try:
-                    s = textdata.encode_record(table().get(idx, b""))
+                    used |= tiles_for_string(textdata.encode_record(table().get(idx, b"")))
                 except Exception:
-                    s = ""
-                for ch in re.sub(r"<[^>]*>", "", s):
-                    tb = char_to_byte(ch)
-                    if tb is not None:
-                        kana_tiles_for_byte(tb, used)
-            else:
-                has_name = True
+                    pass
+            elif b == 0xF2:
+                used |= name_tiles_for_index(idx)
             i += 2
             continue
-        if 0xF3 <= b <= 0xF7:
-            has_name = True
+        if b == 0xF3:
+            used |= item_name_tiles()
+            i += 1
+            continue
+        if 0xF4 <= b <= 0xF7:
+            used |= party_name_tiles()
             i += 1
             continue
         if b in (0xF8, 0xF9) and i + 2 < len(data):
-            ptr = data[i + 1] | (data[i + 2] << 8)
             if b == 0xF8:
-                used |= call_tiles(ptr)
+                used |= call_tiles(data[i + 1] | (data[i + 2] << 8))
+            else:
+                # The original engine renders $F9 and both operand bytes as
+                # cells; reserve the two operand tiles when they are glyphs.
+                for x in (data[i + 1], data[i + 2]):
+                    if x < 0xEC:
+                        kana_tiles_for_byte(x, used)
             i += 3
             continue
         if b == 0xFC:
@@ -362,7 +445,7 @@ def page_from_bytes(data: bytes) -> tuple[list[Page], bool]:
         kana_tiles_for_byte(b, used)
         i += 1
     # A page without any content after the last PAGE is still a page.
-    if page.tokens or used != set(RESERVED_TILES) or kanji or has_name or not pages:
+    if page.tokens or used != set(RESERVED_TILES) or kanji or not pages:
         finish()
     return pages, True
 
@@ -391,7 +474,13 @@ def page_token_width(tokens: list[str]) -> list[int]:
 
 
 def split_failing_page(tokens: list[str], page_index: int) -> list[str]:
-    """Replace a line-ending token inside the failing page with <PAGE>."""
+    """Insert a page break inside the failing page.
+
+    Prefer an existing line boundary so the original line layout is kept.  If
+    the page has no line boundary (for example a short name-heavy page), split
+    at the token boundary closest to half of the page's kanji count and force
+    a new line before the page break.
+    """
     # Locate the token range for this page.
     bounds = [0]
     for i, tok in enumerate(tokens):
@@ -408,14 +497,28 @@ def split_failing_page(tokens: list[str], page_index: int) -> list[str]:
             k += 1
         if tok in ("<NL>", "<NL2>", "<WAIT>"):
             candidates.append((i, k))
-    if not candidates:
-        raise RuntimeError("page is too dense but has no line boundary to split")
     total = k
+    if candidates:
+        target = total // 2
+        best = min(candidates, key=lambda x: abs(x[1] - target))
+        out = list(tokens)
+        out[best[0]] = "<PAGE>"
+        return out
+    if end - start < 2:
+        raise RuntimeError("page is too dense but has no token boundary to split")
+    counts = []
+    k = 0
+    for i in range(start, end):
+        if KANJI_RE.match(tokens[i]):
+            k += 1
+        counts.append((i + 1, k))
     target = total // 2
-    best = min(candidates, key=lambda x: abs(x[1] - target))
-    out = list(tokens)
-    out[best[0]] = "<PAGE>"
-    return out
+    pos = min((p for p in counts if start < p[0] < end),
+              key=lambda x: abs(x[1] - target), default=None)
+    if pos is None:
+        raise RuntimeError("page is too dense but has no token boundary to split")
+    i = pos[0]
+    return tokens[:i] + ["<NL2>", "<PAGE>"] + tokens[i:]
 
 
 def build() -> int:
@@ -519,6 +622,9 @@ def build() -> int:
         payload = b"".join(page_blobs)
         if len(page_blobs) > MAX_PAGES:
             raise SystemExit(f"message has {len(page_blobs)} pages > {MAX_PAGES}")
+        if len(payload) > MAX_META_BYTES:
+            raise SystemExit(f"message metadata {len(payload)} bytes > "
+                             f"{MAX_META_BYTES}; KANJI_META would overflow")
         meta[id(rec)] = (len(page_blobs), payload)
     for rec in records:
         c = canon[rec.data]
@@ -544,7 +650,7 @@ def build() -> int:
         meta_area = bytearray()
         for rec in used_recs:
             stub_addr[rec.data] = 0x8000 + start + len(data_area)
-            data_area += bytes((0xF8, FAR_LOADER & 0xFF, (FAR_LOADER >> 8) & 0x7F,
+            data_area += bytes((0xF8, FAR_STUB & 0xFF, FAR_STUB >> 8,
                                 rec.data_bank,
                                 rec.data_addr & 0xFF, rec.data_addr >> 8,
                                 0, 0))  # meta pointer filled below
@@ -589,20 +695,31 @@ def build() -> int:
 
     # Report / debug dump
     all_pages = []
+    min_free = 128
+    max_slots = 0
     for r in unique.values():
         pages = page_from_bytes(r.data)[0]
         for p in pages:
             if not allocate(p):
                 raise RuntimeError("page did not fit")
+            free = 128 - len(p.used) - 4 * len(p.entries)
+            min_free = min(min_free, free)
+            max_slots = max(max_slots, len(p.entries))
             all_pages.append(p)
     report = {
         "inventory": len(cmap),
         "messages": len(unique),
         "pages": len(all_pages),
-        "max_page_slots": max((len(p.entries) for p in all_pages), default=0),
+        "max_page_slots": max_slots,
+        "min_free_after_allocation": min_free,
+        "pages_over_capacity": 0,
+        "reserved_count": len(RESERVED_TILES),
+        "reserved_tiles": sorted(RESERVED_TILES),
+        "menu_stream_tiles": len(MENU_TILES),
+        "party_name_tiles": len(party_name_tiles()),
+        "item_name_tiles": len(item_name_tiles()),
+        "max_meta_bytes": max((len(meta[id(r)][1]) for r in unique.values()), default=0),
         "data_banks": sorted({r.data_bank for r in unique.values()}),
-        "bank10_used": len((OUT / "bank10.bin").read_bytes()),
-        "bank11_used": len((OUT / "bank11.bin").read_bytes()),
     }
     (OUT / "kanji_text_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))

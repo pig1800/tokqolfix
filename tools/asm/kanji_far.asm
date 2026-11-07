@@ -3,23 +3,80 @@
 ; Assembled for its runtime address ($0601) so relative branches are right.
 ;
 ; The F8 trampoline in banks 10/11 is:
-;   F8 17 03 <target bank> <target addr lo/hi> <meta ptr lo/hi>
-; This block reads those bytes, copies the page-slot metadata to SRAM,
-; switches to the target text bank (outer SUROM bank 1) and continues at
-; the fixed-bank text loop.
+;   F8 3A C6 <text bank> <text addr lo/hi> <meta ptr lo/hi>
+; $C63A is the fixed-bank far stub, which maps bank 13 without touching
+; current_bank_a.  This block installs the RAM overlay from bank 24 when its
+; signature is missing, copies the kana font once, then calls the overlay's
+; metadata loader and continues at the fixed-bank text loop.
 ; ======================================================================
 .include "../../decomp/include/hardware.inc"
 .include "../../decomp/include/ram.inc"
 .include "../../decomp/include/kanji.inc"
+.include "../../decomp/build/kanji/fixed_hooks.inc"
 
 .base $0601
 .org $0601
 kanji_far:
     stx KANJI_BUFX
-    lda KANJI_KANA_READY
-    bne @meta
 
+    ; ------------------------------------------------------------------
+    ; Install the $7002 text-engine overlay from bank 24 if the signature
+    ; is missing.  Copy the code first, then publish the signature word so
+    ; an NMI cannot enter a half-copied overlay.
+    ; ------------------------------------------------------------------
+    lda KANJI_SIGNATURE
+    cmp #KANJI_SIG0
+    bne @install
+    lda KANJI_SIGNATURE+1
+    cmp #KANJI_SIG1
+    beq @overlay_ok
+@install:
+    lda #KANJI_OVERLAY_BANK
+    sta current_prg_bank
+    pha
+    lda ppu_ctrl_shadow
+    and #$7F
+    sta PPUCTRL
+    pla
+    jsr $C611
+    lda ppu_ctrl_shadow
+    sta PPUCTRL
+    lda #<(KANJI_OVERLAY_SRC + 2)
+    sta $10
+    lda #>(KANJI_OVERLAY_SRC + 2)
+    sta $11
+    lda #<(KANJI_OVERLAY)
+    sta $12
+    lda #>(KANJI_OVERLAY)
+    sta $13
+    ldx #4                  ; 1024 bytes: code + padding
+@page:
+    ldy #0
+@byte:
+    lda ($10),y
+    sta ($12),y
+    iny
+    bne @byte
+    inc $11
+    inc $13
+    dex
+    bne @page
+    lda #KANJI_SIG0
+    sta KANJI_SIGNATURE
+    lda #KANJI_SIG1
+    sta KANJI_SIGNATURE+1
+
+@overlay_ok:
+    ; ------------------------------------------------------------------
     ; One-time 1 KiB copy of the bank-9 kana font into SRAM.
+    ; ------------------------------------------------------------------
+    lda KANJI_KANA_READY
+    cmp #KANA_SIG0
+    bne @copy_kana
+    lda KANJI_KANA_READY+1
+    cmp #KANA_SIG1
+    beq @meta
+@copy_kana:
     lda #9
     jsr SET_BANK_B
     lda #$00
@@ -43,81 +100,14 @@ kanji_far:
     inc $13
     dec KANJI_COUNT
     bne @outer
-    inc KANJI_KANA_READY
+    lda #KANA_SIG0
+    sta KANJI_KANA_READY
+    lda #KANA_SIG1
+    sta KANJI_KANA_READY+1
 
 @meta:
-    lda text_window_x
-    jsr SET_BANK_B
+    jsr RAM_META_LOAD
 
-    ldy #3
-    lda ($51),y
-    sta KANJI_TEXT_BANK
-    iny
-    lda ($51),y
-    sta KANJI_TMP2
-    iny
-    lda ($51),y
-    sta KANJI_TMP3
-    iny
-    lda ($51),y
-    sta $10
-    iny
-    lda ($51),y
-    sta $11
-
-    ; Metadata lives in bank 22 (low text bank) or 23 (high text bank).
-    lda text_window_x
-    sec
-    sbc #10
-    clc
-    adc #22
-    jsr @switch_outer
-
-    ldy #1
-    lda ($10),y
-    sta KANJI_TMP0
-    iny
-    lda ($10),y
-    sta KANJI_TMP1
-    lda $10
-    clc
-    adc #3
-    sta $10
-    lda $11
-    adc #0
-    sta $11
-
-    lda #<KANJI_META
-    sta $12
-    lda #>KANJI_META
-    sta $13
-@copy:
-    lda KANJI_TMP0
-    ora KANJI_TMP1
-    beq @done
-    ldy #0
-    lda ($10),y
-    sta ($12),y
-    inc $10
-    bne @src_ok
-    inc $11
-@src_ok:
-    inc $12
-    bne @dst_ok
-    inc $13
-@dst_ok:
-    lda KANJI_TMP0
-    bne @dec
-    dec KANJI_TMP1
-@dec:
-    dec KANJI_TMP0
-    jmp @copy
-
-@done:
-    lda #<KANJI_META
-    sta KANJI_META_PTR
-    lda #>KANJI_META
-    sta KANJI_META_PTR+1
     lda KANJI_TMP2
     sta $51
     lda KANJI_TMP3
@@ -125,43 +115,7 @@ kanji_far:
     lda #0
     sta text_col
 
-    ; The fixed bank is now bank 31, whose write_prg_bank knows SUROM.
-    lda KANJI_TEXT_BANK
-    sta text_window_x
-    jsr SET_BANK_B
-
     ldx KANJI_BUFX
     pla
     pla
     jmp TEXT_LINE_LOOP
-
-; ----------------------------------------------------------------------
-; A = outer bank 16-31.  Performs the first MMC1 switch from RAM while NMI
-; is inhibited.  Later switches go through the bank-31 write_prg_bank.
-; ----------------------------------------------------------------------
-@switch_outer:
-    pha
-    lda ppu_ctrl_shadow
-    and #$7F
-    sta PPUCTRL
-    pla
-    sta current_prg_bank
-    pha
-    and #$10
-    ldx #5
-@chr:
-    sta MMC1_CHR_BANK0
-    lsr a
-    dex
-    bne @chr
-    pla
-    and #$0F
-    ldx #5
-@prg:
-    sta MMC1_PRG_BANK
-    lsr a
-    dex
-    bne @prg
-    lda ppu_ctrl_shadow
-    sta PPUCTRL
-    rts

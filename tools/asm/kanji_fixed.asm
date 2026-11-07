@@ -1,20 +1,32 @@
 ; ======================================================================
-; Kanji target fixed-bank overlay (assembled for $E000, lives in bank 31)
+; Kanji target text-engine overlay
+;
+; Assembled for $7002 and installed into battery-backed PRG RAM by the far
+; loader (tools/asm/kanji_far.asm).  The signature word at $7000 tells the
+; fixed-bank guard stubs whether the overlay is valid.  Bank 31 is a
+; byte-identical copy of patched bank 15, so the overlay may run with either
+; outer bank selected.
 ; ======================================================================
 .include "../../decomp/include/hardware.inc"
 .include "../../decomp/include/ram.inc"
 .include "../../decomp/include/kanji.inc"
 
-.base $E000
+.base $7002
+.org $7002
 
 ; ----------------------------------------------------------------------
 ; Extended dispatcher for $EC-$F7.  Entered from the text engine with
 ; A = byte, X = tile-buffer offset.  Pushes TEXT_RETURN and X, then
 ; dispatches through a 12-entry jump table.
+;
+; $F8-$FF must keep the original $D2B7 path (newline/end controls and the
+; $F9 tile).  $EC-$EE are kanji escapes; $EF-$F7 are the original handlers.
 ; ----------------------------------------------------------------------
 text_dispatch:
     cmp #$EC
     bcc @normal
+    cmp #$F8
+    bcs @normal
     sec
     sbc #$EC
     tay
@@ -37,7 +49,6 @@ text_dispatch:
 @normal:
     jmp $D2B7
 
-.org $E030
 dispatch_table:
     .dw KANJI_EC, KANJI_EC, KANJI_EC
     .dw $D334, $D30A, $D2FE, $D2F3, $D2ED, $D2E7, $D2E1, $D2DB, $D2CF
@@ -50,7 +61,7 @@ dispatch_table:
 KANJI_EC:
     pla
     tax
-    stx KANJI_TMP0
+    stx KANJI_BUFX
     ldy text_col
     lda ($51),y
     inc text_col
@@ -96,19 +107,7 @@ KANJI_EC:
 
 @found:
     iny
-    iny
-    lda ($10),y         ; tile0 + uploaded flag
-    bmi @already
-    ora #$80
-    sta ($10),y
-    lda #1
-    sta KANJI_TMP2
-    bne @load_tiles
-@already:
-    lda #0
-    sta KANJI_TMP2
-@load_tiles:
-    lda ($10),y
+    lda ($10),y         ; tile0
     and #$7F
     sta KANJI_CHR_TILES
     iny
@@ -120,17 +119,15 @@ KANJI_EC:
     iny
     lda ($10),y
     sta KANJI_CHR_TILES+3
-    lda KANJI_TMP2
-    beq @write_tiles
     jsr upload_glyph
 @write_tiles:
-    ldx KANJI_TMP0
+    ldx KANJI_BUFX
     lda KANJI_CHR_TILES
     sta $0300,x
     lda KANJI_CHR_TILES+1
-    sta $0318,x
-    lda KANJI_CHR_TILES+2
     sta $0301,x
+    lda KANJI_CHR_TILES+2
+    sta $0318,x
     lda KANJI_CHR_TILES+3
     sta $0319,x
     inx
@@ -187,19 +184,19 @@ upload_glyph:
     lda #0
     sta KANJI_DST
     jsr expand_tile
-    lda #16
-    sta KANJI_SRC
-    lda #8
-    sta KANJI_DST
-    jsr expand_tile
     lda #1
     sta KANJI_SRC
     lda #16
     sta KANJI_DST
     jsr expand_tile
+    lda #16
+    sta KANJI_SRC
+    lda #32
+    sta KANJI_DST
+    jsr expand_tile
     lda #17
     sta KANJI_SRC
-    lda #24
+    lda #48
     sta KANJI_DST
     jsr expand_tile
 
@@ -267,10 +264,95 @@ ctrl_store:
     rts
 
 ; ----------------------------------------------------------------------
-; Restore a kana tile from the SRAM font copy if a kanji overwrote it.
+; Restore one kana tile from the SRAM font copy into CHR, waiting for the
+; NMI upload slot.  A = tile number (0-127).
+; ----------------------------------------------------------------------
+restore_tile:
+    sta KANJI_BASE
+    lda ppu_ctrl_shadow
+    bmi @nmi_on
+    rts                 ; NMI is off; the screen loader refreshes CHR
+@nmi_on:
+    lda KANJI_BASE
+    sta KANJI_SRC
+    lda #0
+    sta KANJI_SRC+1
+    asl KANJI_SRC
+    rol KANJI_SRC+1
+    asl KANJI_SRC
+    rol KANJI_SRC+1
+    asl KANJI_SRC
+    rol KANJI_SRC+1
+    ldx KANJI_SRC
+    ldy #0
+@copy:
+    lda KANA_FONT,x
+    sta KANJI_STAGE,y
+    inx
+    iny
+    cpy #8
+    bne @copy
+    lda #0
+@zero:
+    sta KANJI_STAGE,y
+    iny
+    cpy #16
+    bne @zero
+
+    lda KANJI_BASE
+    sta KANJI_CHR_TILES
+    lda #1
+    sta KANJI_CHR_COUNT
+    sta KANJI_CHR_FLAG
+@wait:
+    lda KANJI_CHR_FLAG
+    bne @wait
+    rts
+
+; ----------------------------------------------------------------------
+; Restore every dirty kana tile at message exit, then map the caller bank.
+; Replaces "jmp set_bank_current" at $D1FA.
+; ----------------------------------------------------------------------
+restore_all:
+    lda #0
+    sta KANJI_TMP3
+@loop:
+    lda KANJI_TMP3
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_TMP3
+    and #7
+    tax
+    lda bitmask,x
+    and KANJI_DIRTY,y
+    beq @next
+    lda bitmask,x
+    eor #$FF
+    and KANJI_DIRTY,y
+    sta KANJI_DIRTY,y
+    lda KANJI_TMP3
+    jsr restore_tile
+@next:
+    inc KANJI_TMP3
+    lda KANJI_TMP3
+    cmp #128
+    bne @loop
+    jmp $C47E           ; set_bank_current
+
+; ----------------------------------------------------------------------
+; Restore a kana tile from the SRAM font copy if a kanji overwrote it,
+; then continue through the original text_put_tile.
 ; ----------------------------------------------------------------------
 kana_prepare:
-    sta KANJI_TMP0
+    pha                 ; preserve the character code for text_put_tile
+    txa
+    pha                 ; preserve the caller's buffer offset
+    tya
+    pha                 ; preserve the caller's loop index
+    tsx
+    lda $0103,x         ; saved character
     cmp #$80
     bcc @plain
     and #$7F
@@ -300,51 +382,98 @@ kana_prepare:
     eor #$FF
     and KANJI_DIRTY,y
     sta KANJI_DIRTY,y
-
     lda KANJI_TMP1
-    sta KANJI_SRC
-    lda #0
-    sta KANJI_SRC+1
-    asl KANJI_SRC
-    rol KANJI_SRC+1
-    asl KANJI_SRC
-    rol KANJI_SRC+1
-    asl KANJI_SRC
-    rol KANJI_SRC+1
-    ldx KANJI_SRC
+    jsr restore_tile
+@done:
+    pla
+    tay
+    pla
+    tax
+    pla
+    jmp $D340           ; text_put_tile
+
+; ----------------------------------------------------------------------
+; A = 10-31.  Switch PRG bank/outer bit with NMI inhibited.  Used by the
+; RAM far loader before the first text bank is mapped.
+; ----------------------------------------------------------------------
+bank_switch_outer:
+    sta current_prg_bank
+    pha
+    lda ppu_ctrl_shadow
+    and #$7F
+    sta PPUCTRL
+    pla
+    jsr $C611           ; SUROM switcher in the fixed-bank gap
+    lda ppu_ctrl_shadow
+    sta PPUCTRL
+    rts
+
+; ----------------------------------------------------------------------
+; Load the per-message page records.  The trampoline at ($51) in bank
+; 10/11 supplies the text bank, text address and metadata pointer.
+; Returns with KANJI_TMP2/TMP3 = text data address and the text bank
+; mapped at $8000.
+; ----------------------------------------------------------------------
+meta_load:
+    lda text_window_x
+    jsr SET_BANK_B
+    ldy #3
+    lda ($51),y
+    sta KANJI_TEXT_BANK
+    iny
+    lda ($51),y
+    sta KANJI_TMP2
+    iny
+    lda ($51),y
+    sta KANJI_TMP3
+    iny
+    lda ($51),y
+    sta $10
+    iny
+    lda ($51),y
+    sta $11
+
+    ; Metadata lives in bank 22 (low text bank) or 23 (high text bank).
+    lda text_window_x
+    sec
+    sbc #10
+    clc
+    adc #22
+    jsr bank_switch_outer
+
+    ldy #1
+    lda ($10),y
+    sta KANJI_COUNT
+    lda $10
+    clc
+    adc #3
+    sta $10
+    lda $11
+    adc #0
+    sta $11
+
     ldy #0
 @copy:
-    lda KANA_FONT,x
-    sta KANJI_STAGE,y
-    inx
+    lda ($10),y
+    sta KANJI_META,y
     iny
-    cpy #8
+    dec KANJI_COUNT
     bne @copy
-    lda #0
-@zero:
-    sta KANJI_STAGE,y
-    iny
-    cpy #16
-    bne @zero
-
-    lda KANJI_TMP1
-    sta KANJI_CHR_TILES
-    lda #1
-    sta KANJI_CHR_COUNT
-    sta KANJI_CHR_FLAG
-@wait:
-    lda KANJI_CHR_FLAG
-    bne @wait
 @done:
-    lda KANJI_TMP0
-    jmp TEXT_PUT_TILE
+    lda #<KANJI_META
+    sta KANJI_META_PTR
+    lda #>KANJI_META
+    sta KANJI_META_PTR+1
+    lda KANJI_TEXT_BANK
+    sta text_window_x
+    jmp SET_BANK_B
 
 ; ----------------------------------------------------------------------
 ; NMI hook: upload pending kanji/kana CHR data, then the normal palette.
 ; ----------------------------------------------------------------------
 nmi_hook:
     jsr chr_upload
-    jmp FLUSH_PALETTE
+    jmp $C2FF           ; flush_palette
 
 chr_upload:
     lda KANJI_CHR_FLAG
@@ -421,47 +550,10 @@ expand_tile:
 
 bitmask:
     .db $80,$40,$20,$10,$08,$04,$02,$01
-; ----------------------------------------------------------------------
-; SUROM bank switch used only by the bank-31 fixed-bank copy.  Preserves
-; X/Y and writes the outer bit through CHR bank 0 before the low four PRG
-; bank bits.  The bank-15 copy keeps the original 16-bank routine.
-; ----------------------------------------------------------------------
-surom_write_prg_bank:
-    pha
-    tya
-    pha
-    txa
-    pha
-    tsx
-    lda $0103,x
-    tay
-    and #$10
-    ldx #5
-@chr:
-    sta MMC1_CHR_BANK0
-    lsr a
-    dex
-    bne @chr
-    tya
-    and #$0F
-    ldx #5
-@prg:
-    sta MMC1_PRG_BANK
-    lsr a
-    dex
-    bne @prg
-    pla
-    tax
-    pla
-    tay
-    pla
-    lda #0
-    rts
-
 
 ; ----------------------------------------------------------------------
-; NMI entry used in the bank-31 fixed-bank copy.  Upload pending CHR data
-; even when nmi_busy suppresses the normal sound/VRAM work.
+; NMI entry used when the outer bank is 1.  Upload pending CHR data even
+; when nmi_busy suppresses the normal sound/VRAM work.
 ; ----------------------------------------------------------------------
 nmi_entry:
     jsr chr_upload
