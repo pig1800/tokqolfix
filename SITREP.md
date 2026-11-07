@@ -1,13 +1,45 @@
-# SITREP — kanji target handoff (revision 3 + revision-4/5/6/7 addenda)
+# SITREP — kanji target handoff (revision 3 + revision-4/5/6/7/8 addenda)
 
-Date: 2026-11-07.  Baseline: revision-6 architecture plus this page-handling
-pass.  The code baseline before the pivot was `b967d80`; the revision-5
-evidence is in the section below.
+Date: 2026-11-08.  Baseline: revision-6 architecture plus the revision-7
+page-handling pass and the revision-8 field-context pass.  The code baseline
+before the pivot was `b967d80`; the revision-5 evidence is in the section
+below.
 
 This is the handoff document for the next planning iteration (Fable).
 `PLAN.md` revision 3 contains the original work list; this file records what
 is actually implemented, measured, and still open so the plan can be revised
 from evidence instead of from the earlier assumptions.
+
+## Revision 8 addendum (2026-11-08) — field context and stale CHR
+
+The `<JUMP>` exit now restores every dirty tile before mapping the target
+script bank (`$D190`/`$D198` -> `jump_exit_13/14`), and `overlay_entry`
+restores stale tiles from the previous message before clearing the dirty map.
+The latter covers `<END>`, `<END_NOWAIT>`, `<CALL>`-without-return and
+`text_init` resets.  A field replay shows dirty 76 -> 0 at a JUMP.
+
+The compiler now reserves measured scene tiles.  `qa_sweep.py` and
+`qa_field.py` record every lower tile referenced outside the page's text
+window; `make_screen_survey.py` merges the history/shop, field and page-1
+surveys into `scene_borrow.tsv` (scene borrow + screen columns).  Surveyed
+messages reserve scene tiles minus their own kana plus the 48-tile field
+command-menu/HUD floor; unsurveyed messages use the 70-tile fallback.
+
+D3 is resolved: on the original ROM the history/name-entry CHR matches bank 9
+in all 128 tiles; the kanji-ROM differences are the prompt's own kanji slots.
+The old "different font" explanation is false; the shop failures were stale
+kanji and are closed.
+
+Gates on the final build (`a90614d8...`): original byte-identical;
+`bank15_lint` 9 ranges; `sram_watch` 0 of 17,314; `iram_watch` 0 of 29,164;
+`mask_restore` 0; stack SP `$18`/`$28`; `qa_field` 872/872; `qa_pages` 872
+indices / 1,356 pages, 0 failures.  `qa_sweep` is a fast smoke tool; five
+short-message timing cases all pass under `qa_pages`.
+
+Cost: the reservations reduce page capacity; the oath is 9 short pages.
+Correctness was prioritised.  Remaining Phase-2b work: party/item prompt
+tags, save slots 2/3, random-RAM power-on, no PRG bit-4 writes, second
+emulator, and hardware when an N8 exists.
 
 ## Revision 7 addendum (2026-11-07) — multi-page fix
 

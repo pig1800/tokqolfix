@@ -41,7 +41,7 @@ DATA_START = {10: 0x03E8, 11: 0x0380}
 FAR_STUB = 0xC63A            # fixed-bank far stub (F8 3A C6 trampoline)
 MAX_PAGES = 32
 MAX_PAGE_ENTRIES = 16
-PAGE_TILE_MARGIN = 4       # keep a little CHR slack for unmeasured scene tiles
+PAGE_TILE_MARGIN = 0       # scene tiles are surveyed/reserved; no extra slack
 TEXT_BANKS = [18, 19, 20, 21, 22]
 TEXT_BANK_LIMIT = 0x3800     # overlay occupies $B800-$BFFF
 OVERLAY_SIZE = 0x800
@@ -57,9 +57,14 @@ def load_scene_borrow() -> dict[str, set[int]]:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        label, spec = line.split("\t")
-        table[label] = set() if spec == "-" else {
-            int(tile, 16) for tile in spec.split(",")}
+        parts = line.split("\t")
+        label = parts[0]
+        tiles: set[int] = set()
+        for spec in parts[1:]:
+            spec = spec.strip()
+            if spec and spec != "-":
+                tiles |= {int(tile, 16) for tile in spec.split(",")}
+        table[label] = tiles
     return table
 
 
@@ -133,6 +138,20 @@ def menu_stream_tiles() -> set[int]:
 MENU_TILES = menu_stream_tiles()
 # $6C (金) and $7F (兵) are used as field-map icons; never borrow them.
 RESERVED_TILES = FRAME_TILES | CURSOR_TILES | DIGIT_TILES | {0x6C, 0x7F}
+
+# Unsurveyed messages can be opened on a field screen where the command menu
+# is visible.  Measured from the town field capture at message open
+# (out/test/fk/fk_4400_ppu.bin): every lower tile referenced by either
+# nametable, including the command-menu kana and field HUD.  Add the measured
+# 26-tile oath-scene borrow until a per-message survey narrows it.
+FIELD_SCENE_TILES = {
+    0x00, 0x03, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12,
+    0x13, 0x15, 0x16, 0x17, 0x1A, 0x1C, 0x1E, 0x1F, 0x24, 0x2F, 0x30,
+    0x31, 0x33, 0x34, 0x3B, 0x3E, 0x3F, 0x41, 0x4A, 0x4B, 0x55, 0x5A,
+    0x5D, 0x5F, 0x60, 0x66, 0x68, 0x6B, 0x6D, 0x6E, 0x6F, 0x70, 0x72,
+    0x76, 0x77, 0x7D, 0x7E,
+}
+SCENE_FALLBACK = set(FIELD_SCENE_TILES) | set(SCENE_BORROW)
 
 
 def extra_reserved(text: str) -> set[int]:
@@ -248,6 +267,7 @@ class Page:
     kanji_order: list[int] = field(default_factory=list)
     last_line_codes: list[int] = field(default_factory=list)
     line_codes: list[list[int]] = field(default_factory=list)
+    line_used: list[set[int]] = field(default_factory=list)
 
 
 def parse_dtx(path: Path) -> list[Record]:
@@ -450,19 +470,26 @@ def page_from_bytes(data: bytes, extra_used: set[int] | None = None) -> tuple[li
     used: set[int] = set(base_used)
     kanji: list[int] = []
     lines: list[list[int]] = [[]]
+    line_used: list[set[int]] = [set()]
     i = 0
 
+    def add_tiles(tiles: set[int]) -> None:
+        used.update(tiles)
+        line_used[-1].update(tiles)
+
     def finish() -> None:
-        nonlocal page, used, kanji, lines
+        nonlocal page, used, kanji, lines, line_used
         page.used = set(used)
         page.kanji_order = list(kanji)
         page.line_codes = [list(line) for line in lines if line]
+        page.line_used = [set(tiles) for tiles in line_used]
         page.last_line_codes = list(lines[-1]) if lines else []
         pages.append(page)
         page = Page([])
         used = set(base_used)
         kanji = []
         lines = [[]]
+        line_used = [set()]
 
     while i < len(data):
         b = data[i]
@@ -484,30 +511,33 @@ def page_from_bytes(data: bytes, extra_used: set[int] | None = None) -> tuple[li
             }.get(b)
             if table is not None:
                 try:
-                    used |= tiles_for_string(textdata.encode_record(table().get(idx, b"")))
+                    add_tiles(tiles_for_string(
+                        textdata.encode_record(table().get(idx, b""))))
                 except Exception:
                     pass
             elif b == 0xF2:
-                used |= name_tiles_for_index(idx)
+                add_tiles(name_tiles_for_index(idx))
             i += 2
             continue
         if b == 0xF3:
-            used |= item_name_tiles()
+            add_tiles(item_name_tiles())
             i += 1
             continue
         if 0xF4 <= b <= 0xF7:
-            used |= party_name_tiles()
+            add_tiles(party_name_tiles())
             i += 1
             continue
         if b in (0xF8, 0xF9) and i + 2 < len(data):
             if b == 0xF8:
-                used |= call_tiles(data[i + 1] | (data[i + 2] << 8))
+                add_tiles(call_tiles(data[i + 1] | (data[i + 2] << 8)))
             else:
                 # The original engine renders $F9 and both operand bytes as
                 # cells; reserve the two operand tiles when they are glyphs.
                 for x in (data[i + 1], data[i + 2]):
                     if x < 0xEC:
-                        kana_tiles_for_byte(x, used)
+                        tmp: set[int] = set()
+                        kana_tiles_for_byte(x, tmp)
+                        add_tiles(tmp)
             i += 3
             continue
         if b == 0xFC:
@@ -516,12 +546,15 @@ def page_from_bytes(data: bytes, extra_used: set[int] | None = None) -> tuple[li
             continue
         if b in (0xFA, 0xFB):
             lines.append([])
+            line_used.append(set())
             i += 1
             continue
         if b >= 0xFA:
             i += 1
             continue
-        kana_tiles_for_byte(b, used)
+        tmp: set[int] = set()
+        kana_tiles_for_byte(b, tmp)
+        add_tiles(tmp)
         i += 1
     # A page without any content after the last PAGE is still a page.
     if page.tokens or used != base_used or kanji or not pages:
@@ -560,47 +593,56 @@ def message_list_tag(rec: Record) -> str:
     return "none"
 
 
+_KANA_CACHE: dict[str, set[int]] = {}
+
+
+def message_kana_used(rec: Record) -> set[int]:
+    """Tiles the message's own kana/table insertions draw (no scene extra)."""
+    if rec.text not in _KANA_CACHE:
+        cmap = code_map()
+        data = compile_tokens(reflow(tokenize(rec.text)), cmap)
+        pages, _ = page_from_bytes(data, set())
+        used: set[int] = set()
+        for page in pages:
+            used |= page.used
+        _KANA_CACHE[rec.text] = used - set(RESERVED_TILES)
+    return _KANA_CACHE[rec.text]
+
+
 def extra_for(rec: Record) -> set[int]:
     tag = message_list_tag(rec)
-    if tag != "none":
-        return set(list_tile_set(tag))
+    # Per-label survey tiles when we have them; otherwise the measured field
+    # scene fallback (command-menu kana, HUD and the oath-scene borrow).
     borrowed: set[int] = set()
     found = False
     for label in rec.labels:
         if label in SCENE_BORROW_BY_LABEL:
             found = True
             borrowed |= SCENE_BORROW_BY_LABEL[label]
-    return borrowed if found else set(SCENE_BORROW)
-
-
-def assign_page_tiles(page: Page, extra: set[int],
-                      carry: set[int] | None = None) -> dict[int, tuple[int, int, int, int]] | None:
-    """Assign four free kana tiles to every distinct kanji on the page.
-
-    ``carry`` holds kanji tiles from the previous page's last line.  That
-    line stays visible while the next page draws, so it must not be reused.
-    """
-    if len(page.kanji_order) > MAX_PAGE_ENTRIES:
-        return None
-    reserved = set(page.used) | set(extra) | set(carry or ())
-    free = [tile for tile in range(128) if tile not in reserved]
-    if len(free) < 4 * len(page.kanji_order) + PAGE_TILE_MARGIN:
-        return None
-    return {code: tuple(free[i * 4:i * 4 + 4])
-            for i, code in enumerate(page.kanji_order)}
+    if found and borrowed:
+        # The survey includes the message window's own kana; page.used already
+        # reserves those.  Keep only the scene tiles (menu/HUD) and add the
+        # measured field command-menu/HUD floor.
+        scene = borrowed - message_kana_used(rec)
+        return set(FIELD_SCENE_TILES) | scene
+    # Bootstrap: unsurveyed prompts keep their menu/name-entry kana on
+    # screen; the field survey pass replaces this with measured tiles.
+    if tag != "none":
+        return set(list_tile_set(tag)) | set(SCENE_FALLBACK)
+    return set(SCENE_FALLBACK) | borrowed
 
 
 def page_future_used(pages: list[Page], index: int) -> set[int]:
-    """Kana tiles of this page and the next two pages.
+    """Kana tiles that can overwrite a still-visible kanji line.
 
-    The window keeps earlier lines visible while the next page draws, so a
-    kanji tile must not collide with kana that will be drawn shortly after
-    it.  Three pages cover the visible window for the short pages this game
-    uses around page breaks.
+    The window keeps up to three lines from earlier pages.  Only the first
+    three lines of the next two pages can be drawn while those lines are
+    visible, so reserve those lines rather than whole future pages.
     """
-    used: set[int] = set()
-    for page in pages[index:index + 3]:
-        used |= page.used
+    used: set[int] = set(pages[index].used)
+    for page in pages[index + 1:index + 3]:
+        for tiles in page.line_used[:3]:
+            used |= tiles
     return used
 
 
@@ -608,6 +650,8 @@ def assign_page_tiles(page: Page, extra: set[int], reserved_extra: set[int] | No
     """Assign four free kana tiles to every distinct kanji on the page."""
     if len(page.kanji_order) > MAX_PAGE_ENTRIES:
         return None
+    if not page.kanji_order:
+        return {}
     reserved = set(page.used) | set(extra) | set(reserved_extra or ())
     free = [tile for tile in range(128) if tile not in reserved]
     if len(free) < 4 * len(page.kanji_order) + PAGE_TILE_MARGIN:
@@ -743,6 +787,11 @@ def build() -> int:
         page_tiles = None
         for _ in range(60):
             data = compile_tokens(tokens, cmap)
+            if not data:
+                # An empty message record must still be a valid END stream;
+                # a zero-length data area would make its stub point at the
+                # next record.
+                data = b"\xFF"
             pages = page_from_bytes(data, extra)[0]
             assignments = assign_pages(pages, extra)
             if len(assignments) == len(pages) and all(t is not None for t in assignments):
@@ -883,6 +932,7 @@ def build() -> int:
     min_free_with_kanji = 128
     max_slots = 0
     over_capacity = 0
+    reservation_sizes = []
     for rec in unique:
         extra = extra_for(rec)
         pages = page_from_bytes(rec.data, extra)[0]
@@ -891,6 +941,7 @@ def build() -> int:
             if tiles is None:
                 over_capacity += 1
                 continue
+            reservation_sizes.append(len(reserved))
             free = 128 - len(reserved) - 4 * len(page.kanji_order)
             min_free = min(min_free, free)
             if page.kanji_order:
@@ -912,6 +963,13 @@ def build() -> int:
         "scene_borrow_tiles": sorted(SCENE_BORROW),
         "scene_borrow_labels": len(SCENE_BORROW_BY_LABEL),
         "scene_borrow_surveyed": sorted(SCENE_BORROW_BY_LABEL),
+        "scene_fallback_tiles": len(SCENE_FALLBACK),
+        "reservation_sizes": {
+            "min": min(reservation_sizes, default=0),
+            "max": max(reservation_sizes, default=0),
+            "avg": round(sum(reservation_sizes) / len(reservation_sizes), 1)
+            if reservation_sizes else 0,
+        },
         "menu_stream_tiles": len(MENU_TILES),
         "party_name_tiles": len(party_name_tiles()),
         "item_name_tiles": len(item_name_tiles()),

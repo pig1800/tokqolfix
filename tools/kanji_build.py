@@ -28,6 +28,8 @@ OVERLAY_LIMIT = 0x800
 # means the baseline changed and the patch needs re-auditing.
 PATCH_SITES = {
     0xC4B7: bytes((0x8D, 0xF9, 0xFF)),   # write_prg_bank prologue
+    0xD190: bytes((0x20, 0xA2, 0xC4)),   # jsr set_bank_13 (<JUMP>)
+    0xD198: bytes((0x20, 0xA6, 0xC4)),   # jsr set_bank_14 (<JUMP>)
     0xD1FA: bytes((0x4C, 0x7E, 0xC4)),   # jmp set_bank_current
     0xD28E: bytes((0xB0, 0x27, 0xC9)),   # bcs / cmp #$EF
     0xD2BB: bytes((0x20, 0x40, 0xD3)),   # jsr text_put_tile
@@ -147,6 +149,10 @@ def build_bank15(hooks: bytes, hook_labels: dict[str, int],
     if hook_labels["far_stub"] != 0xC63A:
         raise SystemExit(f"far_stub moved to ${hook_labels['far_stub']:04X}")
 
+    apply_patch(bank, 0xD190, bytes((0x20, overlay_labels["jump_exit_13"] & 0xFF,
+                                     overlay_labels["jump_exit_13"] >> 8)))
+    apply_patch(bank, 0xD198, bytes((0x20, overlay_labels["jump_exit_14"] & 0xFF,
+                                     overlay_labels["jump_exit_14"] >> 8)))
     apply_patch(bank, 0xD1FA, bytes((0x4C, overlay_labels["restore_exit"] & 0xFF,
                                      overlay_labels["restore_exit"] >> 8)))
     apply_patch(bank, 0xD28E, bytes((0x4C, overlay_labels["text_dispatch"] & 0xFF,

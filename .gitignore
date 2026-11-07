@@ -10,6 +10,7 @@ out/
 
 # Mesen / model caches
 *.mss
+!tools/lua/town_menu.mss
 *.sav
 .cache/
 __pycache__/

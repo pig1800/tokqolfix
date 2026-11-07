@@ -25,6 +25,18 @@
 ; ----------------------------------------------------------------------
 overlay_entry:
     stx KANJI_BUFX
+    ; Install the RAM font-copy stub before any restore work.
+    ldx #0
+@stub:
+    lda stub_src,x
+    sta KANJI_STUB,x
+    inx
+    cpx #(stub_end-stub_src)
+    bne @stub
+    ; A previous message can leave visible kanji tiles behind (its exit
+    ; restore skips them, then the next open would clear the dirty map and
+    ; forget them).  Restore every stale dirty tile before starting.
+    jsr restore_leaving
     lda KANJI_TEXT_ADDR
     sta text_ptr_lo
     lda KANJI_TEXT_ADDR+1
@@ -55,15 +67,6 @@ overlay_entry:
     sta KANJI_PAGE_PTR
     lda $11
     sta KANJI_PAGE_PTR+1
-
-    ; Install the RAM font-copy stub.
-    ldx #0
-@stub:
-    lda stub_src,x
-    sta KANJI_STUB,x
-    inx
-    cpx #(stub_end-stub_src)
-    bne @stub
 
     ldx KANJI_BUFX
     pla
@@ -532,6 +535,81 @@ restore_exit:
     bne @loop
     jsr wait_queue_empty
     jmp SET_BANK_CURRENT
+
+; ----------------------------------------------------------------------
+; Message-exit restore for the <JUMP> path.  The text buffers still hold
+; the finished message, so the normal visible-tile skip would restore
+; nothing; the scene is being left, so every dirty tile is restored.
+; Called from $D190/$D198 before the target script bank is mapped.
+; ----------------------------------------------------------------------
+restore_leaving:
+    lda #0
+    sta KANJI_TMP3
+    sta KANJI_TMP2
+@loop:
+    lda KANJI_TMP3
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_TMP3
+    and #7
+    tax
+    lda bitmask,x
+    and KANJI_DIRTY,y
+    beq @next
+    lda KANJI_TMP2
+    bne @queue
+    jsr wait_queue_empty
+@queue:
+    lda KANJI_TMP3
+    jsr restore_kana_tile
+    inc KANJI_TMP2
+    lda KANJI_TMP2
+    cmp #4
+    bcc @next
+    lda #0
+    sta KANJI_TMP2
+@next:
+    inc KANJI_TMP3
+    lda KANJI_TMP3
+    cmp #128
+    bne @loop
+    jsr wait_queue_empty
+    rts
+
+; ----------------------------------------------------------------------
+; <JUMP> exit hooks.  The interpreter has already put the target address
+; in ppu_update_ptr_lo/hi; restore the kana font, then map the target
+; script bank and resume the original flow.
+; ----------------------------------------------------------------------
+jump_exit_13:
+    pha
+    txa
+    pha
+    tya
+    pha
+    jsr restore_leaving
+    pla
+    tay
+    pla
+    tax
+    pla
+    jmp SET_BANK_13
+
+jump_exit_14:
+    pha
+    txa
+    pha
+    tya
+    pha
+    jsr restore_leaving
+    pla
+    tay
+    pla
+    tax
+    pla
+    jmp SET_BANK_14
 
 ; A = tile.  Returns A=1 when the tile is referenced by either text buffer.
 tile_is_visible:

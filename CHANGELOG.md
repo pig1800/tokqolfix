@@ -1,5 +1,65 @@
 # Changelog
 
+## 2026-11-07 — revision-8 execution: field context and stale CHR
+
+- Hooked the `<JUMP>` exit at `$D190`/`$D198` (`jump_exit_13`/`jump_exit_14`):
+  the overlay restores every dirty tile, then tail-jumps to the original
+  `set_bank_13`/`set_bank_14`.  A field replay shows the dirty bitmap going
+  from 76 bits to 0 before the target script bank is mapped.
+- `overlay_entry` now installs the RAM font-copy stub first and restores any
+  dirty tiles left by the previous message before clearing the map.  This
+  closes the `<END>`, `<END_NOWAIT>`, `<CALL>`-without-return and
+  `text_init` cases: visible kanji are no longer forgotten at the next open.
+- The compiler now reserves measured screen tiles.  `tools/qa_sweep.py` and
+  `tools/qa_field.py` record every lower tile referenced outside the page's
+  text-window box; `tools/make_screen_survey.py` merges both surveys into
+  `scene_borrow.tsv` (scene borrow + screen columns).  Unsurveyed messages use
+  the measured field fallback (command-menu kana, HUD and the 26-tile
+  oath-scene borrow).
+- Added the field QA harness: `tools/lua/town_menu.mss` (town, command menu
+  open) + `tools/qa_field.py` overrides the next `text_show_message` index and
+  captures page 1 with the menu visible.  Added `tools/lua/town_menu_save.lua`
+  to regenerate the state.
+- D3 resolved: on the history/name-entry screen the original ROM's
+  `$1000-$17FF` CHR matches bank 9 in all 128 tiles.  The 20 differing tiles
+  on the kanji ROM are exactly the prompt's own kanji slots, not a different
+  font.  The remaining shop/menu failures were stale kanji and are closed by
+  the open-time restore and screen reservations.
+- Added `tools/qa_pages.py`: samples every 5 frames, groups by
+  `KANJI_PAGE_PTR`, and asserts every page (page tiles, outside-window
+  collisions, kana CHR, frame tiles).
+- Added `tools/field_check.py` for the `field_kana_check.lua` menu-box dumps.
+- Empty message records now compile to a valid `$FF` stream; the QA ROM
+  neutralises `<CALL>` tokens so battle helper messages can be opened.
+- Final gates: field QA 872/872, per-page QA 872 indices / 1,356 pages with
+  0 failures; `sram_watch` 0/17,314; `iram_watch` 0/29,164;
+  `mask_restore` 0; stack SP `$18`/`$28`.  Original
+  `40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367`;
+  kanji `a90614d88a584d436255c4ee5d7f28b28984acfb758a6cf17d45c296436dccb9`.
+- Tradeoff: the larger reservations reduce page capacity; the oath is 9
+  short pages.  Correctness was prioritised.
+
+## 2026-11-07 — planning iteration 8: field-context defects
+
+- Re-verified `1b1001f`: original byte-identical; lint 7 ranges; `sram_watch`
+  0 hack writes; `mask_restore` 0; oath pages and a four-line page clean.
+- Added `tools/lua/field_kana_check.lua` (kanji ROM, survey inputs, CHR and
+  nametable dumps every 20 frames through the town). Offline check: for
+  each dump, compare every tile `< $80` referenced inside the window and in
+  the command-menu box against the bank-9 font.
+- D1: after the NPC speech chain 129-131 (each ending in `<JUMP>`), the
+  command menu shows kanji quadrants in マ は な し ら べ. Page records
+  decoded from the ROM show 129-131 own exactly those tiles and 132 does
+  not; `<JUMP>` leaves the interpreter via `jmp ($00F3)` and never reaches
+  the `$D1FA` exit restore. 95 messages end with `<JUMP>`.
+- D2: the field command menu is visible during talk messages, and nothing
+  reserves its kana for non-prompt messages; the sweep ran only on the
+  history screen, where no menu exists.
+- D3: the eleven "font context" sweep failures are unproven.
+- `PLAN.md` revision 8: hook the `<JUMP>` path before the bank switch,
+  survey-recorded screen-referenced tiles per message, a field QA harness
+  with the menu open, and the history-font diff.
+
 ## 2026-11-07 — revision-7 execution: multi-page fix and QA sweep
 
 - Fixed the multi-page corruption: `page_find` left `Y` on `code_hi`, so

@@ -21,6 +21,8 @@ OVERLAY_SIZE = 0x800
 PATCHES = [
     (0xC4B7, 0xC4B9),   # jmp SUROM switcher
     (0xC611, 0xC675),   # switcher + F8 trampoline + cell check
+    (0xD190, 0xD192),   # jsr jump_exit_13 (<JUMP>)
+    (0xD198, 0xD19A),   # jsr jump_exit_14 (<JUMP>)
     (0xD1FA, 0xD1FC),   # jmp restore_exit
     (0xD28E, 0xD290),   # jmp text_dispatch
     (0xD2BB, 0xD2BD),   # jsr kana_prepare

@@ -96,16 +96,33 @@ def patch_rom(index: int, dst: Path, base: bytes) -> None:
     if loc is not None:
         text_bank, data_addr, _meta, _tiles = loc
         data_off = 16 + text_bank * 0x4000 + (data_addr - 0x8000)
-        # Keep the warp rendering page 1: turn the first page break into a
-        # WAIT so the page-1 text stays on screen for the assertion dump.
-        end = data_off
-        while end < len(data) and data[end] != 0xFF:
-            if data[end] == 0xFC:
-                data[end] = 0xFD
-                if end + 1 < len(data):
-                    data[end + 1] = 0xFF
+        # Keep the warp rendering page 1 and the first message: stop at the
+        # first page break or JUMP.  Walk tokens so operand bytes are not
+        # mistaken for controls.
+        pos = data_off
+        while pos < len(data) and data[pos] != 0xFF:
+            b = data[pos]
+            if 0xEC <= b <= 0xEE:
+                pos += 2
+                continue
+            if b in (0xEF, 0xF0, 0xF1, 0xF2):
+                pos += 2
+                continue
+            if b == 0xF8:
+                # Neutralise <CALL> for the warp: battle-only helpers can
+                # jump away before the message opens.
+                data[pos:pos + 3] = b"\x0A\x0A\x0A"
+                pos += 3
+                continue
+            if b == 0xF9:
+                data[pos] = 0xFF
                 break
-            end += 1
+            if b == 0xFC:
+                data[pos] = 0xFD
+                if pos + 1 < len(data):
+                    data[pos + 1] = 0xFF
+                break
+            pos += 1
     dst.write_bytes(data)
 
 
@@ -146,7 +163,7 @@ local function onOverlay()
 end
 local function onFrame()
   frame = frame + 1
-  if started and frame == started + 180 then
+  if started and frame == started + 90 then
     w("page1.png", emu.takeScreenshot())
     local p = {{}}
     for i = 0, 0x2FFF do p[#p+1] = string.char(emu.read(i, emu.memType.nesPpuDebug)) end
@@ -189,6 +206,29 @@ def window_box(nametables: list[bytes]) -> tuple[int, int, int, int] | None:
     return min(cols), min(rows), max(cols), max(rows)
 
 
+def page_window(nametables: list[bytes], tiles: set[int]) -> tuple[int, int, int, int] | None:
+    """Bounding box of the text window from the page tile positions.
+
+    Page tiles can appear only inside the window.  A collision with a scene
+    tile expands the box; the menu-box check in the field harness is the
+    independent backstop for that case.
+    """
+    points = []
+    for nt in nametables:
+        for y in range(30):
+            for x in range(32):
+                if nt[y * 32 + x] in tiles:
+                    points.append((x, y))
+    if not points:
+        return window_box(nametables)
+    xs = sorted(p[0] for p in points)
+    ys = sorted(p[1] for p in points)
+    x0, x1 = xs[0], xs[-1]
+    y0, y1 = ys[0], ys[-1]
+    return (max(0, x0 - 1), max(0, y0 - 1),
+            min(31, x1 + 1), min(29, y1 + 1))
+
+
 def inside(x: int, y: int, box: tuple[int, int, int, int]) -> bool:
     x0, y0, x1, y1 = box
     return x0 <= x <= x1 and y0 <= y <= y1
@@ -216,6 +256,15 @@ def first_page_for(index: int, base: bytes) -> tuple[int, int, list[int]] | None
     return (text_bank, count, tiles)
 
 
+def message_is_empty(index: int, base: bytes) -> bool:
+    loc = message_locations(index, base)
+    if loc is None:
+        return True
+    text_bank, data_addr, _meta, _tiles = loc
+    off = 16 + text_bank * 0x4000 + (data_addr - 0x8000)
+    return off >= len(base) or base[off] == 0xFF
+
+
 def check_one(index: int, label: str, rom: Path, lua: Path, outdir: Path,
               font: bytes, base: bytes) -> dict:
     if outdir.exists():
@@ -232,6 +281,9 @@ def check_one(index: int, label: str, rom: Path, lua: Path, outdir: Path,
                 "failures": ["mesen timeout"]}
     state = outdir / "state.txt"
     if not state.exists() or state.read_text().startswith("NO_START"):
+        if message_is_empty(index, base):
+            return {"index": index, "label": label, "ok": True,
+                    "empty_record": True, "failures": []}
         return {"index": index, "label": label, "ok": False,
                 "failures": ["message did not open"]}
     try:
@@ -259,21 +311,33 @@ def check_one(index: int, label: str, rom: Path, lua: Path, outdir: Path,
         failures.append("tile >=128 in page 1")
     no_kanji = not tiles
     nametables = [ppu[0x2000:0x2400], ppu[0x2400:0x2800]]
-    box = window_box(nametables)
+    page_tiles = set(tiles)
+    box = page_window(nametables, page_tiles)
     if box is None:
         failures.append("window frame not found")
         return {"index": index, "label": label, "ok": False,
                 "failures": failures, "bank": bank, "ptr": ptr}
-    # (a) page tiles must not appear outside the window box
+    screen_set: set[int] = set()
+    for nt in nametables:
+        for i, t in enumerate(nt):
+            if t < 0x80 and not inside(i % 32, i // 32, box):
+                screen_set.add(t)
+    screen = sorted(screen_set)
+    # (a) a page tile referenced outside the window must have been restored
+    # to kana; if it still holds the kanji glyph it collides with the scene.
     tile_set = set(tiles)
+    chr_base = 0x1000 if (ram[0xFF] & 0x10) else 0x0000
     for nt in nametables:
         for y in range(30):
             for x in range(32):
-                if nt[y * 32 + x] in tile_set and not inside(x, y, box):
-                    failures.append(
-                        f"tile ${nt[y * 32 + x]:02X} outside window at {x},{y}")
+                t = nt[y * 32 + x]
+                if t in tile_set and not inside(x, y, box):
+                    cur = chr_data[chr_base + t * 16:chr_base + (t + 1) * 16]
+                    ref = font[t * 8:(t + 1) * 8] + b"\x00" * 8
+                    if cur != ref:
+                        failures.append(
+                            f"tile ${t:02X} outside window at {x},{y}")
     # (b) kana inside the window must match the bank-9 glyph
-    chr_base = 0x1000 if (ram[0xFF] & 0x10) else 0x0000
     interior = (box[0] + 1, box[1] + 1, box[2] - 1, box[3] - 1)
     for y in range(interior[1], interior[3] + 1):
         for x in range(interior[0], interior[2] + 1):
@@ -299,7 +363,7 @@ def check_one(index: int, label: str, rom: Path, lua: Path, outdir: Path,
     return {"index": index, "label": label, "ok": not failures,
             "failures": failures, "bank": bank, "ptr": ptr,
             "pages_left": pages_left, "entries": count,
-            "window": box}
+            "window": box, "screen": screen}
 
 
 def main() -> int:
@@ -355,12 +419,14 @@ def main() -> int:
     results.sort(key=lambda r: r["index"])
     report = {
         "indices": len(results),
+        "empty_records": sum(1 for r in results if r.get("empty_record")),
         "failures": sum(1 for r in results if not r["ok"]),
         "seconds": round(time.time() - t0, 1),
         "results": results,
     }
     (QA / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(json.dumps({k: report[k] for k in ("indices", "failures", "seconds")},
+    print(json.dumps({k: report[k] for k in
+                      ("indices", "empty_records", "failures", "seconds")},
                      indent=2))
     return 0
 
