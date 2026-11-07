@@ -772,6 +772,10 @@ def build() -> int:
         "data_banks": sorted({r.data_bank for r in unique.values()}),
     }
     (OUT / "kanji_text_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    if max_slots > 13:
+        raise RuntimeError(f"page needs {max_slots} slots; runtime buffer allows 13")
+    if report["max_meta_bytes"] > 256:
+        raise RuntimeError(f"metadata is {report['max_meta_bytes']} bytes; runtime buffer is 256")
     print(json.dumps(report, indent=2))
     return 0
 

@@ -1452,7 +1452,7 @@ meta_load:
     sta $12
     lda #>KANJI_META
     sta $13
-    ldx #2              ; 512 bytes
+    ldx #1              ; 256 bytes (compiler checks the maximum)
 @page:
     ldy #0
 @byte:

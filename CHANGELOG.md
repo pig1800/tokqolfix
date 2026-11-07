@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-11-07 — revision-5 execution attempt and evidence
+
+- Executed the revision-5 plan and falsified its central premise: the upper
+  CHR range is referenced by the history/name-entry screens (window border,
+  menu and name fonts). Opening the upper pool from mode bytes alone garbles
+  the screen, so the revision-4 nametable gate is restored.
+- Found a hidden SRAM conflict: bank 13 copies a 2 KiB save slot over
+  `$6800-$6FFF` via an indirect pointer (`PC $9F6B-$9F7E`, "5S" signature at
+  `$6008`). This invalidates the earlier "unused above `$6780`" audit.
+- Implemented and tested three upper-tile save/restore schemes and an
+  internal-RAM relocation of long-lived state; all were reverted because
+  they corrupted page records or visible tiles. Findings are recorded in
+  `STATUS.md`; the code is back to the verified revision-4 runtime.
+- Added diagnostic Lua scripts: `mask_restore.lua`, `upper_restore.lua`,
+  `ram_audit.lua`, `sram_clear.lua`, `state_watch.lua`, `first_save.lua`,
+  `internal_dump.lua`, `frame_state.lua`.
+- Kept two capacity changes: the compiler rejects pages with more than 13
+  slots and metadata over 256 bytes; `meta_load` copies 256 bytes instead
+  of 512 (measured maximum is 221).
+- Rebuilt and verified: original ROM byte-identical; kanji ROM
+  `cf2db99fee82206ce5425f60a6093f5c6f177ae10f9ca6c973f92d2ffd6a445f`;
+  prompts (`pp_0900`, `ktown_1100`) and the 6,000-frame survey are clean;
+  bank-15 lint passes with 17 ranges.
+
+## 2026-11-07 — planning iteration 5: PPUMASK-restore measurement
+
+- Added `tools/lua/mask_restore.lua`: logs the PPU scanline at the NMI
+  handler's PPUMASK restore (`$EEDA`), which is when the picture resumes.
+  Over the title-to-field run the original ROM never restores on a visible
+  scanline; the kanji ROM does so in 73 frames (scanlines 37 and 86,
+  alternating), i.e. every scan frame blanks the top of the picture. The
+  history screen is black there, so earlier screenshots could not show it.
+- Added `tools/lua/open_frames.lua` (per-frame capture around message open).
+- `PLAN.md` revision 5: drop the nametable scan, conditional and unrolled
+  CHR scan under a ~1,000-cycle budget, save/restore for borrowed upper
+  tiles instead of zeroing, per-prompt list reservation tags.
+
 ## 2026-11-07 — revision 4: upper-half prompts, 2 KiB nametable scan
 
 - Fixed the history save-slot collision by allocating prompt kanji from the

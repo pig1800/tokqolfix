@@ -1,201 +1,209 @@
 # Execution plan: kanji+kana text for Tenchi o Kurau (Rev 1)
 
-Revision 4, 2026-11-07, after the revision-3 pass (commits `a3f8b8d`,
-`b5ac5f1`; evidence in `SITREP.md`). Earlier revisions are in git history.
-Section 1: milestone. Section 2: font change made in this iteration.
-Section 3: findings and decisions. Section 4: revised design deltas.
-Section 5: ordered work list. Later phases unchanged at the end.
+Revision 5, 2026-11-07, after the revision-4 pass (commit `b967d80`;
+evidence in `STATUS.md` and the `SITREP.md` addendum). Earlier revisions
+are in git history. Section 1: milestone. Section 2: findings from this
+review, with the new measurement. Section 3: design deltas. Section 4:
+ordered work list. Later phases unchanged at the end.
 
 Goal and platforms unchanged: every dialogue line, menu, table string and
 screen label in kanji+kana; Mesen and the original EverDrive N8.
 
 ---
 
+## 0. Revision-5 execution results (2026-11-07)
+
+This plan was executed and three of its premises failed:
+
+- **F19 is wrong.** The upper range `$80-$9F` is referenced on the history
+  and name-entry screens (window border, menu font, name font). Opening the
+  pool from `game_mode`/`text_mode` alone garbles the screen. The
+  revision-4 nametable gate must stay.
+- **The SRAM audit was incomplete.** Bank 13 copies a 2 KiB save slot over
+  `$6800-$6FFF` (indirect `PC $9F6B-$9F7E`, "5S" at `$6008`). Long-lived
+  state there is wiped by the save menu. The upper save area at `$7C00`
+  survives; internal RAM `$0500-$07FF` is free after boot but a relocation
+  attempt caused page-record corruption and was reverted.
+- **Batch tuning is not a straight line.** 4 CHR tiles / 64 nametable bytes
+  still produced visible-scanline restores (36/11) and broke the survey
+  (green screen). Revision-4 batches were restored; the black band remains.
+
+The code is back to the verified revision-4 runtime plus two capacity
+checks (page ≤13 slots, metadata ≤256) and a 256-byte metadata copy.
+Current hashes: original `40f19e…a8367`, kanji `cf2db9…6a445f`.
+Details and next steps are in `STATUS.md`. Sections 1-5 below are retained
+as the revision-5 plan of record; where they conflict with `STATUS.md`, the
+status file and this section win.
+
+---
+
 ## 1. Milestone reached
 
-- Runtime CHR cache works end to end: CHR scan builds the resident-kana
-  bitmap, nametable scan builds the on-screen bitmap, the allocator takes
-  four distinct free tiles per kanji, restore is lazy and demand-driven.
-- The history prompt renders as one page with the choice menu above it;
-  the name-entry grid, field command menu and field map are clean
-  afterwards. No hang or NMI re-entry across 6,000 frames.
-- Upper-half allocation removes the save-slot/kanji collision: the prompt
-  and the runtime slot line are both clean at `ktown_1100`/`ktown_1240`.
-- Bank 31 mirrors bank 15; 17 registered patch sites; SRAM audit clean.
-- The scene survey confirmed the model from revision 3: the oath scene
-  borrows kana `$42-$5B` (26 tiles), a field transition briefly borrows
-  `$00-$17`; worst case 26 is the compiler allowance.
+- Upper-half allocation closes the save-slot collision: the history prompt,
+  its slot line and the speed menu are all clean (`ktown_1100`, `ktown_1240`).
+- Tiles `$00-$F9` render in the cell buffer; `$FA-$FF` stay controls
+  (`cell_check` at `$C64F`, 17 lint ranges, bank 31 still a mirror).
+- Nametable scan covers both nametables; OAM sprite tiles are considered.
+- Font is JF-Dot-Shinonome16 with single-pixel strokes, verified in game.
+- 6,000-frame survey: no hang, no NMI re-entry, map and menus clean.
+- `tools/lua/nmi_budget.lua` exists and measured handler cycles.
 
 ---
 
-## 2. Font replaced (done in this iteration)
+## 2. Findings
 
-DotGothic16 rasterised with 2-pixel strokes at 16 px (歴, 書, 軍 were
-visibly heavy). It is replaced by **JF-Dot-Shinonome16.ttf**:
+### F18. The scan frames blank the top of the picture — must fix
 
-- At size 16 with the `lt` anchor it rasterises to pure 0/255 pixels for
-  all 718 inventory glyphs, so the threshold never widens a stroke.
-- Glyphs fill the full 16×16 cell. The game's own 104 bank-1 name glyphs
-  also use every column and row, so no offset is applied.
-- `tools/kanji_common.py` now points at the new TTF; `kanji_font.py`
-  documents the choice; `STATUS.md` source-of-truth updated.
-- Rebuilt: original target still byte-identical; kanji target after the
-  revision-4 runtime work is
-  `862d7f377d11050e3eb0f4b4118b6267140cf4d3705bbb913f596bd47d78d6bb`.
-- In-game check: `out/test/pp_0900.png` shows `どの歴史書を登録しますか?`
-  with single-pixel strokes; `out/test/ktown_1100.png` and
-  `out/test/ktown_1240.png` show the history prompt with the save-slot line
-  and choice menu both clean.
+`nmi_budget.lua` measured cycles from NMI entry to `rti`. That metric is
+misleading: the original handler also runs its sound driver after
+re-enabling the PPU, so its `rti` is routinely mid-frame (original max
+10,132 cycles) and nothing is wrong with that. What matters is when the
+handler restores PPUMASK (`$EEDA`), because the overlay writes PPUMASK 0
+before its jobs and the picture is blank until the restore.
 
-Phase 3.4 (retouch) shrinks to a comparison of the name kanji against the
-original 136 glyphs; Shinonome's style already matches the era.
+`tools/lua/mask_restore.lua` (added this iteration) logs the PPU scanline
+at the `$EEDA` store over the title-to-field run:
 
----
+| ROM | Frames restoring PPUMASK on a visible scanline (0-239) | Scanlines seen |
+|---|---:|---|
+| Original | 0 (restore at 248-249) | — |
+| Kanji | **73** | 37 and 86, alternating |
 
-## 3. Findings and decisions
+So every scan frame renders the top 37 or 86 scanlines black. The history
+screen is black there anyway, which is why the surveys and the executor's
+screenshots showed nothing. On the field map it is a black band over the
+top third of the screen, flickering for the ~32 frames of every message
+open. Scanline 86 also means the scan loop costs roughly 40 cycles per byte
+read; the loop itself is slow, not just the batch size.
 
-### F13. The save-slot collision is one instance of a general class
+Budget rule from the original: PPU work must end by scanline ~249, which
+leaves about 1,300 cycles after OAM DMA, queue flush and palette. Jobs get
+at most ~1,000 cycles per frame.
 
-Any kana drawn by the game *after* a prompt opens and *outside* the text
-engine's page (save-slot names, party-member lists, item lists, officer
-lists) can need a tile the prompt's kanji borrowed. `kana_prepare` then
-restores the tile and the prompt shows a kana fragment. Save-slot names are
-player-typed, so no reservation can bound them. Two mechanisms are needed,
-both decided:
+### F19. The nametable scan is the wrong tool for its purpose
 
-1. **Upper-tile allocation for prompts.** The upper half holds the game's
-   menu/name-font graphics at the history screen, so it is not blank.
-   Evidence `ktown_1100_chr.bin`: 124 of 128 tiles `$80-$FF` are
-   non-zero. The allocator therefore uses upper tiles that are
-   **unreferenced** by either nametable or by OAM, not only blank ones.
-   The pool opens only when the whole upper half is unreferenced, so map
-   and portrait screens keep it closed. Borrowed tiles restore to zero at
-   message exit; the game reloads CHR on screen changes. Cost: the only
-   bit-7 test on the cell buffer in bank 15 is `text_render_cell` at
-   `$DBEA-$DBEE` (`lda $0300,y / bpl`). Patch in place: `jsr cell_check`
-   over the load, change `bpl` (`$10`) to `bcc` (`$90`); `cell_check` =
-   `lda $0300,y / cmp #$FA / rts` (6 bytes) at `$C64F`, inside the
-   `$C611` gap. Controls `$FA-$FF` keep working. State: 16-byte upper
-   free bitmap (`$68B0-$68BF`), 16-byte upper dirty bitmap
-   (`$6910-$691F`), 32-byte screen/visible bitmap (`$68F0-$690F`).
-2. **Reservation unions for field prompts.** Where the upper pool is
-   closed (map, portraits), prompt pages fall back to lower kana. A
-   compiler union of `menu ∪ party_name ∪ item_name` was attempted in
-   this pass but could not fit even after 20 page splits, so it is not
-   enabled. This remains open for field-prompt screens; the runtime does
-   not yet log blank-slot allocations per message.
+It exists to keep kanji off tiles that are visible outside the window and
+to decide whether the upper pool is open. Both can be answered without
+reading 2 KiB from the PPU every message:
 
-The executor's option "convert the slot menu to the kanji drawer" is still
-right for phase 4 but does not close the class; "decode the save name" and
-"kana relocation" are rejected (fragile; reverted once already).
+- Upper pool open/closed is a property of the screen mode, not the view.
+  The game keeps mode bytes (`game_mode $87`, `text_mode $50`,
+  `nmi_mode $F0`); the history/menu screens and the field/event screens
+  have distinct values (observed `$1E/$26/$28/$29` for `text_mode`). A
+  small static table plus the OAM shadow at `$0200` (RAM, no PPU reads)
+  decides the pool. A missed mode shows up as corruption in one screen and
+  is found by the survey.
+- Lower tiles referenced outside the window are the reserved icons
+  (金/兵, already reserved) and runtime lists, which are handled by
+  per-message reservation (F20). The oath scene's portrait tiles are
+  excluded by the CHR scan, not the nametable scan.
 
-### F14. The nametable scan covers one nametable; the field uses two
+Drop the nametable scan. If a scene later proves to draw kana outside the
+window, add that scene to the reservation rule rather than reviving the scan.
 
-`$2000-$23FF` and `$2400-$27FF` are distinct and both can be on screen while
-the map scrolls. The scan now covers 2 KiB at 128 bytes per frame (16 frames).
-It alternates with the CHR scan so one NMI never pays for both. Field map
-screens show upper tile indices in both nametables, confirming the need for
-the second half.
+### F20. Field prompts: reserve per list, not the union
 
-### F15. Message-open cost can be cut without new patches
+The union `menu ∪ party_name ∪ item_name` (~100 tiles) cannot fit, as the
+executor found. But a given prompt is followed by one list, not all three.
+Tag each prompt message with the list that follows it (`party`, `item`,
+`officer`, `menu`, `none`) by reading its caller in banks 13/14/15; there
+are a few dozen prompts. Reserving one set (57-62 tiles) leaves roughly
+20 free tiles, enough for the one to three kanji a prompt uses. Prompts
+that still cannot fit are reported by the compiler, not blanked.
 
-The CHR scan only needs to rerun when CHR may have changed. Both change
-paths are observable from inside the NMI overlay entry: rendering was off
-since the last scan (bulk loads happen then), or a VRAM-queue entry since
-the last scan targeted an address below `$2000`. Keep the resident bitmap
-across messages otherwise. The nametable scan stays per message.
+### F21. Upper tiles must be saved, not zeroed
 
-### F16. NMI budget is measurable in the harness
+The history screen's upper half holds the menu/name font (124 of 128 tiles
+non-blank). Restoring borrowed upper tiles to zero destroys that font in
+CHR and only works because the following screens happen to reload CHR.
+That is a latent corruption. Save the 16 bytes of each borrowed upper tile
+before the first upload and restore the saved bytes at exit. Cap upper
+borrowing at 8 kanji (32 tiles, 512 bytes of save area). SRAM has room:
+the overlay ends at `$7BA6`, so `$7C00-$7DFF` is free for the save area.
 
-`tools/lua/nmi_budget.lua` hooks `$EE7F` and `$EF31` and subtracts
-`getCpuState().cycleCount` to measure handler duration. `getState().ppu.scanline`
-returned -1 inside the exec callback, so the implemented check uses CPU
-cycles instead. Baseline original max 10,132 / average 2,786; kanji ROM max
-15,833 / average 3,430. The peak is the scan handler, which runs with
-rendering off while the main thread waits. Splitting the two scans cut the
-peak from 21,636 cycles.
+### F22. Conditional CHR rescan is still pending
 
-### F17. Overlay headroom
-
-The overlay is now 2,981 bytes of the 3,070-byte limit; 89 bytes remain.
-The 4 KiB copy caused BRK/NMI storms and was not bisected. If more is ever
-needed, bisect the 4 KiB failure (copy duration vs the `$7C02-$7FFF`
-zeroing) rather than guessing.
+With the nametable scan gone, the CHR scan is the only per-message cost.
+Rescan only when the overlay's NMI entry has seen rendering off, or a
+VRAM-queue entry below `$2000`, since the last scan. Most messages then
+open with no scan at all; the first message after a scene change pays one.
 
 ---
 
-## 4. Design deltas (revision 3 remains in force otherwise)
+## 3. Design deltas (revision 4 remains in force otherwise)
 
 | Area | Change |
 |---|---|
-| Cell buffer | Tiles `$00-$F9` allowed; `$FA-$FF` remain controls (F13.1). |
-| Allocator | Order: unreferenced upper tiles when the whole upper half is idle, then resident+unused+unreferenced lower kana tiles. |
-| Restore | Upper tiles restore to zero; kana tiles to the kana copy. Both lazy, plus rendering-off drain and message-open restore. |
-| Compiler | Prompt pages reserve menu kana (current behaviour). The party/item union remains an open field-prompt item. |
-| Scans | CHR 128 tiles and nametables 2 KiB, alternating frames (F14, F16). |
-| Harness | `nmi_budget.lua` records max/average handler cycles. Blank-slot logging is still open. |
-| Font | JF-Dot-Shinonome16, no offset (section 2). |
+| NMI jobs | Hard budget ~1,000 cycles per frame; unrolled tile read loop; verify with `mask_restore.lua`: scanline at `$EEDA` must never be 0-239 on either ROM. |
+| Scans | Nametable scan removed. CHR scan kept, conditional on the change signal, 4 tiles per frame worst case. |
+| Upper pool | Opened by screen-mode table + OAM shadow; borrowed tiles saved before upload and restored from the save area; cap 8 kanji. |
+| Reservation | Per-prompt list tag replaces the union; compiler errors on prompts that cannot fit. |
+| Harness | `mask_restore.lua` runs in every pass alongside `prompt_pages`, `town_kanji`, `scene_survey`; its "visible-scanline" count must be 0. |
 
 ---
 
-## 5. Work list for the next pass (ordered)
+## 4. Work list for the next pass (ordered)
 
-### Phase 1 — Close the collision class and verify budgets
+### Phase 1 — PPU budget and pools (blocking)
 
-| # | Task | Status / exit criterion |
+| # | Task | Exit criterion |
 |---|---|---|
-| 1.1 | Rebuild with the new font; re-run `prompt_pages.lua`, `town_kanji.lua`, `scene_survey.lua`. | Done. Prompt, name entry, field menu and 6,000-frame survey clean. |
-| 1.2 | Upper-tile support: `cell_check` at `$DBE7`, upper free/dirty bitmaps, OAM/nametable gate, restore-to-zero, lint registration. | Done. History prompt allocates `$80-$93`; `ktown_1100` / `ktown_1240` show prompt, slot line and menu clean. |
-| 1.3 | Prompt reservation unions and blank-slot logging. | Open. Full union did not fit after 20 splits; field prompts still fall back to lower. |
-| 1.4 | Nametable scan over `$2000-$27FF` at 128 B/frame. | Done. 6,000-frame field survey intact. |
-| 1.5 | NMI budget recording and the busiest case. | Done as `nmi_budget.lua` (cycles). Max 15,833 vs baseline 10,132 after splitting scans. |
-| 1.6 | Conditional CHR rescan (F15). | Open. |
-| 1.7 | Redraw test with a scrolling four-line page. | Open; no scripted case yet. |
+| 1.1 | Remove the nametable scan; implement the screen-mode table and OAM-shadow check for the upper pool. Record the mode values per screen in `kanji.inc`. | `prompt_pages`, `town_kanji`, `scene_survey` unchanged in result; message open no longer waits on a nametable scan. |
+| 1.2 | Rewrite the CHR scan loop (unrolled 16-byte read + compare), 4 tiles per frame; make it conditional (F22). | `mask_restore.lua`: 0 visible-scanline frames on the kanji ROM over the title-to-field run and over a field message. |
+| 1.3 | Upper-tile save/restore with the 8-kanji cap (F21). | After the history prompt, dump CHR `$1800-$1FFF` and compare with the pre-message dump: identical. |
+| 1.4 | Prompt list tags in the compiler (F20): tag file keyed by message label; reserve the tagged set; report unfit prompts. | Report lists tags and zero unfit prompts, or the unfit ones are re-paged by hand. |
+| 1.5 | Field prompt test: script a field message followed by a party list and by an item list; capture before and after. | Prompt kanji and list kana both clean. |
+| 1.6 | Redraw test (carried over): a page over four lines under the command menu. | Kanji intact after the menu closes. |
 
 ### Phase 2 — Harden (unchanged)
 
 Outer-bank checklist; all `<CALL>`/`<JUMP>` messages; fourth-line check;
-EverDrive N8 boot, dialogue, save, power-cycle, load.
+EverDrive N8 boot, dialogue, save, power-cycle, load; `mask_restore` on
+hardware is not possible, so the Mesen result is the gate.
 
-### Phase 3 — Script, tables, menus (unchanged, now the largest remaining work)
+### Phase 3 — Script, tables, menus (unchanged; largest remaining work)
 
-Proofread both `_fixed.dtx` files including compiler-split pages; move the
-bank-15/13 inline menu and oath strings into indexed messages; convert
-WORD/PLACE/ITEM tables and name records; regenerate inventory and font;
-compare name kanji against the original 136 glyphs.
+Proofread both `_fixed.dtx` files; move inline bank-15/13 menu and oath
+strings into indexed messages; convert WORD/PLACE/ITEM tables and name
+records; compare name kanji against the original 136 glyphs.
+
+Open decision for phase 3, flagged now: kanji names inside field lists
+(party and item lists, 7 names × 2 kanji = 56 tiles) exceed what the lower
+pool can hold on a map screen. Options are to keep list entries in kana on
+the field, or to render the window band from pattern table `$0000` with a
+mid-frame switch, which the game's NMI already does for other modes. The
+first is cheap; the second is a new subsystem. Recommendation: kana in
+field lists, kanji everywhere else, unless the user wants the split.
 
 ### Phase 4 — UI screens (unchanged)
 
-Per screen by row pitch, including the history slot menu as a kanji-aware
-drawer; status-screen labels after tracing its split.
-
 ### Phase 5 — QA and release (unchanged)
-
-Scripted render of all 872 messages; Mesen and N8 playthrough; BPS patch.
 
 ---
 
-## 6. Risks (updated)
+## 5. Risks (updated)
 
 | Risk | Status |
 |---|---|
-| Dynamic kana lists over prompts (F13) | Upper-half history/menu case fixed; field prompts that fall back to lower remain (1.3). |
-| Upper pool overwrites unreferenced graphics | Open; verify each new scene with a screenshot and CHR dump. |
-| NMI overrun with scans active | Measured max 15,833 cycles; split from 21,636. Re-measure on hardware. |
-| Overlay headroom | 89 bytes; bisect before growing. |
-| Font style of name kanji | Compare in phase 3. |
+| Black band on field message open (F18) | Open; 1.1-1.2 close it. |
+| Upper-tile zeroing corrupts fonts (F21) | Open; 1.3. |
+| Field prompts over lists (F20) | Open; 1.4-1.5. |
+| Screen-mode table misses a mode | Found by survey; add mode. |
+| Kanji names in field lists | Decision needed before phase 3 tables. |
 
 ---
 
-## 7. Commands
+## 6. Commands
 
 ```powershell
 python decomp\build.py                       # original, byte-identical
 python decomp\build.py --target kanji        # 512 KiB SUROM target + lint
-python tools\kanji_font.py build             # regenerate font from JF-Dot-Shinonome16
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\prompt_pages.lua --name prompt_pages
+python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\mask_restore.lua  --name mask_kanji
+python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\prompt_pages.lua  --name prompt_pages
 python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\town_kanji.lua    --name ktown
 python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\scene_survey.lua  --name survey_kanji
 ```
 
-Outputs land in `out/test/`. Mesen runs always use a copied ROM name.
+`mask_restore.lua` writes `out/test/mask_restore.txt`; the line
+`frames with visible-scanline mask restore` must read 0. Mesen runs always
+use a copied ROM name.

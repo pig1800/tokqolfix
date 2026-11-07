@@ -1,12 +1,37 @@
-# SITREP — kanji target handoff (revision 3 + revision-4 addendum)
+# SITREP — kanji target handoff (revision 3 + revision-4/5 addenda)
 
-Date: 2026-11-07.  Commit: `a3f8b8d` (`Revision 3: runtime CHR cache,
-one-page prompt, restore policy`), pushed to `origin/master`.
+Date: 2026-11-07.  Commit: `b967d80` for the code baseline; this pass adds
+the revision-5 evidence and the diagnostics listed below.
 
 This is the handoff document for the next planning iteration (Fable).
 `PLAN.md` revision 3 contains the original work list; this file records what
 is actually implemented, measured, and still open so the plan can be revised
 from evidence instead of from the earlier assumptions.
+
+## Revision 5 addendum (2026-11-07)
+
+`PLAN.md` revision 5 was executed and its central premise failed. The upper
+CHR range is referenced on the history/name-entry screens (window border,
+menu and name fonts); opening the pool from `game_mode`/`text_mode` alone
+garbles the screen. The revision-4 nametable gate is required and restored.
+
+A second discovery invalidates the old SRAM audit: bank 13 copies a 2 KiB
+save slot over `$6800-$6FFF` through an indirect pointer (`PC $9F6B-$9F7E`,
+"5S" written at `$6008/$6009`). Long-lived state in that range is wiped by
+the save menu. The upper save area at `$7C00` survives. An internal-RAM
+relocation of the runtime state was implemented but corrupted page records
+and was reverted; see `STATUS.md` for the exact symptom and next steps.
+
+The NMI budget was re-measured with `mask_restore.lua` (the PPUMASK restore
+at `$EEDA`, not `rti`). Revision-4 batches still show visible-scanline
+restores; 4-tile/64-byte batches still showed them and broke the survey
+(green screen), so they were reverted. The black band remains open.
+
+Final state of this pass: original
+`40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367`;
+kanji `cf2db99fee82206ce5425f60a6093f5c6f177ae10f9ca6c973f92d2ffd6a445f`;
+overlay 2,981 bytes; 17 lint ranges; prompts and the 6,000-frame survey are
+clean. Compiler checks were added for page slots (≤13) and metadata (≤256).
 
 ## Revision 4 addendum (2026-11-07)
 
