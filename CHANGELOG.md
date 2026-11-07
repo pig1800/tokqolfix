@@ -54,6 +54,8 @@ Baseline: `26999aa`.
 - Town/field map CHR is overwritten by the kanji cache; restoring from the
   kana font is wrong for map tiles. A lazy CHR save/restore layer is the next
   blocking step (see `STATUS.md`).
+- An NMI-based save/restore prototype was attempted and reverted: CHR access
+  inside the NMI handler caused NMI re-entry/stack growth on the outdoor map.
 - Visible-line redraws do not re-upload kanji after tile reuse.
 - Inline scripts, tables, runtime names and UI screens remain unconverted.
 

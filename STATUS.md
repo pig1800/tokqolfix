@@ -56,6 +56,14 @@ from the active build because restoring at message exit erased kanji that were
 still visible on the history prompt. The routine remains in the overlay for
 the next attempt.
 
+An NMI-based save/restore prototype was tried after this pass: it saved the
+16-byte CHR tile before each overwrite and restored non-visible tiles at
+message exit. It rendered the prompt correctly but destabilised the field
+path: CHR access inside the NMI handler caused NMI re-entry and stack growth
+when the game entered the outdoor map. That prototype was reverted. A future
+attempt should read/write CHR with NMI disabled and the vblank flag cleared,
+or snapshot the tilemap at a safe point outside the NMI handler.
+
 ### 2. Visible line redraws do not re-upload kanji
 
 `text_save_tiles` copies the tile numbers to `$0180`; a later window redraw
