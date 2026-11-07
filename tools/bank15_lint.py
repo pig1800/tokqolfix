@@ -18,12 +18,17 @@ OVERLAY_BANK = ROOT / "decomp" / "build" / "kanji" / "bank24.bin"
 
 PATCHES = [
     (0xC4B7, 0xC4B9),   # jmp SUROM switcher
-    (0xC611, 0xC66B),   # switcher + far stub + NMI guards
+    (0xC611, 0xC675),   # switcher + far stub + NMI guards
+    (0xCC02, 0xCC04),   # jsr kana_prepare (menu text)
+    (0xD1FA, 0xD1FC),   # jmp restore_exit
     (0xD28E, 0xD290),   # jmp text_dispatch
     (0xD2BB, 0xD2BD),   # jsr kana_prepare
     (0xD2C7, 0xD2C9),   # jsr ctrl_store
     (0xD32B, 0xD32D),   # jsr kana_prepare (word handler)
+    (0xD388, 0xD38A),   # jsr redraw_hook
     (0xD4C0, 0xD4C2),   # jsr kana_prepare (name handler)
+    (0xD57D, 0xD57F),   # jsr kana_prepare (item name)
+    (0xD582, 0xD584),   # jsr kana_prepare (item name)
     (0xD5C0, 0xD5C2),   # jsr kana_prepare (item name)
     (0xEE7F, 0xEE81),   # jmp nmi_entry_guard
     (0xEECB, 0xEECD),   # jsr nmi_palette_guard

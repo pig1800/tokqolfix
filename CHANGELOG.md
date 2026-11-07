@@ -1,5 +1,83 @@
 # Changelog
 
+## 2026-11-07 — revision-3 pass: runtime cache, live scan, restore policy
+
+Baseline: `0be4f8a` plus the revision-3 `PLAN.md`.
+
+### NMI job runner
+
+- The NMI entry guard now reads `PPUSTATUS` before any CHR work, runs the
+  bounded jobs, and jumps into the original handler. This removes the
+  vblank-flag re-entry that a pre-handler upload caused.
+- The overlay's job runner performs: upload pending glyph/restore tiles,
+  scan 8 CHR tiles per frame, scan 64 nametable bytes per frame, and restore
+  dirty tiles (four per frame) when the mask shadow says rendering is off.
+- The old pre-handler upload stub was replaced; the `$C611` hook block is now
+  91 bytes (switcher, far stub, signature check, entry guard, palette guard).
+
+### CHR model
+
+- The overlay now matches 128 CHR tiles against the SRAM kana copy and builds
+  `KANJI_RESIDENT`; the same scan also records tiles referenced by the visible
+  nametable in `KANJI_SCREEN`.
+- The overlay is assembled at `$7002` and copied as 3,072 bytes; the current
+  code is 2,247 bytes (`$7002-$78C8`).
+- The scene survey on the original ROM confirms the oath scene overwrites
+  kana `$42-$5B` (26 tiles) and a town/field transition briefly overwrites
+  `$00-$17`. The compiler keeps the 26-tile worst-case allowance for ordinary
+  pages.
+
+### Page allocation
+
+- Metadata is now compact per page: count, 16-byte used bitmap, then
+  `(code_lo, code_hi)` pairs. The runtime allocates four distinct tiles per
+  kanji from `resident ∧ ¬used ∧ ¬screen`.
+- Fixed two allocation bugs found by screenshot: the code bytes were read
+  from the record start instead of after the used bitmap, and the scan
+  position was not advanced after the fourth tile of an entry, so tiles were
+  reused.
+- Page records are copied with a fixed 512-byte copy; the payload cap is 509
+  bytes.
+
+### Restore policy
+
+- Message exit (`$D1FA`) now restores every dirty tile that is not referenced
+  by the `$0180` or `$0300` text buffers. Visible prompt kanji survive; menus
+  drawn outside the text engine get kana back.
+- `kana_prepare` is installed at the six bank-15 `jsr text_put_tile` sites and
+  the two bank-13 name-list sites. It restores a stolen kana tile on demand.
+- `text_redraw_lines` (`$D388`) is routed through a re-upload hook for tiles
+  that were restored after a redraw.
+
+### Compiler
+
+- Prompt messages (`<END_NOWAIT>`, trailing `<WAIT>`, or a trailing question
+  mark) reserve the union of the menu kana stream. They also skip the
+  oath-scene allowance because the menu reservation is the binding limit.
+- The history prompt now fits on one page:
+  `どの歴史書を登録しますか?`.
+- The report now records `scene_borrow_allowance` and the actual
+  `pages_over_capacity` count.
+
+### Tests and tooling
+
+- `tools/lua/scene_survey.lua` dumps screenshots and CHR every 60 frames for
+  the original and kanji ROMs; it was used for the 6,000-frame no-hang check
+  and the 26-tile borrowing measurement.
+- `tools/lua/prompt_pages.lua` advances the history prompt, captures the
+  one-page render and the name-entry grid.
+- `tools/lua/sram_watch.lua` accepts the larger overlay window
+  (`$7002-$7FFF`) and still reports no base-game writes.
+- Original ROM remains byte-identical; bank 31 still mirrors bank 15.
+
+### Known issue
+
+- The history slot menu prints a runtime save name after the prompt opens.
+  Its kana can overlap the prompt's kanji tiles, so the prompt shows
+  `どの歴史書 始 をメロめますか?` while the slot list is visible. The
+  nametable scan cannot see a menu that is drawn later. This is recorded in
+  `STATUS.md` as the next menu-aware allocation task.
+
 ## 2026-11-07 — revision-2 pass: RAM overlay, renderer fixes, first kanji page
 
 Baseline: `26999aa`.

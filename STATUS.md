@@ -1,6 +1,6 @@
 # Current implementation status
 
-Status after the revision-2 pass (2026-11-07), following `PLAN.md`.
+Status after the revision-3 pass (2026-11-07), following `PLAN.md`.
 This file records what is verified, what is still broken, and the next
 engineering step.
 
@@ -8,74 +8,87 @@ engineering step.
 
 - `python decomp/build.py` still produces the original 256 KiB ROM:
   `40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367`.
-- `python decomp/build.py --target kanji` produces the 524,304-byte SUROM ROM.
-- Bank 31 is now byte-identical to patched bank 15; `tools/bank15_lint.py`
-  enforces this and the registered patch ranges.
-- The text-engine overlay runs from battery PRG RAM at `$7002-$73FF`. It is
-  installed from bank 24 by the far loader when the `$7000` signature is
-  wrong; NMI hooks are signature-guarded stubs in the `$C611` gap.
-- The far trampoline is `F8 3A C6`, so the text engine takes the
-  `set_bank_current` path and no longer clobbers `current_bank_a`.
-- The page-record handler, four-tile expansion and NMI CHR upload are fixed:
-  tile0..tile3 map to TL/TR/BL/BR, and each quadrant gets its own 2bpp tile.
-- A real converted message page renders in Mesen with legible kanji:
-  the history-selection prompt reads `どの歴史書を登録しますか?`
-  (`out/test/kanji_prompt_640.png`, `out/test/kanji_prompt_900.png`).
-- The prompt still renders when `$6800-$7FFF` is filled with deterministic
-  random values before boot, so the overlay/kana signatures work on a fresh
-  cartridge.
-- A write watchpoint on `$6800-$7FFF` across a 6000-frame run shows no writes
-  from base-game code; only the RAM far loader (`$0600-$06FF`) and the overlay
-  (`$7002-$73FF`) touch that range.
-- `kanji_text_report.json` now records `reserved_count`, `max_page_slots`,
-  `min_free_after_allocation`, `max_meta_bytes` and the reserved tile list;
-  the compiler raises if a message metadata record exceeds 255 bytes.
+- `python decomp/build.py --target kanji` produces the 524,304-byte SUROM ROM
+  (current SHA-256 `ce583c7f72066119b794f3001b817e7923c71addc810ecd9e07da1cd1059c82f`).
+- Bank 31 is byte-identical to patched bank 15; `tools/bank15_lint.py`
+  enforces this and 15 registered patch ranges.
+- The overlay is 2,247 bytes at `$7002-$78C8`; the far loader copies 3,072
+  bytes from bank 24. The fixed-bank hook block is 91 bytes and the far block
+  is 181 bytes.
+- The NMI entry now reads `PPUSTATUS` before any CHR work, then runs a bounded
+  job runner (upload, CHR scan, nametable scan, dirty restore) and jumps back
+  into the original handler. A 6,000-frame scene run shows no NMI re-entry and
+  no stack growth.
+- Page records are compact: `count`, a 16-byte used-tile bitmap, then
+  `count * (code_lo, code_hi)`. The overlay scans CHR for resident kana and
+  the visible nametable for tiles already on screen, then allocates four
+  distinct resident, text-unused, non-visible tiles per kanji. Duplicate tile
+  allocation was found and fixed.
+- The history-selection prompt now renders as one page:
+  `どの歴史書を登録しますか?` with the 1-3 menu above it
+  (`out/test/pp_0900.png`). The name-entry grid after selection is clean
+  (`out/test/pp_1100.png`, `out/test/pp_1800.png`).
+- The field command menu is clean after the message-exit restore: はなす /
+  しらべる / たいねつ / ふじょう / どうぐ (`out/test/survey_6000.png`).
+- The field map tiles are intact through frame 6,000
+  (`out/test/survey_4320.png`).
+- `text_redraw_lines` is routed through a hook that re-uploads page glyphs
+  whose CHR tiles were restored.
+- `kana_prepare` is installed at the six bank-15 `jsr text_put_tile` sites and
+  the two bank-13 name-list sites; kana draws restore a stolen tile on demand.
+- Scene survey on the original ROM (60-frame CHR dumps to 6,000):
+  the oath scene overwrites exactly kana `$42-$5B` (26 tiles); a town/field
+  transition briefly overwrites `$00-$17` (23 tiles) and restores them. The
+  worst measured borrowing is 26 tiles, recorded as
+  `SCENE_BORROW_ALLOWANCE` in `tools/kanji_text.py`.
+- A write watchpoint over `$6800-$7FFF` for 6,000 frames shows every write
+  comes from the RAM far loader (`$0600-$06FF`) or the RAM overlay
+  (`$7002-$7FFF`).
+- `python decomp/build.py --target kanji` still passes the original-bank
+  checks: only banks 10, 11, 13 and 15 differ from the base game.
 
 ## Current blockers
 
-### 1. Town map CHR is overwritten by the kanji cache
+### 1. Runtime save-slot names still collide with prompt kanji
 
-In the field/town screen the map nametable references almost every tile in
-`$00-$7F` as well as all of `$80-$FF`. The compiler allocates kanji slots from
-tiles the *text page* does not use, so it still overwrites visible map tiles.
-Restoring those tiles from the kana font is wrong: their original contents are
-map graphics, not kana.
+The history slot menu displays a save-slot name and `L64`. The name is drawn
+from save data and may use any kana tile. The prompt's kanji allocation cannot
+see that name before the menu is drawn, so the menu overwrites one or more
+kanji tiles. `out/test/ktown_1100.png` shows the prompt as
+`どの歴史書 始 をメロめますか?` and the slot line as `1 くわO L64` while the
+choice menu is open.
 
-The next engineering step is a CHR save/restore layer:
+The nametable scan cannot fix this because the slot menu is drawn *after* the
+prompt opens. Options for phase 3/4:
 
-1. Lazy-save each 16-byte CHR tile before the first kanji upload writes it
-   (from the NMI handler, during vblank) into `$7400-$7BFF`.
-2. At message exit, restore saved tiles that are no longer referenced by the
-   nametable or the `$0180/$0300` text buffers. Keep tiles that are still
-   visible so a prompt remains legible while a choice menu is open.
-3. Choose cache slots from tiles not referenced by the nametable at page
-   start, so the map is not visibly corrupted *during* the message either.
+1. Convert the slot menu to the kanji-aware drawer and give it its own
+   reserved slots (preferred).
+2. Allocate prompt kanji from the upper 128 CHR tiles when they are blank,
+   keeping all lower kana tiles untouched for runtime names. This needs a
+   32-byte resident/blank/dirty map and a restore-to-zero path for upper
+   tiles.
+3. Decode the displayed save-slot name at message open and reserve its exact
+   tiles. This is fragile but small.
 
-The `restore_all` routine and the `$D1FA` hook from revision 2 were removed
-from the active build because restoring at message exit erased kanji that were
-still visible on the history prompt. The routine remains in the overlay for
-the next attempt.
+### 2. Redraw re-upload is installed but not scripted-tested
 
-An NMI-based save/restore prototype was tried after this pass: it saved the
-16-byte CHR tile before each overwrite and restored non-visible tiles at
-message exit. It rendered the prompt correctly but destabilised the field
-path: CHR access inside the NMI handler caused NMI re-entry and stack growth
-when the game entered the outdoor map. That prototype was reverted. A future
-attempt should read/write CHR with NMI disabled and the vblank flag cleared,
-or snapshot the tilemap at a safe point outside the NMI handler.
-
-### 2. Visible line redraws do not re-upload kanji
-
-`text_save_tiles` copies the tile numbers to `$0180`; a later window redraw
-copies them back without invoking the kanji handler. If the CHR tiles were
-reused by another page, the redraw shows stale glyphs. The CHR save/restore
-layer plus an explicit re-upload on redraw is required.
+The hook at `$D388` re-uploads page entries whose tiles are resident again.
+No current test message scrolls the four dialogue lines, so this path has not
+been exercised by a screenshot test yet.
 
 ### 3. Unconverted inline scripts and tables
 
-The intro/oath lines and several town/event lines still render kana because
-they are inline bank-15/bank-13 scripts, not indexed messages. Table strings
-and runtime names are still kana. These are PLAN.md phase 3 tasks.
+The intro/oath lines, several town/event lines, word/place/item tables and
+runtime names still render kana because they are inline bank-15/bank-13
+scripts or table records, not indexed messages. These are PLAN.md phase 3
+tasks.
+
+### 4. Scan cost at message open
+
+The CHR scan (8 tiles/frame) and the 1 KiB nametable scan (64 bytes/frame)
+run together, so a message open pays roughly 16 frames before text starts.
+The current screenshots show no visible glitch; measure on hardware before
+tightening or caching the result per scene.
 
 ## Commands
 
@@ -88,10 +101,13 @@ python decomp\build.py --target kanji
 
 # Headless Mesen checks
 python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\boot_check.lua --name kanji_boot
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\trace_message.lua --name kanji_message
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\trace_message_random.lua --name kanji_random
+python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\prompt_pages.lua --name prompt_pages
+python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\scene_survey.lua --name survey_kanji
+python tools\mesen_run.py "Tenchi o Kurau (Japan) (Rev 1).nes" tools\lua\scene_survey.lua --name survey_orig
 python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\sram_watch.lua --name kanji_sram_watch
 ```
+
+Outputs land in `out/test/`. Mesen runs always use a copied ROM name.
 
 ## Source of truth
 

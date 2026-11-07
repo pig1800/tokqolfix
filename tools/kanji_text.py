@@ -7,11 +7,13 @@ tables plus 8-byte trampolines.  Each trampoline calls the far-text loader in
 bank 13, which switches to one of banks 18-21 and continues in the patched
 fixed bank.
 
-Page records in banks 10/11 give the runtime a per-page kanji slot map:
+Page records in banks 22/23 give the runtime a compact per-page map:
     count byte
-    count * (code_lo, code_hi, base_tile, uploaded_flag)
-The compiler allocates four consecutive CHR tiles per distinct kanji from
-tiles that the page's kana text does not use.
+    16-byte bitmap of kana/menu/frame tiles the page may draw
+    count * (code_lo, code_hi)
+The overlay scans CHR at message open, then allocates four resident,
+text-unused tiles per distinct kanji.  Capacity is checked against the
+measured worst-case scene borrowing (26 tiles in the oath scene).
 """
 from __future__ import annotations
 
@@ -37,7 +39,8 @@ BANK_INFO = {
 DATA_START = {10: 0x03E8, 11: 0x0380}
 FAR_STUB = 0xC63A            # fixed-bank far stub (F8 3A C6 trampoline)
 MAX_PAGES = 16
-MAX_META_BYTES = 0xFF       # KANJI_META is $6E00-$6FFF; copy uses an 8-bit count
+MAX_META_BYTES = 509        # KANJI_META is 512 bytes including the 3-byte header
+SCENE_BORROW_ALLOWANCE = 26 # measured: oath scene overwrites kana $42-$5B
 
 # Tiles that must survive while a message page owns the CHR cache.
 #   digits 0-9, blank, cursor arrow, dakuten/handakuten marks, frame pieces
@@ -79,7 +82,22 @@ def menu_stream_tiles() -> set[int]:
 
 
 MENU_TILES = menu_stream_tiles()
-RESERVED_TILES = FRAME_TILES | CURSOR_TILES | DIGIT_TILES
+# $6C (金) and $7F (兵) are used as field-map icons; never borrow them.
+RESERVED_TILES = FRAME_TILES | CURSOR_TILES | DIGIT_TILES | {0x6C, 0x7F}
+
+
+def extra_reserved(text: str) -> set[int]:
+    """Tiles that stay on screen while this message is open.
+
+    Question prompts leave the window up while the yes/no or choice menu is
+    drawn, so the menu kana must not be stolen by kanji slots.
+    """
+    visible = re.sub(r"<[^>]*>", "", text).rstrip()
+    if text.rstrip().endswith(("<END_NOWAIT>", "<WAIT>")):
+        return set(MENU_TILES)
+    if visible.endswith(("?", "？")):
+        return set(MENU_TILES)
+    return set()
 
 
 def tiles_for_string(s: str) -> set[int]:
@@ -366,18 +384,19 @@ def call_tiles(ptr: int) -> set[int]:
     return used
 
 
-def page_from_bytes(data: bytes) -> tuple[list[Page], bool]:
+def page_from_bytes(data: bytes, extra_used: set[int] | None = None) -> tuple[list[Page], bool]:
     """Split one compiled message into pages and collect tile demand.
 
     Only tiles that can be on screen at the same time as a kanji are reserved:
     frame/cursor/digits plus the exact kana strings of table insertions.  The
     dynamic runtime name insertions use a bounded union (party-name table and
-    item-name table).  Menu scripts are redrawn after the message and are
-    restored by the exit hook, so they are not reserved per page.
+    item-name table).  Messages that leave a menu over the window reserve the
+    menu kana stream as well.
     """
+    base_used = set(RESERVED_TILES) | set(extra_used or ())
     pages: list[Page] = []
     page = Page([])
-    used: set[int] = set(RESERVED_TILES)
+    used: set[int] = set(base_used)
     kanji: list[int] = []
     i = 0
 
@@ -387,7 +406,7 @@ def page_from_bytes(data: bytes) -> tuple[list[Page], bool]:
         page.kanji_order = list(kanji)
         pages.append(page)
         page = Page([])
-        used = set(RESERVED_TILES)
+        used = set(base_used)
         kanji = []
 
     while i < len(data):
@@ -445,21 +464,39 @@ def page_from_bytes(data: bytes) -> tuple[list[Page], bool]:
         kana_tiles_for_byte(b, used)
         i += 1
     # A page without any content after the last PAGE is still a page.
-    if page.tokens or used != set(RESERVED_TILES) or kanji or not pages:
+    if page.tokens or used != base_used or kanji or not pages:
         finish()
     return pages, True
 
 
-def allocate(page: Page) -> bool:
-    free = [t for t in range(128) if t not in page.used]
-    page.entries = []
-    for code in page.kanji_order:
-        if len(free) < 4:
-            return False
-        tiles = free[:4]
-        del free[:4]
-        page.entries.append((code, tuple(tiles)))
-    return True
+def page_free_after_alloc(page: Page) -> int:
+    """Free tiles left after the page's kanji, ignoring scene borrowing."""
+    return 128 - len(page.used) - 4 * len(page.kanji_order)
+
+
+def page_fits(page: Page, allowance: int = SCENE_BORROW_ALLOWANCE) -> bool:
+    """True when the page fits even in the worst measured scene.
+
+    Pages without kanji need no CHR slots and always fit.  Prompt pages
+    already reserve the full menu kana set and are shown in scenes where the
+    kana font is resident, so they do not also need the oath-scene allowance.
+    """
+    if not page.kanji_order:
+        return True
+    return page_free_after_alloc(page) >= allowance
+
+
+def record_allowance(extra: set[int]) -> int:
+    # Prompt pages reserve the menu kana; keep a small margin for tiles that
+    # the runtime nametable scan may additionally find visible.
+    return 8 if extra else SCENE_BORROW_ALLOWANCE
+
+
+def used_bitmap(tiles: set[int]) -> bytes:
+    bitmap = bytearray(16)
+    for tile in tiles:
+        bitmap[tile >> 3] |= 0x80 >> (tile & 7)
+    return bytes(bitmap)
 
 
 def page_token_width(tokens: list[str]) -> list[int]:
@@ -544,14 +581,16 @@ def build() -> int:
     # Reflow and page-split until every page fits.
     for rec in {id(r): r for r in records}.values():
         tokens = reflow(tokenize(rec.text))
+        extra = extra_reserved(rec.text)
+        allowance = record_allowance(extra)
         for _ in range(20):
             pages_tokens = split_pages(tokens)
             ok = True
             for p in pages_tokens:
                 data = compile_tokens(p, cmap)
-                pages, _ = page_from_bytes(data + b"\xff")
+                pages, _ = page_from_bytes(data + b"\xff", extra)
                 for page in pages[:-1] if len(pages) > 1 else pages:
-                    if not allocate(page):
+                    if not page_fits(page, allowance):
                         ok = False
                         break
                 if not ok:
@@ -563,8 +602,8 @@ def build() -> int:
             failed = None
             for pi, p in enumerate(pages_tokens):
                 data = compile_tokens(p, cmap)
-                pages, _ = page_from_bytes(data + b"\xff")
-                if any(not allocate(page) for page in pages):
+                pages, _ = page_from_bytes(data + b"\xff", extra)
+                if any(not page_fits(page, allowance) for page in pages):
                     failed = pi
                     break
             if failed is None:
@@ -611,13 +650,16 @@ def build() -> int:
     meta: dict[int, tuple[int, bytes]] = {}
     for rec in unique.values():
         page_blobs = []
-        pages = page_from_bytes(rec.data)[0]
+        extra = extra_reserved(rec.text)
+        allowance = record_allowance(extra)
+        pages = page_from_bytes(rec.data, extra)[0]
         for page in pages:
-            if not allocate(page):
+            if not page_fits(page, allowance):
                 raise RuntimeError("page did not fit after splitting")
-            blob = bytearray((len(page.entries),))
-            for code, tiles in page.entries:
-                blob += bytes((code & 0xFF, code >> 8, tiles[0], tiles[1], tiles[2], tiles[3]))
+            blob = bytearray((len(page.kanji_order),))
+            blob += used_bitmap(page.used)
+            for code in page.kanji_order:
+                blob += bytes((code & 0xFF, code >> 8))
             page_blobs.append(bytes(blob))
         payload = b"".join(page_blobs)
         if len(page_blobs) > MAX_PAGES:
@@ -696,15 +738,21 @@ def build() -> int:
     # Report / debug dump
     all_pages = []
     min_free = 128
+    min_free_with_kanji = 128
     max_slots = 0
+    over_capacity = 0
     for r in unique.values():
-        pages = page_from_bytes(r.data)[0]
+        extra = extra_reserved(r.text)
+        allowance = record_allowance(extra)
+        pages = page_from_bytes(r.data, extra)[0]
         for p in pages:
-            if not allocate(p):
-                raise RuntimeError("page did not fit")
-            free = 128 - len(p.used) - 4 * len(p.entries)
+            free = page_free_after_alloc(p)
+            if not page_fits(p, allowance):
+                over_capacity += 1
             min_free = min(min_free, free)
-            max_slots = max(max_slots, len(p.entries))
+            if p.kanji_order:
+                min_free_with_kanji = min(min_free_with_kanji, free)
+            max_slots = max(max_slots, len(p.kanji_order))
             all_pages.append(p)
     report = {
         "inventory": len(cmap),
@@ -712,7 +760,9 @@ def build() -> int:
         "pages": len(all_pages),
         "max_page_slots": max_slots,
         "min_free_after_allocation": min_free,
-        "pages_over_capacity": 0,
+        "min_free_with_kanji": min_free_with_kanji,
+        "pages_over_capacity": over_capacity,
+        "scene_borrow_allowance": SCENE_BORROW_ALLOWANCE,
         "reserved_count": len(RESERVED_TILES),
         "reserved_tiles": sorted(RESERVED_TILES),
         "menu_stream_tiles": len(MENU_TILES),

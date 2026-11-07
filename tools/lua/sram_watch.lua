@@ -22,7 +22,9 @@ local function onWrite(addr, value)
   total = total + 1
   local c = emu.getCpuState()
   local pc = c.pc or 0
-  if pc >= 0 and (pc < 0x0600 or pc >= 0x0700) and (pc < 0x7002 or pc >= 0x7400) then
+  local in_loader = pc >= 0x0600 and pc < 0x0700
+  local in_overlay = pc >= 0x7002 and pc < 0x8000
+  if pc >= 0 and not in_loader and not in_overlay then
     local key = string.format("%04X", pc)
     seen[key] = (seen[key] or 0) + 1
   end

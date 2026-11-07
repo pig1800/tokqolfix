@@ -7,11 +7,12 @@
 ;   $C611-$C639  SUROM write_prg_bank replacement (41 bytes)
 ;   $C63A-$C641  far-loader stub (8 bytes)
 ;   $C642-$C64E  overlay signature check (13 bytes)
-;   $C64F-$C660  NMI-entry guard (18 bytes)
-;   $C661-$C66B  NMI-palette guard (11 bytes)
+;   $C64F-$C659  NMI-palette guard (11 bytes)
 ;
-; The guard stubs exist because NMI can fire before the RAM overlay has been
-; installed (fresh cartridge / random SRAM).
+; The guard stub exists because NMI can fire before the RAM overlay has been
+; installed (fresh cartridge / random SRAM).  CHR work now runs only from the
+; palette hook, after the NMI handler has read PPUSTATUS and disabled
+; rendering, so the old pre-handler upload stub is gone.
 ; ======================================================================
 .include "../../decomp/include/hardware.inc"
 .include "../../decomp/include/ram.inc"
@@ -81,7 +82,11 @@ check_sig:
     rts
 
 ; ----------------------------------------------------------------------
-; NMI entry guard.  Replaces "lda nmi_busy / bne $EEE0" at $EE7F.
+; NMI entry guard.  Replaces "lda nmi_busy / bne $EEE0" at $EE7F.  Runs the
+; bounded CHR job runner immediately with rendering disabled, then lets the
+; original handler decide whether to do the full frame work.  Running here
+; (rather than only from the palette hook) means a main-thread glyph upload
+; cannot stall on a frame whose nmi_update_budget happens to be zero.
 ; ----------------------------------------------------------------------
 nmi_entry_guard:
     jsr check_sig
@@ -95,7 +100,9 @@ nmi_entry_guard:
     jmp $EEE0
 
 ; ----------------------------------------------------------------------
-; NMI palette guard.  Replaces "jsr flush_palette" at $EECB.
+; NMI palette guard.  Replaces "jsr flush_palette" at $EECB.  The CHR jobs
+; normally ran at the top of the handler; this is a fallback for any NMI
+; path that reaches the palette hook without the entry guard.
 ; ----------------------------------------------------------------------
 nmi_palette_guard:
     jsr check_sig

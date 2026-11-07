@@ -6,6 +6,11 @@
 ; fixed-bank guard stubs whether the overlay is valid.  Bank 31 is a
 ; byte-identical copy of patched bank 15, so the overlay may run with either
 ; outer bank selected.
+;
+; Page records are compact:
+;   count, 16-byte used-kana/reserved bitmap, count * (code_lo, code_hi)
+; At page start the overlay scans CHR (NMI job) for tiles that still hold the
+; kana glyph and allocates four resident, text-unused tiles per kanji.
 ; ======================================================================
 .include "../../decomp/include/hardware.inc"
 .include "../../decomp/include/ram.inc"
@@ -54,9 +59,8 @@ dispatch_table:
     .dw $D334, $D30A, $D2FE, $D2F3, $D2ED, $D2E7, $D2E1, $D2DB, $D2CF
 
 ; ----------------------------------------------------------------------
-; Kanji glyph handler.  Page records are:
+; Kanji glyph handler.  The runtime page at KANJI_PAGE is:
 ;   count, then count * (code_lo, code_hi, tile0, tile1, tile2, tile3)
-; bit 7 of tile0 is the runtime "already uploaded" flag.
 ; ----------------------------------------------------------------------
 KANJI_EC:
     pla
@@ -69,55 +73,20 @@ KANJI_EC:
     lda KANJI_ESCAPE
     sta KANJI_CODE_HI
 
-    lda KANJI_META_PTR
-    sta $10
-    lda KANJI_META_PTR+1
-    sta $11
-    ldy #0
-    lda ($10),y
-    sta KANJI_COUNT
-    ldy #1
-@search:
-    lda KANJI_COUNT
+    jsr page_find
+    bcs @blank
+    iny
+    iny
+    lda KANJI_PAGE,y         ; tile0 (blank marker = $0A)
+    cmp #$0A
     beq @blank
-    lda ($10),y
-    cmp KANJI_CODE_LO
-    bne @next
-    iny
-    lda ($10),y
-    cmp KANJI_CODE_HI
-    beq @found
-    dey
-@next:
-    tya
-    clc
-    adc #6
-    tay
-    dec KANJI_COUNT
-    bne @search
-@blank:
-    lda #$0A
-    sta $0300,x
-    sta $0318,x
-    sta $0301,x
-    sta $0319,x
-    inx
-    inx
-    rts
-
-@found:
-    iny
-    lda ($10),y         ; tile0
-    and #$7F
+    lda KANJI_PAGE,y
     sta KANJI_CHR_TILES
-    iny
-    lda ($10),y
+    lda KANJI_PAGE+1,y
     sta KANJI_CHR_TILES+1
-    iny
-    lda ($10),y
+    lda KANJI_PAGE+2,y
     sta KANJI_CHR_TILES+2
-    iny
-    lda ($10),y
+    lda KANJI_PAGE+3,y
     sta KANJI_CHR_TILES+3
     jsr upload_glyph
 @write_tiles:
@@ -132,6 +101,190 @@ KANJI_EC:
     sta $0319,x
     inx
     inx
+    rts
+@blank:
+    lda #$0A
+    sta $0300,x
+    sta $0318,x
+    sta $0301,x
+    sta $0319,x
+    inx
+    inx
+    rts
+
+; ----------------------------------------------------------------------
+; Search the runtime page for KANJI_CODE_LO/HI.
+; Carry set when absent; otherwise Y = offset of code_lo.
+; ----------------------------------------------------------------------
+page_find:
+    lda KANJI_PAGE
+    beq @notfound
+    sta KANJI_TMP0
+    ldy #1
+@loop:
+    lda KANJI_PAGE,y
+    cmp KANJI_CODE_LO
+    bne @next
+    lda KANJI_PAGE+1,y
+    cmp KANJI_CODE_HI
+    beq @found
+@next:
+    tya
+    clc
+    adc #6
+    tay
+    dec KANJI_TMP0
+    bne @loop
+@notfound:
+    sec
+    rts
+@found:
+    clc
+    rts
+
+; ----------------------------------------------------------------------
+; Load one compact page record from KANJI_META and allocate four resident,
+; text-unused CHR tiles per kanji.  Advances KANJI_META_PTR.
+; ----------------------------------------------------------------------
+page_alloc:
+    lda KANJI_META_PTR
+    sta $10
+    lda KANJI_META_PTR+1
+    sta $11
+    ldy #0
+    lda ($10),y
+    sta KANJI_PAGE
+    bne @has_codes
+    jmp @no_codes
+@has_codes:
+    iny
+    ldx #0
+@used:
+    lda ($10),y
+    sta KANJI_PAGE_USED,x
+    iny
+    inx
+    cpx #16
+    bne @used
+
+    lda KANJI_META_PTR
+    clc
+    adc #17
+    sta KANJI_META_PTR
+    sta $10
+    lda KANJI_META_PTR+1
+    adc #0
+    sta KANJI_META_PTR+1
+    sta $11
+
+    lda KANJI_PAGE
+    sta KANJI_PAGE_I
+    ldx #0
+    ldy #0
+@copy_codes:
+    lda ($10),y
+    sta KANJI_PAGE+1,x
+    iny
+    inx
+    lda ($10),y
+    sta KANJI_PAGE+1,x
+    iny
+    inx
+    inx
+    inx
+    inx
+    inx
+    dec KANJI_PAGE_I
+    bne @copy_codes
+
+    lda KANJI_PAGE
+    asl a
+    clc
+    adc KANJI_META_PTR
+    sta KANJI_META_PTR
+    lda KANJI_META_PTR+1
+    adc #0
+    sta KANJI_META_PTR+1
+
+    lda #0
+    sta KANJI_PAGE_I
+    sta KANJI_PAGE_SCAN
+@entry:
+    lda KANJI_PAGE_I
+    cmp KANJI_PAGE
+    bne @has_entry
+    jmp @done
+@has_entry:
+    sta KANJI_TMP0
+    asl a
+    clc
+    adc KANJI_TMP0
+    asl a
+    clc
+    adc #1
+    sta KANJI_PAGE_OFF
+    clc
+    adc #2
+    sta KANJI_PAGE_EPTR
+    lda #4
+    sta KANJI_PAGE_ALLOC
+@alloc:
+    lda KANJI_PAGE_SCAN
+    cmp #128
+    bcs @no_free
+    sta KANJI_TMP1
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_TMP1
+    and #7
+    tax
+    lda bitmask,x
+    sta KANJI_TMP0
+    and KANJI_RESIDENT,y
+    beq @next_tile
+    lda KANJI_TMP0
+    and KANJI_PAGE_USED,y
+    bne @next_tile
+    lda KANJI_TMP0
+    and KANJI_SCREEN,y
+    bne @next_tile
+    ldx KANJI_PAGE_EPTR
+    lda KANJI_TMP1
+    sta KANJI_PAGE,x
+    inc KANJI_PAGE_EPTR
+    lda KANJI_TMP0
+    eor #$FF
+    and KANJI_PAGE_USED,y
+    sta KANJI_PAGE_USED,y
+    inc KANJI_PAGE_SCAN
+    dec KANJI_PAGE_ALLOC
+    beq @alloc_done
+    jmp @alloc
+@alloc_done:
+    jmp @next_entry
+@next_tile:
+    inc KANJI_PAGE_SCAN
+    jmp @alloc
+@no_free:
+    lda #$0A
+    ldx KANJI_PAGE_EPTR
+    sta KANJI_PAGE,x
+    inc KANJI_PAGE_EPTR
+    dec KANJI_PAGE_ALLOC
+    bne @no_free
+@next_entry:
+    inc KANJI_PAGE_I
+    jmp @entry
+@no_codes:
+    lda #0
+    sta KANJI_PAGE
+@done:
+    lda KANJI_PAGES_LEFT
+    beq @skip_dec
+    dec KANJI_PAGES_LEFT
+@skip_dec:
     rts
 
 ; ----------------------------------------------------------------------
@@ -227,39 +380,31 @@ upload_glyph:
     ldx KANJI_TMP2
     ora KANJI_DIRTY,x
     sta KANJI_DIRTY,x
+    lda bitmask,y
+    eor #$FF
+    and KANJI_RESIDENT,x
+    sta KANJI_RESIDENT,x
     inc KANJI_SRC
     dec KANJI_TMP3
     bne @markloop
+    lda #1
+    sta KANJI_DIRTY_ANY
     rts
 
 ; ----------------------------------------------------------------------
-; Control store (replaces STA $0300,X).  $FC advances the page record.
+; Control store (replaces STA $0300,X).  $FC starts the next text page.
 ; ----------------------------------------------------------------------
 ctrl_store:
     sta $0300,x
     cmp #$FC
     bne @done
-    lda KANJI_META_PTR
-    sta $10
-    lda KANJI_META_PTR+1
-    sta $11
-    ldy #0
-    lda ($10),y
-    asl a
-    sta KANJI_TMP0
-    asl a
-    clc
-    adc KANJI_TMP0      ; count * 6
-    clc
-    adc #1
-    sta KANJI_TMP0
-    lda $10
-    clc
-    adc KANJI_TMP0
-    sta KANJI_META_PTR
-    lda $11
-    adc #0
-    sta KANJI_META_PTR+1
+    lda KANJI_PAGES_LEFT
+    bne @alloc
+    lda #0
+    sta KANJI_PAGE
+    rts
+@alloc:
+    jsr page_alloc
 @done:
     rts
 
@@ -283,12 +428,22 @@ restore_tile:
     rol KANJI_SRC+1
     asl KANJI_SRC
     rol KANJI_SRC+1
-    ldx KANJI_SRC
+
+    lda $12
+    pha
+    lda $13
+    pha
+    lda #<KANA_FONT
+    clc
+    adc KANJI_SRC
+    sta $12
+    lda #>KANA_FONT
+    adc KANJI_SRC+1
+    sta $13
     ldy #0
 @copy:
-    lda KANA_FONT,x
+    lda ($12),y
     sta KANJI_STAGE,y
-    inx
     iny
     cpy #8
     bne @copy
@@ -298,6 +453,10 @@ restore_tile:
     iny
     cpy #16
     bne @zero
+    pla
+    sta $13
+    pla
+    sta $12
 
     lda KANJI_BASE
     sta KANJI_CHR_TILES
@@ -307,13 +466,52 @@ restore_tile:
 @wait:
     lda KANJI_CHR_FLAG
     bne @wait
+
+    lda KANJI_BASE
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_BASE
+    and #7
+    tax
+    lda bitmask,x
+    ora KANJI_RESIDENT,y
+    sta KANJI_RESIDENT,y
+    lda bitmask,x
+    eor #$FF
+    and KANJI_DIRTY,y
+    sta KANJI_DIRTY,y
     rts
 
 ; ----------------------------------------------------------------------
-; Restore every dirty kana tile at message exit, then map the caller bank.
-; Replaces "jmp set_bank_current" at $D1FA.
+; Message-exit restore.  Tiles referenced by the current text buffers stay;
+; every other dirty tile is restored so menus and map screens drawn outside
+; the text engine see kana again.
 ; ----------------------------------------------------------------------
-restore_all:
+restore_exit:
+    lda #0
+    ldx #0
+@clr:
+    sta KANJI_VISIBLE,x
+    inx
+    cpx #16
+    bne @clr
+    ldx #0
+@buf1:
+    lda $0180,x
+    jsr mark_visible
+    inx
+    cpx #96
+    bne @buf1
+    ldx #0
+@buf2:
+    lda $0300,x
+    jsr mark_visible
+    inx
+    cpx #192
+    bne @buf2
+
     lda #0
     sta KANJI_TMP3
 @loop:
@@ -326,12 +524,12 @@ restore_all:
     and #7
     tax
     lda bitmask,x
+    sta KANJI_TMP1
     and KANJI_DIRTY,y
     beq @next
-    lda bitmask,x
-    eor #$FF
-    and KANJI_DIRTY,y
-    sta KANJI_DIRTY,y
+    lda KANJI_TMP1
+    and KANJI_VISIBLE,y
+    bne @next
     lda KANJI_TMP3
     jsr restore_tile
 @next:
@@ -339,11 +537,31 @@ restore_all:
     lda KANJI_TMP3
     cmp #128
     bne @loop
+    lda #0
+    sta KANJI_DIRTY_ANY
     jmp $C47E           ; set_bank_current
 
+mark_visible:
+    cmp #128
+    bcs @done
+    sta KANJI_TMP0
+    lsr a
+    lsr a
+    lsr a
+    sta KANJI_TMP1
+    lda KANJI_TMP0
+    and #7
+    tay
+    lda bitmask,y
+    ldy KANJI_TMP1
+    ora KANJI_VISIBLE,y
+    sta KANJI_VISIBLE,y
+@done:
+    rts
+
 ; ----------------------------------------------------------------------
-; Restore a kana tile from the SRAM font copy if a kanji overwrote it,
-; then continue through the original text_put_tile.
+; Restore a kana tile if a kanji or scene graphics overwrote it, then
+; continue through the original text_put_tile.
 ; ----------------------------------------------------------------------
 kana_prepare:
     pha                 ; preserve the character code for text_put_tile
@@ -376,12 +594,8 @@ kana_prepare:
     and #7
     tax
     lda bitmask,x
-    and KANJI_DIRTY,y
-    beq @done
-    lda bitmask,x
-    eor #$FF
-    and KANJI_DIRTY,y
-    sta KANJI_DIRTY,y
+    and KANJI_RESIDENT,y
+    bne @done
     lda KANJI_TMP1
     jsr restore_tile
 @done:
@@ -391,6 +605,428 @@ kana_prepare:
     tax
     pla
     jmp $D340           ; text_put_tile
+
+; ----------------------------------------------------------------------
+; Scan CHR for tiles that still equal the kana font.  The NMI job reads a
+; bounded number of tiles per frame; the main thread waits with the normal
+; task yield loop.
+; ----------------------------------------------------------------------
+scan_start:
+    lda nmi_busy
+    bne @abort
+    lda ppu_ctrl_shadow
+    bpl @abort
+    lda #0
+    ldx #0
+@clr:
+    sta KANJI_RESIDENT,x
+    sta KANJI_SCREEN,x
+    inx
+    cpx #16
+    bne @clr
+    sta KANJI_SCAN_POS
+    sta KANJI_VRAM_POS
+    sta KANJI_VRAM_POS+1
+    sta KANJI_SCAN_DONE
+    sta KANJI_VRAM_DONE
+    lda #1
+    sta KANJI_SCAN_ACTIVE
+    sta KANJI_VRAM_ACTIVE
+    rts
+@abort:
+    ldx #0
+@all:
+    lda #$FF
+    sta KANJI_RESIDENT,x
+    lda #0
+    sta KANJI_SCREEN,x
+    inx
+    cpx #16
+    bne @all
+    lda #0
+    sta KANJI_SCAN_ACTIVE
+    sta KANJI_VRAM_ACTIVE
+    sta KANJI_SCAN_DONE
+    sta KANJI_VRAM_DONE
+    rts
+
+scan_wait:
+    lda frame_counter
+    sta KANJI_TMP0
+    lda #40
+    sta KANJI_SCAN_TILE
+@loop:
+    lda KANJI_SCAN_ACTIVE
+    ora KANJI_VRAM_ACTIVE
+    beq @done
+    lda frame_counter
+    cmp KANJI_TMP0
+    beq @loop
+    sta KANJI_TMP0
+    dec KANJI_SCAN_TILE
+    bne @loop
+    lda #0
+    sta KANJI_SCAN_ACTIVE
+    sta KANJI_VRAM_ACTIVE
+    sta KANJI_SCAN_DONE
+    sta KANJI_VRAM_DONE
+@done:
+    rts
+
+; ----------------------------------------------------------------------
+; NMI: scan up to 8 CHR tiles per frame.
+; ----------------------------------------------------------------------
+scan_job:
+    lda KANJI_SCAN_ACTIVE
+    ora KANJI_VRAM_ACTIVE
+    beq @quick
+    lda $12
+    pha
+    lda $13
+    pha
+    lda KANJI_SCAN_ACTIVE
+    beq @vram
+    lda #8
+    sta KANJI_NMI4
+@loop:
+    lda KANJI_SCAN_POS
+    cmp #128
+    bcs @finish
+    jsr scan_one
+    inc KANJI_SCAN_POS
+    dec KANJI_NMI4
+    bne @loop
+    jmp @vram
+@finish:
+    lda #0
+    sta KANJI_SCAN_ACTIVE
+    sta KANJI_SCAN_DONE
+@vram:
+    lda KANJI_VRAM_ACTIVE
+    beq @exit
+    jsr vram_scan
+@exit:
+    pla
+    sta $13
+    pla
+    sta $12
+@quick:
+    rts
+
+; ----------------------------------------------------------------------
+; NMI: copy up to 64 nametable bytes per frame into KANJI_SCREEN.
+; ----------------------------------------------------------------------
+vram_scan:
+    lda KANJI_VRAM_POS+1
+    ora #$20
+    sta PPUADDR
+    lda KANJI_VRAM_POS
+    sta PPUADDR
+    lda PPUDATA         ; discard the buffered read
+    lda #64
+    sta KANJI_NMI4
+@byte:
+    lda PPUDATA
+    jsr mark_screen_tile
+    inc KANJI_VRAM_POS
+    bne @no_hi
+    inc KANJI_VRAM_POS+1
+@no_hi:
+    lda KANJI_VRAM_POS+1
+    cmp #$04
+    bcs @finish
+    dec KANJI_NMI4
+    bne @byte
+    rts
+@finish:
+    lda #0
+    sta KANJI_VRAM_ACTIVE
+    sta KANJI_VRAM_DONE
+    rts
+
+mark_screen_tile:
+    cmp #128
+    bcs @done
+    sta KANJI_NMI0
+    lsr a
+    lsr a
+    lsr a
+    sta KANJI_NMI1
+    lda KANJI_NMI0
+    and #7
+    tay
+    lda bitmask,y
+    ldy KANJI_NMI1
+    ora KANJI_SCREEN,y
+    sta KANJI_SCREEN,y
+@done:
+    rts
+
+scan_one:
+    lda KANJI_SCAN_POS
+    sta KANJI_NMI0
+    lda #0
+    sta KANJI_NMI1
+    asl KANJI_NMI0
+    rol KANJI_NMI1
+    asl KANJI_NMI0
+    rol KANJI_NMI1
+    asl KANJI_NMI0
+    rol KANJI_NMI1
+    asl KANJI_NMI0
+    rol KANJI_NMI1
+    lda KANJI_NMI1
+    ora #$10
+    sta PPUADDR
+    lda KANJI_NMI0
+    sta PPUADDR
+    lda PPUDATA         ; discard the buffered read
+    ldx #0
+@read:
+    lda PPUDATA
+    sta KANJI_SCAN_BUF,x
+    inx
+    cpx #16
+    bne @read
+
+    lda KANJI_SCAN_POS
+    sta KANJI_NMI0
+    lda #0
+    sta KANJI_NMI1
+    asl KANJI_NMI0
+    rol KANJI_NMI1
+    asl KANJI_NMI0
+    rol KANJI_NMI1
+    asl KANJI_NMI0
+    rol KANJI_NMI1
+    lda KANJI_NMI0
+    clc
+    adc #<KANA_FONT
+    sta $12
+    lda KANJI_NMI1
+    adc #>KANA_FONT
+    sta $13
+    ldy #0
+@cmp:
+    lda KANJI_SCAN_BUF,y
+    cmp ($12),y
+    bne @exit
+    iny
+    cpy #8
+    bne @cmp
+@zero:
+    lda KANJI_SCAN_BUF,y
+    bne @exit
+    iny
+    cpy #16
+    bne @zero
+    lda KANJI_SCAN_POS
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_SCAN_POS
+    and #7
+    tax
+    lda bitmask,x
+    ora KANJI_RESIDENT,y
+    sta KANJI_RESIDENT,y
+@exit:
+    rts
+
+; ----------------------------------------------------------------------
+; NMI: when rendering is off, restore up to four dirty tiles per frame.
+; ----------------------------------------------------------------------
+restore_job:
+    lda KANJI_DIRTY_ANY
+    beq @done
+    lda ppu_mask_shadow
+    and #$18
+    bne @done
+    lda #0
+    sta KANJI_NMI2
+@loop:
+    lda KANJI_NMI2
+    cmp #4
+    beq @done
+    lda KANJI_RESTORE_POS
+    cmp #128
+    bcs @reset
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_RESTORE_POS
+    and #7
+    tax
+    lda bitmask,x
+    and KANJI_DIRTY,y
+    beq @next
+    lda KANJI_RESTORE_POS
+    jsr nmi_restore_tile
+    inc KANJI_NMI2
+@next:
+    inc KANJI_RESTORE_POS
+    jmp @loop
+@reset:
+    lda #0
+    sta KANJI_RESTORE_POS
+    sta KANJI_DIRTY_ANY
+@done:
+    rts
+
+nmi_restore_tile:
+    sta KANJI_NMI0
+    lda $12
+    pha
+    lda $13
+    pha
+    lda KANJI_NMI0
+    sta KANJI_NMI1
+    lda #0
+    sta KANJI_NMI4
+    asl KANJI_NMI1
+    rol KANJI_NMI4
+    asl KANJI_NMI1
+    rol KANJI_NMI4
+    asl KANJI_NMI1
+    rol KANJI_NMI4
+    lda KANJI_NMI1
+    clc
+    adc #<KANA_FONT
+    sta $12
+    lda KANJI_NMI4
+    adc #>KANA_FONT
+    sta $13
+    ldy #0
+@copy:
+    lda ($12),y
+    sta KANJI_SCAN_BUF,y
+    iny
+    cpy #8
+    bne @copy
+    lda #0
+@zero:
+    sta KANJI_SCAN_BUF,y
+    iny
+    cpy #16
+    bne @zero
+
+    lda KANJI_NMI0
+    sta KANJI_NMI1
+    lda #0
+    sta KANJI_NMI4
+    asl KANJI_NMI1
+    rol KANJI_NMI4
+    asl KANJI_NMI1
+    rol KANJI_NMI4
+    asl KANJI_NMI1
+    rol KANJI_NMI4
+    asl KANJI_NMI1
+    rol KANJI_NMI4
+    lda KANJI_NMI4
+    ora #$10
+    sta PPUADDR
+    lda KANJI_NMI1
+    sta PPUADDR
+    ldx #0
+@write:
+    lda KANJI_SCAN_BUF,x
+    sta PPUDATA
+    inx
+    cpx #16
+    bne @write
+
+    lda KANJI_NMI0
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_NMI0
+    and #7
+    tax
+    lda bitmask,x
+    ora KANJI_RESIDENT,y
+    sta KANJI_RESIDENT,y
+    lda bitmask,x
+    eor #$FF
+    and KANJI_DIRTY,y
+    sta KANJI_DIRTY,y
+    pla
+    sta $13
+    pla
+    sta $12
+    rts
+
+; ----------------------------------------------------------------------
+; Re-upload page glyphs whose CHR tiles were restored since the last draw.
+; Called after text_redraw_lines.
+; ----------------------------------------------------------------------
+redraw_hook:
+    jsr TEXT_REDRAW_LINES
+    lda KANJI_PAGE
+    beq @done
+    sta KANJI_PAGE_I
+    lda #1
+    sta KANJI_PAGE_OFF
+@entry:
+    lda #0
+    sta KANJI_TMP2
+    lda KANJI_PAGE_OFF
+    clc
+    adc #2
+    sta KANJI_TMP3
+    ldx #0
+@check:
+    ldy KANJI_TMP3
+    lda KANJI_PAGE,y      ; tile0..tile3
+    jsr resident_test
+    beq @check_next
+    inc KANJI_TMP2
+@check_next:
+    inc KANJI_TMP3
+    inx
+    cpx #4
+    bne @check
+    lda KANJI_TMP2
+    beq @skip
+    ldy KANJI_PAGE_OFF
+    lda KANJI_PAGE,y      ; code_lo
+    sta KANJI_CODE_LO
+    lda KANJI_PAGE+1,y    ; code_hi
+    sta KANJI_CODE_HI
+    lda KANJI_PAGE+2,y
+    sta KANJI_CHR_TILES
+    lda KANJI_PAGE+3,y
+    sta KANJI_CHR_TILES+1
+    lda KANJI_PAGE+4,y
+    sta KANJI_CHR_TILES+2
+    lda KANJI_PAGE+5,y
+    sta KANJI_CHR_TILES+3
+    jsr upload_glyph
+@skip:
+    lda KANJI_PAGE_OFF
+    clc
+    adc #6
+    sta KANJI_PAGE_OFF
+    dec KANJI_PAGE_I
+    bne @entry
+@done:
+    rts
+
+; A = tile; Z=1 when the tile currently holds kana.
+resident_test:
+    sta KANJI_TMP1
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_TMP1
+    and #7
+    tax
+    lda bitmask,x
+    and KANJI_RESIDENT,y
+    rts
 
 ; ----------------------------------------------------------------------
 ; A = 10-31.  Switch PRG bank/outer bit with NMI inhibited.  Used by the
@@ -441,9 +1077,9 @@ meta_load:
     adc #22
     jsr bank_switch_outer
 
-    ldy #1
+    ldy #0
     lda ($10),y
-    sta KANJI_COUNT
+    sta KANJI_PAGES_LEFT
     lda $10
     clc
     adc #3
@@ -452,28 +1088,64 @@ meta_load:
     adc #0
     sta $11
 
+    lda #<KANJI_META
+    sta $12
+    lda #>KANJI_META
+    sta $13
+    ldx #2              ; 512 bytes
+@page:
     ldy #0
-@copy:
+@byte:
     lda ($10),y
-    sta KANJI_META,y
+    sta ($12),y
     iny
-    dec KANJI_COUNT
-    bne @copy
-@done:
+    bne @byte
+    inc $11
+    inc $13
+    dex
+    bne @page
+
     lda #<KANJI_META
     sta KANJI_META_PTR
     lda #>KANJI_META
     sta KANJI_META_PTR+1
     lda KANJI_TEXT_BANK
     sta text_window_x
-    jmp SET_BANK_B
+    jsr SET_BANK_B
+    jsr page_alloc
+    rts
 
 ; ----------------------------------------------------------------------
-; NMI hook: upload pending kanji/kana CHR data, then the normal palette.
+; NMI hook: upload pending kanji/kana CHR data, run the CHR scan, restore
+; dirty tiles when rendering is off.  nmi_entry_guard calls this at the top
+; of every NMI with rendering disabled; the later palette hook only runs the
+; jobs if the guard has not already done so.
 ; ----------------------------------------------------------------------
-nmi_hook:
+nmi_entry_ram:
+    lda nmi_busy
+    bne @busy
+    lda PPUSTATUS       ; clear the vblank flag before the CHR jobs
+    lda #1
+    sta KANJI_NMI_DONE
+    lda #0
+    sta PPUMASK
+    jsr nmi_jobs
+    jmp $EE83
+@busy:
+    jmp $EEE0
+
+nmi_jobs:
     jsr chr_upload
-    jmp $C2FF           ; flush_palette
+    jsr scan_job
+    jsr restore_job
+    rts
+
+nmi_hook:
+    lda KANJI_NMI_DONE
+    bne @skip
+    jsr nmi_jobs
+@skip:
+    jmp FLUSH_PALETTE
 
 chr_upload:
     lda KANJI_CHR_FLAG
@@ -550,15 +1222,3 @@ expand_tile:
 
 bitmask:
     .db $80,$40,$20,$10,$08,$04,$02,$01
-
-; ----------------------------------------------------------------------
-; NMI entry used when the outer bank is 1.  Upload pending CHR data even
-; when nmi_busy suppresses the normal sound/VRAM work.
-; ----------------------------------------------------------------------
-nmi_entry:
-    jsr chr_upload
-    lda nmi_busy
-    bne @skip
-    jmp $EE83
-@skip:
-    jmp $EEE0

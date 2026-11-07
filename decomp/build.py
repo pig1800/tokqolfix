@@ -133,6 +133,20 @@ def main() -> int:
         output.write_bytes(got)
     got = bytes(got)
     if kanji:
+        # Bank 13 draws party/name lists through the fixed-bank text_put_tile.
+        # Route those calls through the RAM kana-restore hook too.
+        hooks = (BUILD_DIR / "kanji" / "fixed_hooks.inc").read_text(encoding="utf-8")
+        kana_prepare = next(int(line.split("=")[1].strip().lstrip("$"), 16)
+                            for line in hooks.splitlines()
+                            if line.startswith("RAM_KANA_PREPARE"))
+        got = bytearray(got)
+        for addr in (0x9023, 0x905B):
+            off = 16 + 13 * 0x4000 + (addr - 0x8000)
+            if bytes(got[off:off + 3]) != bytes((0x20, 0x40, 0xD3)):
+                print(f"FAIL: bank13 call site ${addr:04X} changed", file=sys.stderr)
+                return 1
+            got[off:off + 3] = bytes((0x20, kana_prepare & 0xFF, kana_prepare >> 8))
+        got = bytes(got)
         print(f"built:  {output}")
         print(f"size:   {len(got)} bytes (expected {EXPECTED_KANJI_SIZE})")
         print(f"sha256: {sha256(output)}")

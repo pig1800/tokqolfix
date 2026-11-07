@@ -49,7 +49,7 @@ kanji_far:
     sta $12
     lda #>(KANJI_OVERLAY)
     sta $13
-    ldx #4                  ; 1024 bytes: code + padding
+    ldx #12                 ; 3072 bytes: code + padding
 @page:
     ldy #0
 @byte:
@@ -106,6 +106,8 @@ kanji_far:
     sta KANJI_KANA_READY+1
 
 @meta:
+    jsr RAM_SCAN_START
+    jsr RAM_SCAN_WAIT
     jsr RAM_META_LOAD
 
     lda KANJI_TMP2
