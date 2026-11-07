@@ -1,5 +1,52 @@
 # Changelog
 
+## 2026-11-07 — revision-7 execution: multi-page fix and QA sweep
+
+- Fixed the multi-page corruption: `page_find` left `Y` on `code_hi`, so
+  tile bytes were read one byte late and `$0D` entered page records.  `dey`
+  at `@found` makes `Y` point at code_lo.
+- Added cross-page tile reservations: a page now reserves the last three
+  visible lines from earlier pages (backward carry) and the kana tiles of
+  itself plus the next two pages (forward).  This keeps previous kanji in CHR
+  and prevents the next page's kana from restoring over them.
+- Kept `restore_exit`'s visible-tile skip (the history/name-entry screen uses
+  a different kana font, so a bank-9 restore there garbles the prompt) and
+  reduced the restore batch to four tiles per frame; `mask_restore` is 0.
+- Verified oath pages 1-3 (`oath_zoom.png` redone), border `$0D`, and a
+  four-line page with a line-4 kanji (`fourline_zoom.png`).
+- Added `tools/qa_sweep.py`: patches the history-prompt inline index, runs one
+  Mesen instance per index, truncates at page 1, and checks page records,
+  window/nametable collisions, kana CHR and frame tiles.  Full 872-index run:
+  772 clean, 89 empty records, 11 context-dependent (history menu/font)
+  failures; a neutral QA harness is still needed for a zero-failure gate.
+- Added `oath_settled.lua`, `oath_page3.lua` and `qa_sweep.py`.
+- Final hashes: original
+  `40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367`;
+  kanji `54fc79b849c69f984b257c62a55c3487ce5ec8596f2d253b01eea2d77f178d33`.
+
+## 2026-11-07 — planning iteration 7.1: emulator-only target
+
+- No EverDrive N8 is available. `PLAN.md` 7.1 makes Mesen the reference,
+  defers the hardware pass, and replaces it with emulator-provable
+  compatibility checks: random-RAM power-on, no PRG-register bit-4 writes,
+  a second emulator run. Field-list kana is decided (kana in map lists).
+
+## 2026-11-07 — planning iteration 7: gates re-verified, multi-page regression
+
+- Re-ran the revision-6 gates on a fresh build of `a14ab1c`: original
+  byte-identical; lint 7 ranges; `sram_watch` 0 hack writes of 21,923;
+  `mask_restore` 0 visible-scanline restores.
+- Found a regression the single-page checks could not see: the oath scene's
+  second page (`out/test/survey_1920.png`, zoom `out/test/oath_zoom.png`)
+  shows kanji drawn as mixtures of two glyphs, a damaged ば, and the bottom
+  border row (`$0D`, permanently reserved) overwritten by a kanji quadrant.
+  Consistent with a page-advance fault in the page-record pointer or the
+  uploaded bitmap. Repro: `state_ppu_dump.lua` on the oath save state.
+- `PLAN.md` revision 7: fix and prove page handling, fourth-line check,
+  message-warp QA sweep over all 872 indices with nametable/CHR assertions,
+  prompt list tags, slot 2/3 proof, hardware pass; section 4 lists what
+  needs the user.
+
 ## 2026-11-07 — revision-6 execution: ROM-resident runtime, no battery RAM
 
 - Replaced the battery-RAM/SRAM overlay with a **ROM-resident overlay**:

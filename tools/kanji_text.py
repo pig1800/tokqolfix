@@ -246,6 +246,8 @@ class Page:
     entries: list[tuple[int, int, int]] = field(default_factory=list)  # code, base
     used: set[int] = field(default_factory=set)
     kanji_order: list[int] = field(default_factory=list)
+    last_line_codes: list[int] = field(default_factory=list)
+    line_codes: list[list[int]] = field(default_factory=list)
 
 
 def parse_dtx(path: Path) -> list[Record]:
@@ -447,16 +449,20 @@ def page_from_bytes(data: bytes, extra_used: set[int] | None = None) -> tuple[li
     page = Page([])
     used: set[int] = set(base_used)
     kanji: list[int] = []
+    lines: list[list[int]] = [[]]
     i = 0
 
     def finish() -> None:
-        nonlocal page, used, kanji
+        nonlocal page, used, kanji, lines
         page.used = set(used)
         page.kanji_order = list(kanji)
+        page.line_codes = [list(line) for line in lines if line]
+        page.last_line_codes = list(lines[-1]) if lines else []
         pages.append(page)
         page = Page([])
         used = set(base_used)
         kanji = []
+        lines = [[]]
 
     while i < len(data):
         b = data[i]
@@ -466,6 +472,7 @@ def page_from_bytes(data: bytes, extra_used: set[int] | None = None) -> tuple[li
             code = ((b - 0xEC) << 8) | data[i + 1]
             if code not in kanji:
                 kanji.append(code)
+            lines[-1].append(code)
             i += 2
             continue
         if b in (0xEF, 0xF0, 0xF1, 0xF2) and i + 1 < len(data):
@@ -505,6 +512,10 @@ def page_from_bytes(data: bytes, extra_used: set[int] | None = None) -> tuple[li
             continue
         if b == 0xFC:
             finish()
+            i += 1
+            continue
+        if b in (0xFA, 0xFB):
+            lines.append([])
             i += 1
             continue
         if b >= 0xFA:
@@ -562,11 +573,16 @@ def extra_for(rec: Record) -> set[int]:
     return borrowed if found else set(SCENE_BORROW)
 
 
-def assign_page_tiles(page: Page, extra: set[int]) -> dict[int, tuple[int, int, int, int]] | None:
-    """Assign four free kana tiles to every distinct kanji on the page."""
+def assign_page_tiles(page: Page, extra: set[int],
+                      carry: set[int] | None = None) -> dict[int, tuple[int, int, int, int]] | None:
+    """Assign four free kana tiles to every distinct kanji on the page.
+
+    ``carry`` holds kanji tiles from the previous page's last line.  That
+    line stays visible while the next page draws, so it must not be reused.
+    """
     if len(page.kanji_order) > MAX_PAGE_ENTRIES:
         return None
-    reserved = set(page.used) | set(extra)
+    reserved = set(page.used) | set(extra) | set(carry or ())
     free = [tile for tile in range(128) if tile not in reserved]
     if len(free) < 4 * len(page.kanji_order) + PAGE_TILE_MARGIN:
         return None
@@ -574,8 +590,71 @@ def assign_page_tiles(page: Page, extra: set[int]) -> dict[int, tuple[int, int, 
             for i, code in enumerate(page.kanji_order)}
 
 
-def page_fits_static(page: Page, extra: set[int]) -> bool:
-    return assign_page_tiles(page, extra) is not None
+def page_future_used(pages: list[Page], index: int) -> set[int]:
+    """Kana tiles of this page and the next two pages.
+
+    The window keeps earlier lines visible while the next page draws, so a
+    kanji tile must not collide with kana that will be drawn shortly after
+    it.  Three pages cover the visible window for the short pages this game
+    uses around page breaks.
+    """
+    used: set[int] = set()
+    for page in pages[index:index + 3]:
+        used |= page.used
+    return used
+
+
+def assign_page_tiles(page: Page, extra: set[int], reserved_extra: set[int] | None = None) -> dict[int, tuple[int, int, int, int]] | None:
+    """Assign four free kana tiles to every distinct kanji on the page."""
+    if len(page.kanji_order) > MAX_PAGE_ENTRIES:
+        return None
+    reserved = set(page.used) | set(extra) | set(reserved_extra or ())
+    free = [tile for tile in range(128) if tile not in reserved]
+    if len(free) < 4 * len(page.kanji_order) + PAGE_TILE_MARGIN:
+        return None
+    return {code: tuple(free[i * 4:i * 4 + 4])
+            for i, code in enumerate(page.kanji_order)}
+
+
+def assign_pages_with_reserved(
+        pages: list[Page], extra: set[int]
+) -> list[tuple[dict[int, tuple[int, int, int, int]] | None, set[int]]]:
+    """Assign pages in order with both backward and forward tile reservations.
+
+    - ``carry``: the last three visible lines of earlier pages.  Their kanji
+      tiles must not be overwritten by this page's uploads.
+    - ``future``: kana tiles of this and the next two pages.  This page's
+      kanji must not sit on a tile that a nearby page will restore to kana.
+
+    Together these keep both the previous visible lines and the current page's
+    kana correct across a page break.
+    """
+    result: list[tuple[dict[int, tuple[int, int, int, int]] | None, set[int]]] = []
+    rolling: list[set[int]] = []
+    for i, page in enumerate(pages):
+        carry: set[int] = set()
+        for line in rolling[-3:]:
+            carry |= line
+        future = page_future_used(pages, i)
+        reserved_extra = carry | future
+        tiles = assign_page_tiles(page, extra, reserved_extra)
+        reserved = set(page.used) | extra | reserved_extra
+        result.append((tiles, reserved))
+        if tiles is None:
+            break
+        new_lines: list[set[int]] = []
+        for line_codes in page.line_codes:
+            line_tiles: set[int] = set()
+            for code in line_codes:
+                if code in tiles:
+                    line_tiles.update(tiles[code])
+            new_lines.append(line_tiles)
+        rolling = (rolling + new_lines)[-3:]
+    return result
+
+
+def assign_pages(pages: list[Page], extra: set[int]) -> list[dict[int, tuple[int, int, int, int]] | None]:
+    return [tiles for tiles, _ in assign_pages_with_reserved(pages, extra)]
 
 
 def page_token_width(tokens: list[str]) -> list[int]:
@@ -661,28 +740,38 @@ def build() -> int:
     for rec in records:
         extra = extra_for(rec)
         tokens = reflow(tokenize(rec.text))
+        page_tiles = None
         for _ in range(60):
-            pages_tokens = split_pages(tokens)
+            data = compile_tokens(tokens, cmap)
+            pages = page_from_bytes(data, extra)[0]
+            assignments = assign_pages(pages, extra)
+            if len(assignments) == len(pages) and all(t is not None for t in assignments):
+                rec.data = data
+                rec.pages = pages
+                page_tiles = assignments
+                break
             failed = None
-            for pi, p in enumerate(pages_tokens):
-                data = compile_tokens(p, cmap)
-                pages, _ = page_from_bytes(data + b"\xff", extra)
-                if any(not page_fits_static(page, extra) for page in pages):
-                    failed = pi
+            for i, tiles in enumerate(assignments):
+                if tiles is None:
+                    failed = i
                     break
             if failed is None:
-                break
-            tokens = split_failing_page(tokens, failed)
+                failed = min(len(pages) - 1, len(assignments))
+            token_pages = split_pages(tokens)
+            if failed >= len(token_pages):
+                failed = len(token_pages) - 1
+            try:
+                tokens = split_failing_page(tokens, failed)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"{rec.labels[:1]} page {failed + 1}: {exc}; "
+                    f"tokens={len(tokens)} pages={len(pages)} "
+                    f"text={rec.text[:80]!r}") from exc
         else:
             raise RuntimeError(f"{rec.labels[:1]}: could not fit after 60 splits")
 
-        rec.data = compile_tokens(tokens, cmap)
-        pages = page_from_bytes(rec.data, extra)[0]
         page_blobs = []
-        for page in pages:
-            tiles = assign_page_tiles(page, extra)
-            if tiles is None:
-                raise RuntimeError(f"{rec.labels[:1]}: page assignment failed")
+        for page, tiles in zip(rec.pages, page_tiles):
             blob = bytearray((len(page.kanji_order),))
             for code in page.kanji_order:
                 blob += bytes((code & 0xFF, code >> 8, *tiles[code]))
@@ -690,7 +779,6 @@ def build() -> int:
         if len(page_blobs) > MAX_PAGES:
             raise SystemExit(f"message has {len(page_blobs)} pages > {MAX_PAGES}")
         rec.meta_blob = bytes((len(page_blobs),)) + b"".join(page_blobs)
-        rec.pages = pages
 
     # Deduplicate identical message streams and page assignments.
     canon: dict[tuple[bytes, bytes], Record] = {}
@@ -798,12 +886,11 @@ def build() -> int:
     for rec in unique:
         extra = extra_for(rec)
         pages = page_from_bytes(rec.data, extra)[0]
-        for page in pages:
-            tiles = assign_page_tiles(page, extra)
+        assignments = assign_pages_with_reserved(pages, extra)
+        for page, (tiles, reserved) in zip(pages, assignments):
             if tiles is None:
                 over_capacity += 1
                 continue
-            reserved = set(page.used) | extra
             free = 128 - len(reserved) - 4 * len(page.kanji_order)
             min_free = min(min_free, free)
             if page.kanji_order:

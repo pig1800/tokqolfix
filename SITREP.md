@@ -1,13 +1,48 @@
-# SITREP — kanji target handoff (revision 3 + revision-4/5/6 addenda)
+# SITREP — kanji target handoff (revision 3 + revision-4/5/6/7 addenda)
 
-Date: 2026-11-07.  Baseline: `1a9abec` plus this revision-6 work.  The code
-baseline before the pivot was `b967d80`; the revision-5 evidence is in the
-section below.
+Date: 2026-11-07.  Baseline: revision-6 architecture plus this page-handling
+pass.  The code baseline before the pivot was `b967d80`; the revision-5
+evidence is in the section below.
 
 This is the handoff document for the next planning iteration (Fable).
 `PLAN.md` revision 3 contains the original work list; this file records what
 is actually implemented, measured, and still open so the plan can be revised
 from evidence instead of from the earlier assumptions.
+
+## Revision 7 addendum (2026-11-07) — multi-page fix
+
+The revision-6 runtime is unchanged.  Two regressions in the text compiler /
+page dispatch were fixed:
+
+- **`page_find` off-by-one.**  It left `Y` on the entry's `code_hi`; the
+  handler then copied `t1,t2,t3,next_code_lo` instead of `t0..t3`.  That is
+  why glyphs mixed and the border tile `$0D` appeared in page records.  `dey`
+  at `@found` fixes it.
+- **Cross-page visible lines.**  A page break leaves up to three lines from
+  earlier pages on screen.  The compiler now reserves, for each page, the
+  last three visible lines' kanji tiles (backward carry) and the kana tiles of
+  this page and the next two pages (forward).  Both are required; either
+  alone still mixes glyphs or restores kana over visible kanji.
+
+`restore_exit` still skips visible tiles: the history/name-entry screen uses
+a different kana font, so a bank-9 restore there garbles the prompt.  The
+restore queue is four tiles per frame, which keeps `mask_restore` at 0.
+
+Verified: oath pages 1-3 clean (`oath_zoom.png` redone), border `$0D`, a
+four-line page with a line-4 kanji (`fourline_zoom.png`), history prompt and
+name entry clean, 6,000-frame survey healthy.  Gates: `sram_watch` 0 hack
+writes, `iram_watch` 0 foreign writes, `mask_restore` 0, min SP `$18`/`$28`.
+
+`tools/qa_sweep.py` adds a message-warp sweep.  All 872 indices: 772 page-1
+clean, 89 empty records, 11 context-dependent failures (shop/battle/name
+font menus).  The history-prompt warp is not neutral, so a dedicated QA entry
+point is still needed for the plan's zero-failure 2.5 gate.  The sweep
+truncates each message at its first page break; per-page QA beyond page 1 is
+also still open.
+
+Final hashes: original
+`40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367`;
+kanji `54fc79b849c69f984b257c62a55c3487ce5ec8596f2d253b01eea2d77f178d33`.
 
 ## Revision 6 addendum (2026-11-07) — ROM-resident pivot implemented
 

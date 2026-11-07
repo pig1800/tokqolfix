@@ -212,6 +212,7 @@ page_find:
     sec
     rts
 @found:
+    dey                 ; Y must point at the entry's code_lo
     clc
     rts
 
@@ -520,7 +521,7 @@ restore_exit:
     jsr restore_kana_tile
     inc KANJI_TMP2
     lda KANJI_TMP2
-    cmp #8
+    cmp #4
     bcc @next
     lda #0
     sta KANJI_TMP2

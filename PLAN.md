@@ -1,233 +1,181 @@
 # Execution plan: kanji+kana text for Tenchi o Kurau (Rev 1)
 
-Revision 6, 2026-11-07, after the revision-5 attempt (commit `1a9abec`).
-This revision is a pivot. The evidence in section 1 shows the RAM-resident
-runtime cannot ship, so section 2 defines a ROM-resident design that needs
-about 100 bytes of internal RAM and no NMI code, and section 3 is the work
-list to get there. Earlier revisions are in git history; the renderer, SUROM
-expansion, trampolines, font and compiler are kept.
+Revision 7.1, 2026-11-07, after the revision-6 execution (commit `a14ab1c`).
+Section 1: what the pivot achieved, re-verified. Section 2: the regression
+that blocks "done". Section 3: work list. Section 4: decisions already made
+and what remains for the user. Earlier revisions are in git history; the
+design in revision 6 stands.
 
-Goal and platforms unchanged: every dialogue line, menu, table string and
-screen label in kanji+kana; Mesen and the original EverDrive N8.
+**Target for this phase: emulator only (Mesen).** The user has no EverDrive
+N8 at present. The hack must stay N8-compatible by construction (SUROM
+512 KiB, standard MMC1 behaviour, no emulator-only tricks), but no task is
+gated on hardware. Hardware verification is a later phase, done when an N8
+is available, after every emulator gate is green.
 
 ---
 
-## 0. Revision-6 execution results (2026-11-07)
+## 0. Revision-7 execution results (2026-11-07)
 
-Phase 1 is implemented. The runtime is now ROM-resident and uses no battery
-RAM, no NMI hooks and no CHR/nametable scans.
+The blocking multi-page regression is fixed and verified.
 
-| Task | Result |
+### Root cause
+
+`page_find` left `Y` on the entry's **code_hi** byte instead of code_lo, so
+`KANJI_EC` copied tile bytes one byte late: every glyph read the next entry's
+first tile plus the following entry's code_lo.  That produced the mixed
+glyphs and put `$0D` (a permanently reserved border tile) into page records.
+Fixed with `dey` at `@found`.
+
+The remaining visual mixing was cross-page: the window keeps up to three
+lines from earlier pages visible while the next page draws.  The compiler now
+reserves, for each page:
+
+- **backward**: the tiles of the last three visible lines of earlier pages;
+- **forward**: the kana tiles of this page and the next two pages.
+
+This keeps previous kanji in CHR and keeps the new page's kana from restoring
+over them.  `restore_exit` still skips visible tiles (the history/name-entry
+screen uses a different kana font, so restoring bank-9 kana there would
+garble the prompt); the restore queue batch is four tiles per frame to keep
+`mask_restore` at 0.
+
+### Verified
+
+| Check | Result |
 |---|---|
-| 1.1 no battery-RAM use | `tools/lua/sram_watch.lua`: 0 hack writes out of 21,923 SRAM writes over the 6,000-frame run. Bank 13 is byte-identical to the original. |
-| 1.2 overlay in text banks | 1,042-byte overlay at `$B800`, identical in banks 18-22; bank 15 gap block is 94 bytes; 7 patch ranges; bank 31 mirrors bank 15. |
-| 1.3 state and RAM stub | State at `$0131-$013F`, RAM stub at `$0140-$015F`, glyph half-buffer at `$0160-$016F`, dirty bitmap at `$0170-$017F`, scratch at `$01E0-$01E7`. `tools/lua/iram_watch.lua`: 0 foreign writes to the reserved ranges. |
-| 1.4 queue upload/restore | Glyphs are written through the game's `$0400` VRAM queue; one-page dirty bitmap restores kana at exit and before page reuse. `tools/lua/mask_restore.lua`: **0** visible-scanline PPUMASK restores. |
-| 1.5 static assignment | Compiler assigns four CHR tiles per kanji from the page's free kana set; page records carry the tile numbers; max 11 entries/page; `min_free_static = 4`; `pages_over_capacity = 0`. |
-| 1.6 survey / tags | `scene_borrow.tsv` contains 9 surveyed labels (oath scene = `$42-$5B`, most field/menu messages = none); compiler consumes it and falls back to the 26-tile worst case. Prompt list tags: 63 `menu`, 7 `savename`. |
-| 1.7 stack | Minimum SP at NMI entry `$18`, at overlay entry `$28`; both keep the stack below the state at `$0131` (`SP=$31`). |
+| Oath message pages 1-3 | clean; `oath_zoom.png` redone from the settled page 3 |
+| Border row | `$0D` intact through pages 1-3 |
+| Four-line page (b10_msg_130 page 1) | kanji on line 4, bottom border intact; no compiler rule needed |
+| `mask_restore` | 0 visible-scanline frames |
+| `sram_watch` | 0 hack writes of 20,683 game writes |
+| `iram_watch` | 0 foreign writes to the reserved ranges |
+| `stack_check` | min SP `$18` at NMI, `$28` at overlay entry |
+| History prompt / name entry / field survey | clean |
+| QA warp sweep | 872 indices: 772 page-1 clean; 89 empty records; 11 context-dependent (menus/font pages outside the neutral text window) |
 
-Verified screenshots on the final build: history prompt (`pp_0900`), history
-register prompt (`pp_0900` from `prompt_pages`), name-entry grid (`pp_1600`)
-and the field message `b10_msg_129` all render kanji+kana with intact map and
-menu tiles. The 6,000-frame survey completes without a hang. The map palette
-in the survey differs from the original run because the palette animation is
-at a different phase; the nametable and map tile numbers are identical.
+The 89 empty records are unused message-table entries with no text.  The 11
+remaining sweep failures are **not** a zero-failure gate: the history-prompt
+warp renders arbitrary messages in the history menu's font/context (shop and
+battle menus, name-entry font), so their kana cannot be compared to bank 9.
+The sweep tool is `tools/qa_sweep.py`; a neutral warp/QA harness is still
+needed for the plan's 2.5 gate.  The real oath and four-line scenes are
+verified separately above.
 
 Current hashes: original `40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367`;
-kanji `b1e33ab17ad4b41d4a1c6c34386aec0679b36eed3f7df149f2a71857b447bb4c`.
-Remaining work is the Phase 2 QA sweep, per-prompt field-list tags beyond the
-current heuristic, and the hardware/N8 pass.
+kanji `54fc79b849c69f984b257c62a55c3487ce5ec8596f2d253b01eea2d77f178d33`.
 
 ---
 
-## 1. Why the current runtime cannot ship
+## 1. Revision 6 achieved its architecture goals (re-verified)
 
-### 1.1 Battery RAM belongs entirely to the game
+Rebuilt and re-run on the committed tree:
 
-The executor found a 2 KiB save copy landing at `$6800`. Tracing the copy
-pointer at boot (`tools/lua/slot_ptr_watch2.lua`, original ROM, frames
-302-303) shows the game validating three save slots:
-
-| Pointer at slot check | Slot |
+| Gate | Result |
 |---|---|
-| `$6800` | history book 1 |
-| `$7000` | history book 2 |
-| `$7800` | history book 3 |
+| Original target | byte-identical |
+| `bank15_lint` | 7 ranges, bank 31 == bank 15 |
+| `sram_watch` | 0 hack writes out of 21,923 battery-RAM writes |
+| `mask_restore` | 0 PPUMASK restores on a visible scanline |
+| Internal RAM | only `$0131-$017F` and `$01E0-$01E7`, both audited free |
+| Compiler | 1,151 pages, max 11 entries, `pages_over_capacity=0`, overlay 2,048 bytes in banks 18-22 |
 
-The live game state is `$6000-$67FF` (cleared by `fill_ram_block` on a new
-game, summed into a checksum at `+6/+7`, signature `5S` at `+8/+9`). The
-whole 8 KiB is used. Consequences:
-
-- The RAM overlay at `$7002-$7BA6` sits inside books 2 and 3. Installing it
-  destroys a player's saved games there, and registering a book in slot 2
-  or 3 overwrites the overlay, whose reinstall then corrupts that slot.
-- Every test so far registered slot 1 and never touched slots 2-3, which
-  is why nothing was observed.
-- No hack state can live in battery RAM. Not scratch, not the kana copy,
-  not page records, not the overlay, not the `$7C00` save area.
-
-### 1.2 Internal RAM is nearly full
-
-`tools/lua/iram_audit.lua` over the 6,000-frame run on the original
-(title, prompts, name entry, oath scene, field with movement) records every
-address read or written in the candidate ranges:
-
-| Range | Untouched bytes |
-|---|---|
-| `$0100-$01FF` | `$0131-$017F` (79), `$01E0-$01EB` (12), `$010B-$0112` (8), `$0100-$0103` (4) |
-| `$03C0-$03FF` | none |
-| `$0700-$07FF` | none |
-
-`$0500-$05FF` is per-actor state and `$0600-$06FF` the inline-code buffer
-(the disassembly annotates both; the executor's relocation corrupted pages
-because of this). `$0180-$01DF` is the text engine's saved-tile buffer, so
-the stack is confined to `$01EC-$01FF`, about 20 bytes. `$0131-$017F` is
-safe only because the stack cannot reach it without first destroying that
-buffer, which the game never does.
-
-Budget for the hack: **79 + 12 bytes of internal RAM, zero battery RAM,
-and a stack that tolerates at most a few extra nested calls.**
-
-### 1.3 The scans cannot be made invisible
-
-Even at reduced batches the PPUMASK restore landed on visible scanlines,
-and the reduced build broke scene progression. With no RAM for an NMI job
-runner the question is moot: the new design performs no PPU reads at all.
+The runtime is ROM-resident, uses no battery RAM, no NMI code, no PPU
+reads. The history prompts, name entry, field command menu and map are
+clean. These are the properties that every earlier design lacked, and they
+are now structural rather than tested-for.
 
 ---
 
-## 2. ROM-resident design
+## 2. Regression: multi-page messages are broken
 
-Everything that was dynamic becomes static knowledge in the ROM, checked by
-tooling instead of discovered at runtime.
+`out/test/survey_1920.png` (the oath scene, second page of `b10_msg_126`;
+zoom in `out/test/oath_zoom.png`) shows:
 
-### 2.1 Where code lives
+- several kanji drawn as mixtures of two glyphs (願, 月, 日, 大, 魔, 覧);
+- one kana with dakuten damaged (ば);
+- the entire bottom border row of the window replaced by a kanji quadrant.
 
-- **Overlay in the text banks.** The runtime (dispatcher, kanji handler,
-  control store, exit restore, page-reuse restore) is assembled once at a
-  fixed address ($B800-$BFFF) and included identically in every text bank
-  (18-22). It is only ever called while a text bank is mapped, which is true
-  at every hooked site inside the text engine.
-- **Far-copy stub in internal RAM `$0140-$017F`** (64 bytes), installed
-  by the trampoline stub at each message open (copy from the text bank;
-  cheap). It switches to a font bank, copies and expands one 32-byte glyph
-  straight into VRAM-queue entries, and switches back to the text bank.
-  The same stub copies 8-byte kana rows from bank 9 for restores.
-- **State in `$0131-$013F` and `$01E0-$01EB`:** page-record pointer,
-  text bank, uploaded flags (one bit per page entry, ≤16 entries), two or
-  three temporaries. Nothing else.
-- **Fixed-bank gap `$C611-$C676`:** SUROM switcher (41 bytes), trampoline
-  stub (parses `F8 3A C6 bank addr meta`, installs the RAM stub, sets
-  `text_window_x`, maps the bank, jumps to the line loop; ~35 bytes), and a
-  redraw stub that re-maps the text bank before calling the overlay. The
-  NMI guards, signature check and `cell_check` are removed.
-- **No `$0600` far loader, no NMI hooks, no signatures.**
+The bottom border tile `$0D` is in the permanent reserved set, so the
+compiler cannot have assigned it. The runtime therefore wrote a glyph
+quadrant to a tile number it did not get from a valid record. The pattern
+fits a page-advance fault: after `<PAGE>` the page pointer or entry index
+lands at the wrong offset, tile numbers are read from the wrong bytes, and
+the uploaded bitmap is stale. Every screenshot the executor verified was a
+single-page message, which is why "done" was reported.
 
-### 2.2 Where tiles come from
-
-- **Compiler-assigned tiles.** Each page record in the text bank lists
-  `(code_lo, code_hi, tile0..tile3)`; the runtime never allocates. The
-  compiler chooses from the 128 kana tiles minus: permanent reserved set,
-  the page's own kana (including table and name insertions), the
-  **scene borrow set** for that message, and the **list set** for prompt
-  messages. Capacity failures are compiler errors.
-- **Scene borrow tags.** The survey showed scenes overwrite kana tiles
-  (`$42-$5B` in the oath scene). A scripted playthrough dumps CHR at every
-  message open and emits, per message label, the set of kana tiles that do
-  not hold their glyph. This file (`decomp/text/kanji_plan/scene_borrow.tsv`)
-  is compiler input. Messages not reached by the survey get the worst-case
-  26-tile allowance as today.
-- **List tags.** Prompts are tagged with the list drawn after them
-  (`party`, `item`, `officer`, `menu`, `savename`, `none`), from their
-  callers in banks 13/14/15. `savename` reserves the name-entry charset,
-  which is hiragana plus a few symbols, so the katakana block is free for
-  the two history prompts. This replaces the upper pool and the nametable
-  scan.
-- **Uploads through the game's VRAM queue** (`$0400`), the same path the
-  text engine uses for cells, flushed by the unmodified NMI handler within
-  the game's own budget. One kanji is four 16-byte entries (77 bytes); the
-  handler waits for queue space with `update_frame` as `text_render_cell`
-  does. No new PPU writes happen outside the game's flush.
-- **Restore at exit:** every tile listed in the message's page records
-  that is not referenced by the `$0180`/`$0300` buffers is rewritten from
-  the bank-9 font through the queue. Page-2 reuse keeps the single
-  `kana_prepare` site inside the text engine (`$D2BB`); the other seven
-  `kana_prepare` sites and the bank-13 post-assembly patches are removed,
-  because reservation tags make them unnecessary and they run with the
-  wrong bank mapped for a text-bank overlay.
-- **Rendering-off rule:** if the PPUMASK shadow shows rendering off at a
-  page boundary or at exit, skip the restore (the game is reloading CHR).
-
-### 2.3 Patch inventory after the pivot
-
-| Site | Purpose | Target |
-|---|---|---|
-| `$C4B7` | SUROM switcher jump | gap |
-| `$C611-$C675` | switcher, F8 trampoline, cell check | gap |
-| `$D28E` | extended dispatcher | overlay |
-| `$D2BB` | page-reuse restore | overlay |
-| `$D2C7` | control store (page advance) | overlay |
-| `$D1FA` | exit restore | overlay |
-| `$DBE7-$DBEA` | cell-buffer tile test | gap (`cell_check`) |
-
-Seven ranges instead of seventeen; bank 31 stays a mirror; no bank-13
-patches, no NMI patches and no redraw patch (the original redraw is correct
-because glyphs are never restored while a message is open).
-
-### 2.4 What this gives up
-
-- Runtime adaptation to scenes the survey did not reach. Replaced by the
-  worst-case allowance plus the QA render of all 872 messages, which asserts
-  in Lua that no assigned tile is referenced by the nametable outside the
-  window and that every kana tile the page uses still holds its glyph.
-- The upper-tile pool. Not needed once `savename` reservation exists.
-- Any hope of kanji in dense field lists (party/item names). Decision from
-  revision 5 stands: kana inside field lists, kanji everywhere else, unless
-  the user asks for the pattern-table split later.
+Repro: `tools/lua/state_ppu_dump.lua` loads the oath save state directly;
+advance one page and dump. No title-to-scene replay needed.
 
 ---
 
 ## 3. Work list (ordered)
 
-### Phase 1 — Pivot the runtime (blocking)
+### Phase 2a — Fix and prove page handling (blocking)
 
 | # | Task | Exit criterion |
 |---|---|---|
-| 1.1 | Remove all battery-RAM use from `kanji.inc`, `kanji_overlay.asm`, `kanji_build.py`. Build a variant with `sram_watch.lua` asserting zero hack writes to `$6000-$7FFF`. | Audit clean. Registering books in slots 2 and 3 on the original and the kanji ROM yields identical slot bytes. |
-| 1.2 | Assemble the overlay for a fixed text-bank address; include it in every text bank; shrink text per bank accordingly (add bank 20 if needed; the trampoline carries the bank). | Lint: overlay bytes identical across text banks; `pages_over_capacity=0`. |
-| 1.3 | RAM far-copy stub at `$0140-$017F`, state at `$0131-$013F`/`$01E0-$01EB`, installed by the trampoline stub in the gap. Remove the `$0600` loader, NMI guards, signature code, the seven extra `kana_prepare` sites and the bank-13 patches. | Patch inventory matches section 2.3; bank 31 mirror; `iram_watch.lua` on the kanji ROM shows no writes outside the reserved ranges and the game's own. |
-| 1.4 | Queue-based upload and restore; uploaded flags; exit restore skipping visible tiles; rendering-off rule. | `mask_restore.lua`: 0 visible-scanline frames on the kanji ROM. History prompt, name entry, oath scene, field menu clean. |
-| 1.5 | Compiler: static tile assignment from reserved ∪ page ∪ scene-borrow ∪ list sets; page records carry tiles; tag files for scene borrow and lists; errors on unfit pages. | Report shows per-message reservations and zero unfit pages. |
-| 1.6 | Survey tool: scripted playthrough that dumps CHR at every message open and writes `scene_borrow.tsv`. Start with the existing input sequences; extend as the playthrough grows. | Oath scene rows list `$42-$5B`; file consumed by the build. |
-| 1.7 | Stack check: record minimum SP on the kanji ROM over the survey; the live stack must stay below the state at `$0131`. | Measured and recorded in `STATUS.md`. |
+| 2.1 | **Done.** Debug the page advance: `page_find` Y was one byte late; compiler now reserves the last three visible lines and the next two pages' kana. | Oath pages 1-3 clean; border `$0D`; `oath_zoom.png` redone. |
+| 2.2 | **Done.** Four-line check on b10_msg_130 page 1: kanji on line 4, bottom border intact; no compiler rule or window shift needed. | `out/test/fourline_zoom.png`. |
+| 2.3 | **Done.** Multi-page and four-line scripts added: `oath_settled.lua`, `oath_page3.lua`, `qa_sweep.py`. | Scripts in `tools/lua`, listed in `STATUS.md`. |
 
-### Phase 2 — Harden
+### Phase 2b — QA sweep (the gate for everything after)
 
-QA renderer: open every message index in Mesen, and for each page assert
-(a) no assigned tile is referenced by either nametable outside the window,
-(b) every kana tile used by the page holds its glyph, (c) PPUMASK restore
-never lands on a visible scanline. Then: outer-bank checklist, `<CALL>` and
-`<JUMP>` messages, fourth-line check, EverDrive N8 with saves in all three
-slots.
+| # | Task | Exit criterion |
+|---|---|---|
+| 2.4 | **Done, with a caveat.** `make_survey_rom.py`-style warp generator in `tools/qa_sweep.py` patches bank 13 `$8B58/$8BDA/$8C38`; it also truncates the message at its first page break to keep page 1 stable. | One ROM per index generated on demand. |
+| 2.5 | **Partial.** Sweep ran all 872 indices: 772 clean page 1, 89 empty records, 11 context-dependent failures (shop/battle/name font menus). The history-prompt warp is not a neutral context; a dedicated QA entry point is needed for the zero-failure gate. | `out/qa/report.json`; neutral harness still open. |
+| 2.6 | Prompt list tags: the report shows 0 `party` and 0 `item`. Walk the `text_print_inline` callers in banks 13/14/15 that precede a party/item list and tag those prompts; drop `menu` where no menu follows. | Tag table in `kanji_text.py` with a caller address per entry. |
+| 2.7 | Scene-borrow coverage: extend the scripted playthrough as far as inputs allow and regenerate `scene_borrow.tsv`; the QA sweep's kana-intact assertion is the backstop for unsurveyed scenes. | Labels covered ≥ all event-scene messages reached by the playthrough. |
+| 2.8 | Save-slot proof: register a book in slot 2 and in slot 3 on both ROMs with the same inputs; compare `$6800-$7FFF` dumps. | Byte-identical. |
+
+### Phase 2c — Hardware-compatibility checks that can run in the emulator
+
+No N8 is available, so the hardware pass is deferred (section 4). What the
+emulator can still prove, and must:
+
+| # | Task | Exit criterion |
+|---|---|---|
+| 2.9 | Power-on with random RAM and random CHR RAM (Mesen "randomize RAM" and "random power-on state"), both ROMs: boot, both history prompts, oath scene, field message. The hack keeps no state across power-on, so this should be a formality; prove it. | Clean on 3 seeds. |
+| 2.10 | MMC1 behaviour the N8 implements faithfully: the kanji ROM must never write bit 4 of the PRG register (PRG-RAM disable on MMC1B) and must set the CHR-bank outer bit only through the switcher. Add a Mesen write-callback script on `$E000-$FFFF`/`$A000-$BFFF` register writes that logs any 5-bit value with bit 4 set reaching the PRG register. | Zero occurrences over the survey run. |
+| 2.11 | Run the full QA sweep (2.5) and the survey under Mesen's "NTSC, accurate PPU" default and once under FCEUX or Nestopia if installed, for a second mapper implementation. | Same results; any difference is investigated, not averaged. |
+
+The later hardware phase (when an N8 exists): boot, prompts, oath scene,
+field message, save in all three slots, power-cycle, load.
 
 ### Phase 3 — Script, tables, menus (unchanged)
 
-### Phase 4 — UI screens (unchanged)
+Proofread both `_fixed.dtx` files; move inline bank-15/13 menu and oath
+strings into indexed messages; convert WORD/PLACE/ITEM tables and name
+records; regenerate inventory and font. Decision pending on kana in field
+lists (section 4).
 
-### Phase 5 — Release (unchanged)
+### Phase 4 — UI screens, Phase 5 — release (unchanged)
 
 ---
 
-## 4. Risks
+## 4. Decisions made, and what remains for the user
 
-| Risk | Status |
-|---|---|
-| Save-slot corruption by the current build | Solved in 1.1: no hack write reaches `$6000-$7FFF`; slot 2/3 player save test still pending. |
-| Scene-borrow table incomplete | 9 labels surveyed; the 26-tile fallback covers the rest; QA assertions still needed. |
-| Stack headroom | Measured: min SP `$18` at NMI, `$28` at overlay entry; state starts at SP `$31`. |
-| Internal RAM `$0131-$017F` reached by the stack | Not observed; `iram_watch` shows no foreign writes. |
-| Queue capacity waits slow fast text | Same mechanism the game uses; measure typewriter at fastest speed. |
+Decided for this phase (the executor acts on these without asking):
+
+1. **Emulator-only target.** Mesen is the reference. Compatibility with the
+   EverDrive N8 is preserved by design rules (2.10) and verified later on
+   hardware. No task waits on an N8.
+2. **Kana inside field lists.** Party and item list entries drawn on the map
+   stay in kana; dialogue, prompts, menus and every other label use kanji.
+   This is the default for phase 3 table conversion. It can be revisited
+   with a pattern-table split later; nothing in phase 3 forecloses that.
+
+Still for the user, later:
+
+3. **Proofreading.** Phase 3 needs a reader of Japanese to check the
+   machine draft, especially archaic lines (`b10_msg_126` oath,
+   `b11_msg_031` divination) and names. The executor should not be the
+   sole judge of the Japanese; decide who does this when phase 3 starts.
+4. **Hardware pass** when an N8 is available, after all emulator gates are
+   green.
+5. The build is safe for saves, but the full-message QA gate is still open;
+   do not distribute until the Phase-2 sweep has a neutral harness and zero
+   failures.
 
 ---
 
@@ -238,21 +186,14 @@ python decomp\build.py                       # original, byte-identical
 python decomp\build.py --target kanji        # 512 KiB SUROM target + lint
 python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\sram_watch.lua    --name sram_watch
 python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\iram_watch.lua    --name iram_watch
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\mask_restore.lua  --name mask_kanji
+python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\mask_restore.lua  --name mask
 python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\stack_check.lua   --name stack
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\prompt_pages.lua  --name prompt_pages
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\town_kanji.lua    --name town
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\scene_survey.lua  --name survey_kanji
+python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\scene_survey.lua  --name survey
+python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\oath_settled.lua  --name oath
+python tools\qa_sweep.py --workers 4
 ```
 
-Survey build:
-
-```powershell
-python tools\make_survey_rom.py
-python tools\mesen_run.py out\test\survey_noupload.nes tools\lua\scene_borrow_kanji.lua --name borrow
-python tools\make_scene_borrow.py
-```
-
-Gates: `sram_watch` zero hack writes; `iram_watch` zero foreign writes;
-`mask_restore` zero visible-scanline frames; `stack_check` min SP below `$31`;
-`pages_over_capacity = 0`. Mesen runs always use a copied ROM name.
+Gates: `sram_watch` zero hack writes, `iram_watch` zero foreign writes,
+`mask_restore` zero visible-scanline frames, lint 7 ranges. The QA sweep is
+still context-dependent (see section 0); the real oath/four-line scenes are
+the page-handling gate. Mesen runs always use a copied ROM name.
