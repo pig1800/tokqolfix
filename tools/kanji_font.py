@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Build the 16x16 kanji font for the expanded target from DotGothic16."""
+"""Build the 16x16 kanji font for the expanded target from JF-Dot-Shinonome16.
+
+JF-Dot-Shinonome16 is a bitmap-derived TTF: at size 16 with the "lt" anchor it
+rasterises to pure 0/255 pixels on the 16x16 grid, so the threshold never
+produces 2-pixel strokes.  Glyphs fill the full cell like the game's own
+16x16 name glyphs (bank 1), so no offset is applied.
+"""
 from __future__ import annotations
 
 import argparse

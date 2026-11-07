@@ -226,9 +226,40 @@ page_alloc:
     clc
     adc #2
     sta KANJI_PAGE_EPTR
+
+    ; First take blank, unreferenced upper tiles.  They are never used by
+    ; the kana menus, so prompt kanji allocated here cannot collide with a
+    ; runtime name or menu drawn after the message opens.
+    lda #0
+    sta KANJI_PAGE_SCAN_HI
     lda #4
     sta KANJI_PAGE_ALLOC
-@alloc:
+@alloc_upper:
+    lda KANJI_PAGE_SCAN_HI
+    cmp #122                ; $80-$F9; $FA-$FF are control codes
+    bcs @alloc_lower
+    jsr upper_blank_test
+    beq @next_upper
+    lda KANJI_PAGE_SCAN_HI
+    jsr upper_screen_test
+    bne @next_upper
+    lda KANJI_PAGE_SCAN_HI
+    clc
+    adc #$80
+    ldx KANJI_PAGE_EPTR
+    sta KANJI_PAGE,x
+    inc KANJI_PAGE_EPTR
+    lda KANJI_PAGE_SCAN_HI
+    jsr upper_clear_blank
+    inc KANJI_PAGE_SCAN_HI
+    dec KANJI_PAGE_ALLOC
+    bne @alloc_upper
+    jmp @next_entry
+@next_upper:
+    inc KANJI_PAGE_SCAN_HI
+    jmp @alloc_upper
+
+@alloc_lower:
     lda KANJI_PAGE_SCAN
     cmp #128
     bcs @no_free
@@ -261,12 +292,12 @@ page_alloc:
     inc KANJI_PAGE_SCAN
     dec KANJI_PAGE_ALLOC
     beq @alloc_done
-    jmp @alloc
+    jmp @alloc_lower
 @alloc_done:
     jmp @next_entry
 @next_tile:
     inc KANJI_PAGE_SCAN
-    jmp @alloc
+    jmp @alloc_lower
 @no_free:
     lda #$0A
     ldx KANJI_PAGE_EPTR
@@ -285,6 +316,50 @@ page_alloc:
     beq @skip_dec
     dec KANJI_PAGES_LEFT
 @skip_dec:
+    rts
+
+; A = upper tile index 0-127.  Z=1 when the CHR tile is blank.
+upper_blank_test:
+    sta KANJI_TMP1
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_TMP1
+    and #7
+    tax
+    lda bitmask,x
+    and KANJI_UPPER_BLANK,y
+    rts
+
+; A = upper tile index 0-127.  Z=0 when the tile is on screen.
+upper_screen_test:
+    sta KANJI_TMP1
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_TMP1
+    and #7
+    tax
+    lda bitmask,x
+    and KANJI_SCREEN+16,y
+    rts
+
+; A = upper tile index 0-127.  Remove it from the blank pool.
+upper_clear_blank:
+    sta KANJI_TMP1
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_TMP1
+    and #7
+    tax
+    lda bitmask,x
+    eor #$FF
+    and KANJI_UPPER_BLANK,y
+    sta KANJI_UPPER_BLANK,y
     rts
 
 ; ----------------------------------------------------------------------
@@ -367,7 +442,10 @@ upload_glyph:
     sta KANJI_SRC
 @markloop:
     ldx KANJI_SRC
-    ldy KANJI_CHR_TILES,x
+    lda KANJI_CHR_TILES,x
+    cmp #$80
+    bcs @mark_upper
+    tay
     tya
     lsr a
     lsr a
@@ -384,11 +462,57 @@ upload_glyph:
     eor #$FF
     and KANJI_RESIDENT,x
     sta KANJI_RESIDENT,x
+    jmp @mark_next
+@mark_upper:
+    sec
+    sbc #$80
+    jsr upper_mark_dirty
+@mark_next:
     inc KANJI_SRC
     dec KANJI_TMP3
     bne @markloop
     lda #1
     sta KANJI_DIRTY_ANY
+    rts
+
+; A = upper tile index 0-127.  Record that the tile holds our glyph.
+upper_mark_dirty:
+    sta KANJI_TMP1
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_TMP1
+    and #7
+    tax
+    lda bitmask,x
+    sta KANJI_TMP0
+    ora KANJI_UPPER_DIRTY,y
+    sta KANJI_UPPER_DIRTY,y
+    lda KANJI_TMP0
+    eor #$FF
+    and KANJI_UPPER_BLANK,y
+    sta KANJI_UPPER_BLANK,y
+    rts
+
+; A = upper tile index 0-127.  Record that the tile is blank again.
+upper_mark_blank:
+    sta KANJI_TMP1
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_TMP1
+    and #7
+    tax
+    lda bitmask,x
+    sta KANJI_TMP0
+    ora KANJI_UPPER_BLANK,y
+    sta KANJI_UPPER_BLANK,y
+    lda KANJI_TMP0
+    eor #$FF
+    and KANJI_UPPER_DIRTY,y
+    sta KANJI_UPPER_DIRTY,y
     rts
 
 ; ----------------------------------------------------------------------
@@ -409,8 +533,9 @@ ctrl_store:
     rts
 
 ; ----------------------------------------------------------------------
-; Restore one kana tile from the SRAM font copy into CHR, waiting for the
-; NMI upload slot.  A = tile number (0-127).
+; Restore one tile into CHR, waiting for the NMI upload slot.
+; A = tile number.  Lower tiles (0-127) get the kana glyph back; upper
+; tiles ($80-$FF) are returned to zero so the blank pool stays reusable.
 ; ----------------------------------------------------------------------
 restore_tile:
     sta KANJI_BASE
@@ -419,6 +544,8 @@ restore_tile:
     rts                 ; NMI is off; the screen loader refreshes CHR
 @nmi_on:
     lda KANJI_BASE
+    cmp #$80
+    bcs @zero_upper
     sta KANJI_SRC
     lda #0
     sta KANJI_SRC+1
@@ -457,7 +584,18 @@ restore_tile:
     sta $13
     pla
     sta $12
+    jmp @upload
 
+@zero_upper:
+    lda #0
+    ldy #0
+@zero_tile:
+    sta KANJI_STAGE,y
+    iny
+    cpy #16
+    bne @zero_tile
+
+@upload:
     lda KANJI_BASE
     sta KANJI_CHR_TILES
     lda #1
@@ -468,6 +606,8 @@ restore_tile:
     bne @wait
 
     lda KANJI_BASE
+    cmp #$80
+    bcs @upper_done
     lsr a
     lsr a
     lsr a
@@ -483,6 +623,11 @@ restore_tile:
     and KANJI_DIRTY,y
     sta KANJI_DIRTY,y
     rts
+@upper_done:
+    sec
+    sbc #$80
+    jsr upper_mark_blank
+    rts
 
 ; ----------------------------------------------------------------------
 ; Message-exit restore.  Tiles referenced by the current text buffers stay;
@@ -495,7 +640,7 @@ restore_exit:
 @clr:
     sta KANJI_VISIBLE,x
     inx
-    cpx #16
+    cpx #32
     bne @clr
     ldx #0
 @buf1:
@@ -537,13 +682,46 @@ restore_exit:
     lda KANJI_TMP3
     cmp #128
     bne @loop
+
+    ; Upper tiles: keep the ones the text buffers still reference, return
+    ; the rest to zero so they can be allocated again by the next message.
+    lda #0
+    sta KANJI_TMP3
+@upper_loop:
+    lda KANJI_TMP3
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_TMP3
+    and #7
+    tax
+    lda bitmask,x
+    sta KANJI_TMP1
+    and KANJI_UPPER_DIRTY,y
+    beq @upper_next
+    lda KANJI_TMP1
+    and KANJI_VISIBLE+16,y
+    bne @upper_next
+    lda KANJI_TMP3
+    clc
+    adc #$80
+    jsr restore_tile
+@upper_next:
+    inc KANJI_TMP3
+    lda KANJI_TMP3
+    cmp #122
+    bne @upper_loop
+
     lda #0
     sta KANJI_DIRTY_ANY
     jmp $C47E           ; set_bank_current
 
 mark_visible:
-    cmp #128
+    cmp #$FA
     bcs @done
+    cmp #$80
+    bcs @upper
     sta KANJI_TMP0
     lsr a
     lsr a
@@ -556,6 +734,22 @@ mark_visible:
     ldy KANJI_TMP1
     ora KANJI_VISIBLE,y
     sta KANJI_VISIBLE,y
+    rts
+@upper:
+    sec
+    sbc #$80
+    sta KANJI_TMP0
+    lsr a
+    lsr a
+    lsr a
+    sta KANJI_TMP1
+    lda KANJI_TMP0
+    and #7
+    tay
+    lda bitmask,y
+    ldy KANJI_TMP1
+    ora KANJI_VISIBLE+16,y
+    sta KANJI_VISIBLE+16,y
 @done:
     rts
 
@@ -621,17 +815,36 @@ scan_start:
 @clr:
     sta KANJI_RESIDENT,x
     sta KANJI_SCREEN,x
+    sta KANJI_UPPER_BLANK,x
     inx
     cpx #16
     bne @clr
+    ldx #16
+@clr_upper:
+    sta KANJI_SCREEN,x
+    inx
+    cpx #32
+    bne @clr_upper
     sta KANJI_SCAN_POS
     sta KANJI_VRAM_POS
     sta KANJI_VRAM_POS+1
     sta KANJI_SCAN_DONE
     sta KANJI_VRAM_DONE
+    sta KANJI_SCAN_PHASE
+    sta KANJI_UPPER_RACTIVE
     lda #1
     sta KANJI_SCAN_ACTIVE
     sta KANJI_VRAM_ACTIVE
+    ; Restore upper tiles left over from the previous message before the
+    ; blank scan can see them.  The restore job runs ahead of the scan, so
+    ; every tile is zeroed before it is classified.
+    lda KANJI_DIRTY_ANY
+    beq @done
+    lda #0
+    sta KANJI_UPPER_RPOS
+    lda #1
+    sta KANJI_UPPER_RACTIVE
+@done:
     rts
 @abort:
     ldx #0
@@ -640,12 +853,21 @@ scan_start:
     sta KANJI_RESIDENT,x
     lda #0
     sta KANJI_SCREEN,x
+    sta KANJI_UPPER_BLANK,x
     inx
     cpx #16
     bne @all
+    ldx #16
+@all_upper:
+    lda #0
+    sta KANJI_SCREEN,x
+    inx
+    cpx #32
+    bne @all_upper
     lda #0
     sta KANJI_SCAN_ACTIVE
     sta KANJI_VRAM_ACTIVE
+    sta KANJI_UPPER_RACTIVE
     sta KANJI_SCAN_DONE
     sta KANJI_VRAM_DONE
     rts
@@ -653,11 +875,12 @@ scan_start:
 scan_wait:
     lda frame_counter
     sta KANJI_TMP0
-    lda #40
+    lda #80
     sta KANJI_SCAN_TILE
 @loop:
     lda KANJI_SCAN_ACTIVE
     ora KANJI_VRAM_ACTIVE
+    ora KANJI_UPPER_RACTIVE
     beq @done
     lda frame_counter
     cmp KANJI_TMP0
@@ -668,24 +891,42 @@ scan_wait:
     lda #0
     sta KANJI_SCAN_ACTIVE
     sta KANJI_VRAM_ACTIVE
+    sta KANJI_UPPER_RACTIVE
     sta KANJI_SCAN_DONE
     sta KANJI_VRAM_DONE
 @done:
     rts
 
 ; ----------------------------------------------------------------------
-; NMI: scan up to 8 CHR tiles per frame.
+; NMI: restore upper tiles, scan lower CHR, then scan both nametables.
 ; ----------------------------------------------------------------------
 scan_job:
     lda KANJI_SCAN_ACTIVE
     ora KANJI_VRAM_ACTIVE
+    ora KANJI_UPPER_RACTIVE
     beq @quick
     lda $12
     pha
     lda $13
     pha
+    lda KANJI_UPPER_RACTIVE
+    beq @lower
+    jsr upper_restore_job
+@lower:
     lda KANJI_SCAN_ACTIVE
     beq @vram
+    lda KANJI_VRAM_ACTIVE
+    beq @chr
+    ; Both scans are active: alternate frames so one NMI never pays for
+    ; both the CHR scan and the 128-byte nametable scan.
+    lda KANJI_SCAN_PHASE
+    bne @do_vram
+    inc KANJI_SCAN_PHASE
+    jmp @chr
+@do_vram:
+    dec KANJI_SCAN_PHASE
+    jmp @vram
+@chr:
     lda #8
     sta KANJI_NMI4
 @loop:
@@ -696,11 +937,12 @@ scan_job:
     inc KANJI_SCAN_POS
     dec KANJI_NMI4
     bne @loop
-    jmp @vram
+    jmp @exit
 @finish:
     lda #0
     sta KANJI_SCAN_ACTIVE
     sta KANJI_SCAN_DONE
+    jmp @exit
 @vram:
     lda KANJI_VRAM_ACTIVE
     beq @exit
@@ -714,7 +956,7 @@ scan_job:
     rts
 
 ; ----------------------------------------------------------------------
-; NMI: copy up to 64 nametable bytes per frame into KANJI_SCREEN.
+; NMI: copy up to 128 nametable bytes per frame into KANJI_SCREEN.
 ; ----------------------------------------------------------------------
 vram_scan:
     lda KANJI_VRAM_POS+1
@@ -723,7 +965,7 @@ vram_scan:
     lda KANJI_VRAM_POS
     sta PPUADDR
     lda PPUDATA         ; discard the buffered read
-    lda #64
+    lda #128
     sta KANJI_NMI4
 @byte:
     lda PPUDATA
@@ -733,7 +975,7 @@ vram_scan:
     inc KANJI_VRAM_POS+1
 @no_hi:
     lda KANJI_VRAM_POS+1
-    cmp #$04
+    cmp #$08
     bcs @finish
     dec KANJI_NMI4
     bne @byte
@@ -745,8 +987,10 @@ vram_scan:
     rts
 
 mark_screen_tile:
-    cmp #128
+    cmp #$FA
     bcs @done
+    cmp #$80
+    bcs @upper
     sta KANJI_NMI0
     lsr a
     lsr a
@@ -759,6 +1003,22 @@ mark_screen_tile:
     ldy KANJI_NMI1
     ora KANJI_SCREEN,y
     sta KANJI_SCREEN,y
+    rts
+@upper:
+    sec
+    sbc #$80
+    sta KANJI_NMI0
+    lsr a
+    lsr a
+    lsr a
+    sta KANJI_NMI1
+    lda KANJI_NMI0
+    and #7
+    tay
+    lda bitmask,y
+    ldy KANJI_NMI1
+    ora KANJI_SCREEN+16,y
+    sta KANJI_SCREEN+16,y
 @done:
     rts
 
@@ -832,6 +1092,83 @@ scan_one:
     ora KANJI_RESIDENT,y
     sta KANJI_RESIDENT,y
 @exit:
+    rts
+
+; ----------------------------------------------------------------------
+; NMI: return up to 4 upper tiles to zero per frame.
+; ----------------------------------------------------------------------
+upper_restore_job:
+    lda #0
+    sta KANJI_NMI2
+@loop:
+    lda KANJI_NMI2
+    cmp #4
+    beq @done
+    lda KANJI_UPPER_RPOS
+    cmp #128
+    bcs @finish
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_UPPER_RPOS
+    and #7
+    tax
+    lda bitmask,x
+    and KANJI_UPPER_DIRTY,y
+    beq @next
+    lda KANJI_UPPER_RPOS
+    jsr upper_zero_tile
+    inc KANJI_NMI2
+@next:
+    inc KANJI_UPPER_RPOS
+    jmp @loop
+@finish:
+    lda #0
+    sta KANJI_UPPER_RACTIVE
+@done:
+    rts
+
+upper_zero_tile:
+    sta KANJI_NMI3
+    sta KANJI_NMI0
+    lda #0
+    sta KANJI_NMI1
+    asl KANJI_NMI0
+    rol KANJI_NMI1
+    asl KANJI_NMI0
+    rol KANJI_NMI1
+    asl KANJI_NMI0
+    rol KANJI_NMI1
+    asl KANJI_NMI0
+    rol KANJI_NMI1
+    lda KANJI_NMI1
+    ora #$18
+    sta PPUADDR
+    lda KANJI_NMI0
+    sta PPUADDR
+    lda #0
+    ldx #16
+@write:
+    sta PPUDATA
+    dex
+    bne @write
+    lda KANJI_NMI3
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_NMI3
+    and #7
+    tax
+    lda bitmask,x
+    sta KANJI_NMI1
+    ora KANJI_UPPER_BLANK,y
+    sta KANJI_UPPER_BLANK,y
+    lda KANJI_NMI1
+    eor #$FF
+    and KANJI_UPPER_DIRTY,y
+    sta KANJI_UPPER_DIRTY,y
     rts
 
 ; ----------------------------------------------------------------------
@@ -980,7 +1317,7 @@ redraw_hook:
 @check:
     ldy KANJI_TMP3
     lda KANJI_PAGE,y      ; tile0..tile3
-    jsr resident_test
+    jsr needs_upload_test
     beq @check_next
     inc KANJI_TMP2
 @check_next:
@@ -1014,8 +1351,12 @@ redraw_hook:
 @done:
     rts
 
-; A = tile; Z=1 when the tile currently holds kana.
-resident_test:
+; A = tile; Z=1 when this glyph tile no longer holds our kanji.
+needs_upload_test:
+    cmp #$0A
+    beq @no            ; blank-slot marker
+    cmp #$80
+    bcs @upper
     sta KANJI_TMP1
     lsr a
     lsr a
@@ -1026,6 +1367,25 @@ resident_test:
     tax
     lda bitmask,x
     and KANJI_RESIDENT,y
+    rts
+@upper:
+    sec
+    sbc #$80
+    sta KANJI_TMP1
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_TMP1
+    and #7
+    tax
+    lda bitmask,x
+    and KANJI_UPPER_DIRTY,y
+    bne @no            ; still holds the glyph
+    lda #1
+    rts
+@no:
+    lda #0
     rts
 
 ; ----------------------------------------------------------------------
@@ -1112,7 +1472,69 @@ meta_load:
     lda KANJI_TEXT_BANK
     sta text_window_x
     jsr SET_BANK_B
+    jsr mark_sprite_tiles
+    jsr upper_pool_init
     jsr page_alloc
+    rts
+
+; ----------------------------------------------------------------------
+; Decide whether the upper half can be borrowed.  It is safe when no
+; upper tile is referenced by either nametable or by a sprite.  The CHR
+; content itself is not required to be blank: unreferenced scene graphics
+; are returned to zero at message exit and the game reloads CHR on screen
+; changes.  Active upper graphics keep the pool closed, so field/battle
+; prompts fall back to lower kana tiles.
+; ----------------------------------------------------------------------
+upper_pool_init:
+    lda #0
+    ldx #0
+@clr:
+    sta KANJI_UPPER_BLANK,x
+    inx
+    cpx #16
+    bne @clr
+    ldx #0
+@check:
+    lda KANJI_SCREEN+16,x
+    bne @done
+    inx
+    cpx #16
+    bne @check
+    ldx #0
+@set:
+    lda #$FF
+    sta KANJI_UPPER_BLANK,x
+    inx
+    cpx #15
+    bne @set
+    lda #$C0
+    sta KANJI_UPPER_BLANK+15
+@done:
+    rts
+
+; ----------------------------------------------------------------------
+; Mark upper CHR tiles used by OAM sprites.  Called at message open before
+; upper_pool_init; sprite tile numbers address the upper pattern table when
+; PPUCTRL selects $1000 for sprites.
+; ----------------------------------------------------------------------
+mark_sprite_tiles:
+    lda ppu_ctrl_shadow
+    and #$08
+    beq @done           ; sprites use the lower pattern table
+    ldx #0
+@loop:
+    lda $0200,x         ; sprite Y
+    cmp #$F0
+    bcs @next
+    lda $0201,x         ; sprite tile
+    jsr mark_screen_tile
+@next:
+    inx
+    inx
+    inx
+    inx
+    bne @loop
+@done:
     rts
 
 ; ----------------------------------------------------------------------

@@ -33,6 +33,8 @@ PATCH_SITES = {
     0xD2BB: bytes((0x20, 0x40, 0xD3)),   # jsr text_put_tile
     0xD2C7: bytes((0x9D, 0x00, 0x03)),   # sta $0300,x
     0xD388: bytes((0x20, 0x05, 0xD4)),   # jsr text_redraw_lines
+    0xDBE7: bytes((0xB9, 0x00, 0x03)),   # lda $0300,y
+    0xDBEA: bytes((0x10,)),              # bpl (bit-7 control test)
     0xEE7F: bytes((0xA5, 0xEC, 0xD0)),   # lda nmi_busy / bne
     0xEECB: bytes((0x20, 0xFF, 0xC2)),   # jsr flush_palette
 }
@@ -189,6 +191,10 @@ def build_bank15(hooks: bytes, hook_labels: dict[str, int],
 
     apply_patch(bank, 0xD388, bytes((0x20, fixed_labels["redraw_hook"] & 0xFF,
                                      fixed_labels["redraw_hook"] >> 8)))
+    # text_render_cell: allow tile numbers $80-$F9 through the control test.
+    cell_check = hook_labels["cell_check"]
+    apply_patch(bank, 0xDBE7, bytes((0x20, cell_check & 0xFF, cell_check >> 8)))
+    apply_patch(bank, 0xDBEA, bytes((0x90,)))   # bcc loc_DBEF
     apply_patch(bank, 0xD1FA, bytes((0x4C, fixed_labels["restore_exit"] & 0xFF,
                                      fixed_labels["restore_exit"] >> 8)))
     apply_patch(bank, 0xEE7F, bytes((0x4C, entry_guard & 0xFF, entry_guard >> 8)))

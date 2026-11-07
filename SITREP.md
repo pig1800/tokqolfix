@@ -1,4 +1,4 @@
-# SITREP — kanji target handoff (revision 3)
+# SITREP — kanji target handoff (revision 3 + revision-4 addendum)
 
 Date: 2026-11-07.  Commit: `a3f8b8d` (`Revision 3: runtime CHR cache,
 one-page prompt, restore policy`), pushed to `origin/master`.
@@ -7,6 +7,39 @@ This is the handoff document for the next planning iteration (Fable).
 `PLAN.md` revision 3 contains the original work list; this file records what
 is actually implemented, measured, and still open so the plan can be revised
 from evidence instead of from the earlier assumptions.
+
+## Revision 4 addendum (2026-11-07)
+
+`PLAN.md` revision 4 switched the font to JF-Dot-Shinonome16 and proposed
+blank upper-tile allocation. Evidence showed the history screen's upper CHR
+is not blank: 124 of 128 tiles `$80-$FF` hold the menu/name font. The
+implemented rule is therefore "unreferenced by both nametables and OAM",
+with the whole upper pool closed on map/portrait screens.
+
+Implemented in this pass:
+
+- `cell_check` at `$C64F` plus patches at `$DBE7/$DBEA`; tiles `$00-$F9`
+  now render and `$FA-$FF` stay controls. 17 lint ranges.
+- Upper free/dirty bitmaps, 32-byte screen/visible bitmaps, OAM sprite tile
+  marking, upper restore-to-zero, and upper-pool reuse at message open.
+- 2 KiB nametable scan at 128 bytes/frame, alternating with the 8-tile CHR
+  scan. Message-open scan is about 32 frames.
+- `tools/lua/nmi_budget.lua`: original max 10,132 / avg 2,786 cycles; kanji
+  max 15,833 / avg 3,430. Splitting the scans cut the peak from 21,636.
+
+Current build: original
+`40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367`;
+kanji `862d7f377d11050e3eb0f4b4118b6267140cf4d3705bbb913f596bd47d78d6bb`;
+overlay 2,981 bytes. The history prompt and runtime slot line are both clean
+in `out/test/ktown_1100.png` and `out/test/ktown_1240.png`.
+
+Still open: field prompts that fall back to lower tiles (the full
+menu/party/item union did not fit), redraw scrolling, conditional CHR
+rescan, and phase 3 content conversion.
+
+The sections below describe the revision-3 state and are retained for
+history. Where they conflict with this addendum or `STATUS.md`, the addendum
+and `STATUS.md` win.
 
 ---
 

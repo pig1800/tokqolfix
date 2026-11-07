@@ -10,7 +10,7 @@ import textdata
 
 ROOT = Path(__file__).resolve().parent.parent
 PLAN = ROOT / "decomp" / "text" / "kanji_plan"
-FONT_TTF = ROOT / "DotGothic16-Regular.ttf"
+FONT_TTF = ROOT / "JF-Dot-Shinonome16.ttf"
 INDEX_TSV = ROOT / "assets" / "fonts" / "kanji_index.tsv"
 
 KANJI_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")

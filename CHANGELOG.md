@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-11-07 — revision 4: upper-half prompts, 2 KiB nametable scan
+
+- Fixed the history save-slot collision by allocating prompt kanji from the
+  upper CHR half when the whole upper half is unreferenced by both
+  nametables and by OAM. The history screen's upper CHR is the menu/name
+  font, not blank; the allocator therefore treats "unreferenced" rather
+  than "all zero" as the safety condition.
+- Added `cell_check` at `$C64F` and patched `text_render_cell` at
+  `$DBE7/$DBEA` so tile numbers `$00-$F9` render and `$FA-$FF` stay controls.
+  Registered both ranges in `bank15_lint.py` (17 ranges).
+- Added upper free/dirty bitmaps, 32-byte screen/visible bitmaps, OAM sprite
+  tile marking, upper restore-to-zero at exit, and upper-pool reuse at
+  message open.
+- Extended the nametable scan to `$2000-$27FF` (2 KiB) at 128 bytes/frame and
+  alternated it with the CHR scan so one NMI never runs both. Message-open
+  scan is about 32 frames.
+- Added `tools/lua/nmi_budget.lua`. Measured over a 2,100-frame run:
+  original max 10,132 / avg 2,786 cycles; kanji max 15,833 / avg 3,430.
+  The split cut the kanji peak from 21,636 cycles.
+- Verified `prompt_pages.lua`, `town_kanji.lua` and a 6,000-frame
+  `scene_survey.lua` run on the new build. Overlay is 2,981 bytes.
+- Kanji ROM SHA-256 `862d7f377d11050e3eb0f4b4118b6267140cf4d3705bbb913f596bd47d78d6bb`;
+  original ROM remains byte-identical.
+
+## 2026-11-07 — font switched to JF-Dot-Shinonome16 (planning iteration 4)
+
+- DotGothic16 rendered 2-pixel strokes at 16 px (歴, 書, 軍 visibly heavy).
+  `tools/kanji_common.py` now renders from `JF-Dot-Shinonome16.ttf`, which
+  rasterises to pure 0/255 pixels at size 16 for all 718 glyphs; no offset
+  is applied because the game's own bank-1 name glyphs also fill the cell.
+- Regenerated `assets/fonts/kanji_16x16_ext.png` and `kanji_font.bin`.
+  Original target still byte-identical; kanji target SHA-256
+  `9cd038d459122b4394afa14ae0df589433792dbc12dde1c9b81350efa35c425a`.
+- Verified in Mesen: `out/test/pp_0900.png` (history prompt).
+- `PLAN.md` revision 4 records the next work list.
+
 ## 2026-11-07 — revision-3 pass: runtime cache, live scan, restore policy
 
 Baseline: `0be4f8a` plus the revision-3 `PLAN.md`.

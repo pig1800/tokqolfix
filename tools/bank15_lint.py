@@ -26,6 +26,8 @@ PATCHES = [
     (0xD2C7, 0xD2C9),   # jsr ctrl_store
     (0xD32B, 0xD32D),   # jsr kana_prepare (word handler)
     (0xD388, 0xD38A),   # jsr redraw_hook
+    (0xDBE7, 0xDBE9),   # jsr cell_check
+    (0xDBEA, 0xDBEA),   # bcc (tiles $00-$F9)
     (0xD4C0, 0xD4C2),   # jsr kana_prepare (name handler)
     (0xD57D, 0xD57F),   # jsr kana_prepare (item name)
     (0xD582, 0xD584),   # jsr kana_prepare (item name)

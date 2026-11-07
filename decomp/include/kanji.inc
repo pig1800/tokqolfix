@@ -34,6 +34,7 @@ KANJI_BUFX        = $6875
 KANJI_DIRTY       = $6880   ; 16-byte bitmap (1 = CHR tile was overwritten)
 KANJI_KANA_READY  = $6890   ; 2-byte signature: kana font copy is valid
 KANJI_RESIDENT    = $68A0   ; 16-byte bitmap (1 = CHR tile currently holds kana)
+KANJI_UPPER_BLANK = $68B0   ; 16-byte bitmap (1 = upper tile $80-$FF is all zero)
 KANJI_SCAN_POS    = $68C0
 KANJI_SCAN_ACTIVE = $68C1
 KANJI_SCAN_DONE   = $68C2
@@ -44,9 +45,15 @@ KANJI_NMI1        = $68E1
 KANJI_NMI2        = $68E2
 KANJI_NMI3        = $68E3
 KANJI_NMI4        = $68E4
-KANJI_VRAM_POS    = $68E5   ; 2 bytes: nametable scan offset ($0000-$03FF)
+KANJI_VRAM_POS    = $68E5   ; 2 bytes: nametable scan offset ($0000-$07FF)
 KANJI_VRAM_ACTIVE = $68E7
 KANJI_VRAM_DONE   = $68E8
+KANJI_UPPER_SCAN  = $68E9   ; upper-half CHR scan position (0-121 -> $80-$F9)
+KANJI_UPPER_ACTIVE = $68EA
+KANJI_UPPER_RPOS  = $68EB   ; upper-half restore position (0-127)
+KANJI_UPPER_RACTIVE = $68EC
+KANJI_PAGE_SCAN_HI = $68ED  ; upper-half allocation position within a page entry
+KANJI_SCAN_PHASE  = $68EF   ; 0 = CHR scan next, 1 = nametable scan next
 
 KANJI_PAGE        = $6920   ; runtime page: count + count*6 (code,t0..t3)
 KANJI_PAGE_USED   = $69F0   ; 16-byte bitmap of text/menu tiles reserved
@@ -59,10 +66,13 @@ KANJI_PAGES_LEFT  = $68C9
 KANJI_RESTORE_POS = $68CA
 KANJI_DIRTY_ANY   = $68CB
 KANJI_NMI_DONE    = $68CC
-; $68F0-$68FF is reused: KANJI_SCREEN while a message is open,
+
+; $68F0-$690F is reused: KANJI_SCREEN while a message is open,
 ; KANJI_VISIBLE at message exit (the two lifetimes do not overlap).
-KANJI_SCREEN      = $68F0   ; 16-byte bitmap of tiles visible in the nametable
-KANJI_VISIBLE     = $68F0   ; 16-byte bitmap built from the text buffers
+; Both are 32 bytes: lower tiles 0-127 first, upper tiles $80-$FF second.
+KANJI_SCREEN      = $68F0   ; 32-byte bitmap of tiles visible in the nametables
+KANJI_VISIBLE     = $68F0   ; 32-byte bitmap built from the text buffers
+KANJI_UPPER_DIRTY = $6910   ; 16-byte bitmap (1 = upper tile holds our kanji)
 
 KANA_FONT         = $6A00   ; 1 KiB copy of bank 9 $BA00-$BDFF
 KANJI_META        = $6E00   ; per-message page records (max 512 bytes)

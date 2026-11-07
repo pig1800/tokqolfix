@@ -70,6 +70,16 @@ far_stub:
     jmp $8317
 
 ; ----------------------------------------------------------------------
+; Cell-buffer tile test for text_render_cell.  Replaces the original
+; "lda $0300,y / bpl" pair: tiles $00-$F9 are tile numbers, $FA-$FF stay
+; control codes.  Carry is set for $FA-$FF so the patched caller uses bcc.
+; ----------------------------------------------------------------------
+cell_check:
+    lda $0300,y
+    cmp #$FA
+    rts
+
+; ----------------------------------------------------------------------
 ; Return with Z=1 when the RAM overlay signature is valid, Z=0 otherwise.
 ; ----------------------------------------------------------------------
 check_sig:
