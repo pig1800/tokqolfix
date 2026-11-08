@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-11-08 — planning iteration 10: play-test bugs reproduced; shadow page, sprite-0 switch, no RAM code
+
+- Reproduced all three play-test reports on the harness (`tools/lua/rev9_*.lua`,
+  `out/test/rev9diag/`): CHR-register-1 switch scanlines measured 143-156
+  (8% outside the border row); the band delay precedes the game's own
+  `nmi_mode` split loops; the history prompt turns to kana garbage the
+  frame the band flag clears (`f0900.png` vs `f0940.png`); the oath freezes
+  at frame 2,480 because `cell_check` lived at `$01EC-$01F7` inside the
+  main stack and was overwritten (`B9 00 03 C9 96 87`), which `iram_watch`
+  did not cover.
+- Surveys on the original (`out/test/ramsurvey/`): `$0400-$06FF` is live game
+  RAM (`$0601-$0634` is game RAM code), so the revision-9 `$0500` queue was
+  on used memory; OAM slot 0 is never used; DMC is unused; all CHR writes
+  come from `loc_C343` and the queue flush; the game has its own bank-lock
+  redo protocol (`set_bank_lock` / `restore_bank_after_nmi`); the town map
+  shares scanlines 144-175 with the dialogue window; fixed-bank bytes
+  `$FFE0-$FFEF` and `$E6B3-$E6C3` are never read on the path.
+- `PLAN.md` revision 10: band page becomes a shadow copy of the scene page
+  (resync on block writes, mirrored queue flush, kanji slots excluded);
+  mid-frame switch synced by a sprite-0 hit with a bounded fallback; hack
+  NMI code moved to PRG banks 23/24 reached through `call_hack` with the
+  game's lock protocol; all RAM-resident code removed; `nmi_mode` frames get
+  zero hack cycles; band lifetime tied to active kanji, not message end;
+  new gates `shadow_check`, `band_switch`, `bank_lock_check`, exec watch, and
+  the three play-test regressions.
+
+
 ## 2026-11-08 — revision-9 CHR-page pivot (work in progress)
 
 - Header byte 11 `$08` (16 KiB CHR RAM), `mmc1_init` control `$1E`

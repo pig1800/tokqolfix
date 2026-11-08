@@ -1,251 +1,342 @@
 # Execution plan: kanji+kana text for Tenchi o Kurau (Rev 1)
 
-Revision 9, 2026-11-08, after the revision-8 execution (commit `de9ef58`)
-and the user's play test. This revision is an architecture pivot on the CHR
-side, prompted by the user: give the dialogue window its own 4 KiB CHR page
-and switch to it mid-frame, so the hack never writes the scene's pattern
-table again. Section 1: why. Section 2: feasibility, measured. Section 3:
-the design. Section 4: work list. Section 5: what remains for the user.
-Target remains emulator-only (Mesen), with the hardware caveat in 3.6.
+Revision 10, 2026-11-08, after the revision-9 execution (commit `daba749`,
+kanji ROM `c8f61a09...`) and the user's play test. The user saw three things:
+a moving garbage line ("horizontal interrupt broken"), the history prompt
+turning to garbage right after it finished, and a crash after the oath. All
+three reproduce on the harness and are root-caused in section 0. Revision 10
+keeps the private CHR page but replaces its mechanics: no RAM-resident code,
+the band page is a shadow of the scene page instead of a kana-font copy, the
+mid-frame switch is synced by a sprite-0 hit instead of a cycle count, the
+hack no longer shares the `$0400` queue, and the hack's NMI code lives in a
+PRG bank mapped by the NMI with the game's own bank-lock protocol. Section 1
+lists the measured facts the design rests on, section 2 the design, section
+3 the work list, section 4 what remains for the user. Target is still
+emulator-only (Mesen); hardware caveat in 2.9.
 
 ---
 
-## 0. Revision-9 execution results (2026-11-08)
+## 0. Revision-9 play test, reproduced and root-caused
 
-Implemented on the final build:
+All evidence is from the current kanji ROM on the standard 4,000-6,000 frame
+input path (`tools/lua/rev9_diag.lua`, `rev9_freeze.lua`, `rev9_input.lua`,
+`rev9_nmioff.lua`; outputs in `out/test/rev9diag/`), and from the original
+ROM for the comparisons (`out/test/ramsurvey/`).
 
-| Item | Result |
-|---|---|
-| Header / MMC1 | 16 KiB CHR RAM, 4 KiB CHR mode, CHR reg 1 = page 1 at reset |
-| Fixed bank | $C611-$C676: SUROM switcher + NMI lock, far head, enter overlay, fixed CHR-reg-1 writer, NMI band stub, reset hook (102 bytes) |
-| Trampoline | $BF00 in banks 10/11; reads the five inline operands and installs the RAM band routines |
-| Band page | CHR page 2: 128 kana tiles copied from bank 9, six tiles per vblank (22 frames at the first message); kanji cache in the compiler-assigned low kana tiles |
-| Mid-frame switch | NMI entry flushes kanji to band; scene page restored before the visible frame; band selected at scanlines 144-146; field `bandwrites` log shows 144-146 |
-| Scene page | The hack no longer writes page 1; the field comparison against the old revision-8 build shows only the old build's kanji uploads removed |
-| Overlay | Dirty bitmap, restore, kana-prepare and `<JUMP>` restore machinery removed; `exit_clear`/jump hooks clear the band flag and restore the scene page |
-| Compiler | Reverted to the proven low-tile per-page assignment (message kana + frame reservations); 760 messages, 1,190 pages, max 10/page, oath 9 pages |
-| Gates | original byte-identical; kanji `c8f61a09...`; lint 13 ranges; `sram_watch` 0/5,491; `iram_watch` 0/15,948; `mask_restore` 0; stack SP `$18`/`$28` |
-| Visual | History prompt, name entry, oath pages 1-3 and four-line pages clean |
-
-Not yet green:
-
-1. **Field message frames.** The game and the hack share the `$0400`
-   queue. During a message the NMI flushes it with the band page selected,
-   so field CHR updates can land in the band page (blank frame tiles).
-   A split `$0500` hack queue with a deferred game flush was prototyped
-   but destabilised the message flow; it needs a larger fixed-bank gap
-   (or an overlay-resident NMI helper) and is not in this build.
-2. **Field QA state.** `tools/lua/town_menu.mss` is still the revision-8
-   state; the new engine must regenerate it on the new ROM. The field
-   harness is therefore not a valid gate for this build yet.
-3. **Band-switch gate / scene-page equality.** The manual `bandwrites`
-   log shows scanlines 144-146, but neither gate is automated in
-   `tools/qa_*.py`.
-4. **Oath length.** The low-tile assignment restores correctness but the
-   oath is 9 short pages, not the 3 projected for the 32-glyph cache.
-   The 32-glyph static cache conflicts with the engine's line-scroll
-   redraw; the compiler was reverted to the proven assignment.
-
-The original scene-page bug (garbled name input / previous page) is
-removed by construction: the hack never writes CHR page 1. The field
-frame-tile issue is in the shared queue, not the scene page.
-
----
-
-## 1. Why pivot now
-
-The executor's revision-8 gates are green (field QA 872/872, per-page QA
-1,356 pages, zero battery-RAM writes, zero visible-scanline restores), and
-the user still sees garbled name input and a page that garbles the previous
-one. The harness and the player disagree because the current design is a
-pile of case-specific protections over one shared 4 KiB table: per-page
-reservations, scene-borrow surveys, screen-tile surveys, prompt tags,
-dirty bitmaps, lazy restore, exit restore, `<JUMP>` restore, open-time
-restore. Each pass added one more and shrank capacity (the oath is now nine
-short pages). Any path the surveys did not walk is unprotected, and the
-player walks such paths. Correctness by construction is worth more than
-another survey.
-
----
-
-## 2. Feasibility, measured on Mesen
-
-Probe: `out/test/chr16_probe2.nes` = current kanji ROM with three changes.
-
-| Change | Bytes |
-|---|---|
-| NES 2.0 header byte 11 = `$08` (CHR RAM 16 KiB) | 1 |
-| `mmc1_init` control `$0E` → `$1E` (4 KiB CHR mode) | 1 per fixed-bank copy |
-| reset's second CHR loop `lda #$00` → `lda #$01` at `$F022` (register 1 = page 1) | 1 per fixed-bank copy |
-
-Result (`tools/lua/probe_c16e.lua` vs `probe_basetr.lua`, fresh save
-names): frames 900, 1100, 1240, 1720, 1960 and 2300 are pixel-identical to
-the current build through the history prompts, name entry and the oath
-scene with kanji. Mapper state confirms 4 KiB mode, `$1000` backed by
-physical page 1, and the SUROM outer bit still carried in CHR register 0.
-Lessons for the executor: Lua writes to mapper registers do not take
-effect, so probes must patch ROM; and a reused Mesen ROM name reuses its
-battery save and changes the flow.
-
----
-
-## 3. Design: a private CHR page for the text band
-
-### 3.1 Pages
-
-| Physical 4 KiB page | Role |
-|---|---|
-| 0 | sprites, as today (`$0000`) |
-| 1 | scene BG, as today (`$1000`): kana font, portraits, map chips, menus |
-| 2 | **band page**: kana font copy in `$00-$7F`, kanji cache in `$80-$FF` |
-| 3 | spare |
-
-CHR register 0 = `0 | outer`; CHR register 1 = `1 | outer` normally, `2 |
-outer` during the band scanlines of frames where a message is open. The
-hack never writes page 1. Name entry, menus, lists, maps, portraits are
-untouched by construction, which removes both play-test bugs and every
-restore and reservation mechanism.
-
-### 3.2 Mid-frame switch
-
-The dialogue window occupies rows 18-27 (scanlines 144-223). In the NMI,
-after the game's PPU work and `ppu_nmi_on`, if a message is open: delay to
-scanline ~146 and write CHR register 1 = `2 | outer`. At the next NMI
-entry write register 1 = `1 | outer` before any PPU work, so the top of
-the frame and all queue flushes see the scene page; then flush kanji
-uploads with register 1 = band page before restoring the scene page.
-Order inside NMI: entry → reg1 = band → OAM DMA, queue flush, palette →
-reg1 = scene → scroll, mask, `ppu_nmi_on` → delay → reg1 = band → sound.
-
-Tolerance: row 18 is the window's top border, drawn from frame tiles in
-the kana region, which are identical in pages 1 and 2, so a switch landing
-anywhere inside that row is invisible. Jitter budget is one row. The
-queue-flush length varies by up to ~2k cycles, so the delay is computed
-from the bytes flushed (or the flush is capped during messages). Calibrate
-with a Lua script that logs the PPU scanline at the register write; gate:
-every write within scanlines 144-151 across the oath scene, field messages
-and the fastest text speed.
-
-If `nmi_mode` is non-zero (the game's own split screens), do not switch;
-the compiler marks messages that can appear there, if any, as kana-only.
-
-CPU: the delay burns ~17k cycles per frame while a message is open. The
-main thread only runs the typewriter then; the sound driver runs after the
-switch, once per frame as before.
-
-### 3.3 Band page content
-
-- Filled once per power-on at the first message: 128 kana tiles from bank 9
-  through the VRAM queue (~11 frames), then never touched by the game.
-- Kanji cache: 32 glyphs. Consecutive pages use alternating halves (16
-  glyphs each), so lines left visible from the previous page keep their
-  glyphs. Current maximum is 10-11 per page.
-- Uploads: four 16-byte queue entries per glyph, flushed by the unmodified
-  handler while register 1 = band page.
-
-### 3.4 Code and RAM budget
-
-Fixed-bank gap (`$C611-$C676`, 102 bytes):
-
-| Item | Bytes |
-|---|---|
-| SUROM switcher writing CHR reg 0 = outer, reg 1 = (page byte + 1) \| outer, PRG = bank & `$0F`; preserves X/Y via a temp at `$01E8` | ~58 |
-| Trampoline head: `lda text_window_x; jsr set_bank_b; jmp $BF00` | 8 |
-| NMI entry stub: if message open, `jsr` RAM scene/band page routine | ~10 |
-| Band stub replacing `jsr ppu_nmi_on` at `$EEDD`: `jsr ppu_nmi_on`, if open `jmp` RAM delay routine | ~10 |
-
-`cell_check` and the `$DBE7/$DBEA` patch are removed. The trampoline body
-moves to `$BF00` in banks 10 and 11 (identical copies; both banks are
-pointer tables plus 8-byte stubs with ample room).
-
-Internal RAM (`$0131-$017F`, `$01E0-$01EB`, all audited free): state
-(~12 bytes), font-copy stub (32), band delay + page routines (~24), page
-byte, message-open flag, switcher temp.
-
-Overlay (text banks, `$B800+`): dispatcher, kanji handler, control store
-(page advance, uploaded-flag reset), band fill. Removed: dirty bitmap,
-`kana_prepare`, `restore_exit`, `jump_exit_13/14`, open-time restore,
-redraw re-upload, all reservation inputs.
-
-Patch inventory after the pivot: `$C4B7`, `$C611-$C676`, `$D28E`, `$D2C7`,
-`$EE7F`, `$EEDD`, plus the two 1-byte reset/init changes. Bank 31 stays a
-mirror.
-
-### 3.5 Compiler
-
-Static tile assignment from the band's 128 kanji tiles with alternating
-halves per page. Delete scene-borrow, screen-tile, prompt-tag and
-cross-page reservation logic. Re-page the script at the restored capacity
-(the oath returns to three pages).
-
-### 3.6 Hardware caveat
-
-No MMC1 board has 16 KiB CHR RAM; SUROM has 8. Emulators follow the NES 2.0
-CHR-RAM field (Mesen verified; FCEUX to check). EverDrive N8 support is
-unknown and must be tested when hardware exists; the fallback is a mapper
-port (MMC3 with CHR RAM and its scanline IRQ, which also removes the delay
-loop). The user accepted emulator-first.
-
----
-
-## 4. Work list (ordered)
-
-### Phase 1 — Cartridge and switch (blocking)
-
-| # | Task | Exit criterion |
+| Symptom | Measured cause | Evidence |
 |---|---|---|
-| 1.1 | Header, control, reset immediates; dual-register switcher with the page byte; `cell_check` removed. | Full run frame-identical to the current build (the probe result, now from the build). |
-| 1.2 | Trampoline body at `$BF00` in banks 10/11; gap head; lint updated. | All 872 messages open (reuse `qa_sweep`). |
-| 1.3 | NMI entry and band stubs; RAM delay routine; message-open flag set by the trampoline and cleared at every interpreter exit (`$D1F3`, `<JUMP>` path). | `tools/lua/band_switch.lua`: register-1 write scanline within 144-151 for every frame of the oath scene and a field message at every text speed. |
-| 1.4 | Band fill and kanji uploads with register 1 = band during flush; remove the restore machinery. | Oath scene and field messages render; `scene page CHR == original` at every sampled frame (new gate). |
-| 1.5 | Compiler: band assignment, alternating halves, reservation code deleted, script re-paged. | `pages_over_capacity=0`; oath = 3 pages. |
+| Garbage line that moves | The CHR-register-1 fifth write lands at scanlines 143-156, not 144-151. Histogram over 811 band frames: 144 x573, 145 x157, 154 x36, 156 x19, 147 x13, 143 x9, 146 x3, 155 x1. 8% of frames switch inside the text rows or the scene row, so part of a scanline is drawn from the other page. The delay is a fixed cycle count that starts after a variable amount of NMI work (queue flush length, palette upload). | `diag.txt` switch histogram |
+| Game's own splits broken | The band delay (about 17k cycles) runs before the game's split-screen loops at `loc_EF38`/`loc_EF94`, which execute whenever `nmi_mode` is non-zero (intro scroll in bank 7, officer scene in bank 13). The band stub has no `nmi_mode` check. The harness path never had both at once; the user's path does. | `bank15.asm` NMI listing; `surom_b15.asm` `band_stub` |
+| Prompt garbled after it finished | `exit_clear` clears `KANJI_BAND_ON` and writes CHR reg 1 = page 1 when the *message* ends, but the *window* stays on screen with its kanji positions now showing page-1 kana. | `f0900.png` (band on, correct) vs `f0940.png` (band off, garbage) |
+| Crash after the oath | `cell_check`/`cell_check_x` were installed at `$01EC-$01F7`, which is the main stack (`$01EC-$01FF`; the original audit shows the stack reaching `$01EC`). 72,734 stack writes hit that range in 4,000 frames. At frame 2,480 the renderer executed `jsr $01EC` with the bytes `B9 00 03 C9 96 87` (should end `FA 60`), ran stack garbage, never returned; NMI task timers stopped, game frozen on oath line 2. The original reaches `text_show_message` #5 at frame 3,290; the kanji build never does. `iram_watch` did not cover `$01EC-$01F7`, which is why the gate was green. | `nmioff.txt` line `f=2480 exec 01EC bytes=...`; `freeze.txt`; `input_k.txt` vs `input_o.txt` |
 
-### Phase 2 — Gates
+Three further findings that change the design:
 
-- `scene_page_check.lua`: at every sampled frame of the survey, physical
-  page 1 (`$1000-$1FFF` while register 1 = 1) equals the original ROM's
-  CHR at the same frame. This single assertion replaces the kana-intact,
-  frame-tile and outside-window checks.
-- `band_switch.lua` scanline gate; `mask_restore` 0; `sram_watch` 0;
-  `iram_watch` only reserved ranges; stack check.
-- QA sweep in both contexts for legibility (screenshots), now without
-  context-dependent failures by construction.
-- FCEUX run of the survey for 16 KiB CHR RAM support.
-- Random-RAM power-on; no PRG-register bit-4 writes; slot 2/3 proof.
+- **There is no free RAM page.** `$0400-$06FF` is all used by the game except
+  the single byte `$0600`; `$0601-$0634` is game RAM-resident code. The
+  revision-9 `$0500` hack-queue prototype wrote over live game RAM, which is
+  why it "destabilised the message flow". Free internal RAM remains exactly
+  `$0131-$017F`, `$01E0-$01EB`, `$010B-$0112`, `$0100-$0103`
+  (`ram_exec_survey.lua`, `survey.txt`).
+- **A kana-font copy is not enough for the band page.** The window is not
+  full-width. In the town the map's bricks are visible right of the window
+  on scanlines 144-175 (`town_o_4425.png`), and the blank tile `$FE` (upper
+  half) fills the rest of those rows in the oath and the town. Any tile the
+  scene shows on scanlines 144-223 must be identical in the band page.
+- **The field-frame problem was the shared queue.** With the band page
+  selected during the NMI flush, every game CHR write made while a message
+  is open (the cursor tile `$FF` every 16 frames, the oath's `$42-$5B`
+  overwrite, field transitions) went to page 2 and never reached page 1.
 
-### Phase 3 — Script, tables, menus; Phase 4 — UI; Phase 5 — release
-
-Unchanged, except that kanji outside the band (menus, status labels) now
-needs a per-screen decision: screens without scene graphics can map the
-band page for the whole frame; others keep kana.
-
----
-
-## 5. What remains for the user
-
-1. **Save states of the two bugs you saw.** In Mesen, at the garbled name
-   input and at the garbled previous page, save a state and drop the
-   `.mss` files in `out/user/`. They become regression cases; the pivot
-   should make them disappear, and the executor must prove it on your
-   states, not only on the harness paths.
-2. **Hardware caveat accepted?** 16 KiB CHR RAM on MMC1 is emulator-only
-   until tested on an N8; the fallback is a mapper port. Say so if that is
-   not acceptable, before phase 1 starts.
-3. Proofreading when phase 3 starts; hardware pass when an N8 exists.
-4. Do not distribute the current build.
+Executor claims checked: "CHR write scanline 144-146" is contradicted
+(143-156); `mask_restore` 0 still holds; `stack_check` `$18/$28` is a task
+stack value and is fine; `iram_watch` 0 was true but the watched range
+excluded the stack, where the RAM code was.
 
 ---
 
-## 6. Commands
+## 1. Facts the revision-10 design relies on (measured)
+
+| Fact | Value | Source |
+|---|---|---|
+| OAM slot 0 | Never used by the game: `$0200-$0203` = `F8 00 00 00` in all 400 samples | `dmc_oam_survey.lua`, `dmc_oam.txt` |
+| Sprite tile indices never referenced by visible sprites on the path | includes `$FF` (full list in the file) | `chr_writers.lua`, `chr_writers.txt` |
+| DMC | Unused: 1 write to `$4010-$4013` (reset), 0 enables. No DMA cycle stealing; timed loops are stable | same |
+| PPUMASK shadow | `$1E` in play (BG+sprites, no clipping), `$06` during fades | same |
+| CHR writers | Only two: the block writer `loc_C343` (`$C3C2`/`$C3D7` loops; 8,848 bytes to page 1, 2,816 to page 0, 2,304 more via `$C3D7`) and the queue flush `$D9E4` (1,664). Nothing else writes PPUDATA with a CHR address | same |
+| Game bank-lock protocol | `set_bank_lock` sets `bank_switch_lock`, writes, re-does if the NMI cleared it; `restore_bank_after_nmi` resets the MMC1 shift register and clears the lock if it finds it set. This is the game's own guard for the sound bank switch and the hack must use the same two routines for every mapper write | `bank15.asm` 934-1001 |
+| Task stacks | Four tasks with private stacks. Text-engine task stack bottoms at `$0113` on the original (min SP `$1B` at NMI), `$0119` on revision 9. `$01EC-$01FF` (main) and `$0104-$0130` (tasks) are stack | `iram_audit.txt`, `stack_check.txt` |
+| Fixed-bank space | Gap `$C611-$C676` (102). Candidates never read or executed on the path: `$FFE0-$FFEF` (16), `$E6B3-$E6C3` (17). Dead in the kanji target: `write_prg_bank` body `$C4BA-$C4CA` (17), because `$C4B7` jumps away | `fixed_reads.lua`, `fixed_reads.txt` |
+| Window geometry | Top border on screen row 18 (scanline 144) in the history prompt, oath and town; width varies (town x 8-176, oath 16-176) | screenshots |
+| Cursor tile | `draw_text_window` writes tile `$FF` (`$1FF0`) through the queue every 16 frames while a window is open | `bank15.asm` 4529 |
+| Border tile line row | To be read from bank 9 tiles `$6D-$6F` by the executor (needed for the sprite-0 row) | task 3.5 |
+
+---
+
+## 2. Design (revision 10)
+
+### 2.1 Pages and registers (unchanged from revision 9)
+
+Page 0 sprites, page 1 scene, page 2 band, page 3 spare. CHR reg 0 carries
+only the outer PRG bit (the switcher). CHR reg 1 = `1|outer` from NMI entry
+until the band line, `2|outer` from the band line to the next NMI. **The main
+thread never writes CHR reg 1**; the hack's block-writer hook (2.4) restores
+page 1 before any main-thread CHR write in case the NMI left page 2 selected
+and the game then disabled NMI.
+
+### 2.2 The band page is a shadow of the scene page
+
+Invariant: `page2[t] == page1[t]` for every tile `t` not in the active-kanji
+set **A** (the tiles holding the current message's kanji). Three mechanisms:
+
+- **Resync.** The block-writer hook sets `KANJI_PAGE1_DIRTY`. While DIRTY and
+  rendering is off (`ppu_mask_shadow & $18 == 0`) each NMI copies 48 tiles
+  page 1 to page 2 by PPUDATA read-back (16-byte tile, remember the PPUDATA
+  read buffer), driven by a cursor in RAM and skipping tiles in A. With
+  rendering on, 2 tiles per vblank. DIRTY clears when the cursor completes a
+  pass with no new write; a write during the pass sets it again. Boot and
+  every scene load are expected to complete the pass inside their
+  rendering-off window; the gate in 3.4 checks it.
+- **Mirror.** `flush_vram_queue` is hooked at its entry. The hack's copy of
+  the loop writes each entry to page 1 (reg 1 = 1 first) and writes entries
+  addressed in `$1000-$1FFF` a second time to page 2 unless the tile is in A.
+  Because the hook is at the routine's entry, both the NMI flush and the
+  main-thread `wait_vblank` flush are mirrored.
+- **Kanji.** Uploaded into page-2 slots by the NMI from the font bank
+  (2.6). Released slots go into a RESTORE bitmap and are re-copied from page 1
+  by the resync cursor.
+
+Consequence: when A is empty and nothing is pending, page 2 equals page 1
+and the band switch is invisible, so the band flag's lifetime is simple:
+
+- set at overlay entry (message open);
+- A is released (moved to RESTORE) on `<END>` (the window is about to be
+  erased), at the next overlay entry (previous message's A), and whenever the
+  NMI sees rendering off. A is **not** released on `<END_NOWAIT>`, `<CALL>`
+  or `<JUMP>` exits, so a prompt keeps its kanji until the screen changes or
+  the next message opens;
+- the band flag clears when A is empty and RESTORE is empty, or when
+  rendering is off.
+
+### 2.3 Mid-frame switch synced by sprite 0
+
+- NMI entry (hack code, band on): write OAM slot 0 before the DMA:
+  `y = 143 + r`, `tile = $FF`, `attr = $20` (behind background, palette 0),
+  `x = 16` (inside the window's top border, clear of the left 8 pixels). `r`
+  is the pixel row of the horizontal line inside the top-border tile (from
+  bank 9). Also rewrite page-0 tile `$FF` every band frame: plane 0 rows
+  `r` and `r+1` = `$FF`, everything else 0. The sprite is opaque only on the
+  border line and sits behind it, so it is invisible; the hit fires on
+  scanline `144 + r`.
+- Band stub at `$EEDD` (hack code): if `nmi_mode == 0`, band on and rendering
+  on: poll `bit PPUSTATUS` for bit 6 with a bounded loop whose bound is
+  about scanline 150; on hit or bound, write CHR reg 1 = `2|outer`; return.
+  The game's sound code then runs as it does now. Log the exit reason
+  (hit or bound) in a RAM byte for the gate.
+- Next NMI entry: reg 1 = `1|outer` before any PPU work.
+- `nmi_mode != 0`: the fixed-bank stubs skip both hack calls and the flush
+  hook runs the original loop, so the game's split-screen scenes get zero
+  added cycles. The flush hook's plain path sets DIRTY unconditionally so a
+  later resync catches any CHR write made there.
+
+### 2.4 Code placement: a hack PRG bank, no RAM code
+
+- **Hack banks 23 and 24** (new; banks 23-30 are unused). Each holds the
+  identical hack code at `$8000` (entry, band, reset, flush, scene-page
+  helper; target about 400 bytes) followed by glyph data: 718 glyphs x 32
+  bytes split across the two banks, so a glyph is always readable from the
+  bank whose code is running. The upload request names the bank. (Keeping
+  the data in banks 16-17 and putting the code there is equivalent; the only
+  rule is that code and the glyph it reads are in the same bank.)
+- **`call_hack`** (fixed bank, about 29 bytes): `sta KANJI_FN; lda
+  current_prg_bank; pha; lda KANJI_HACK_BANK; jsr map_hack; jsr $8000; pla;
+  jmp map_hack`, with `map_hack: lda KANJI_IN_NMI; bne @n; jmp set_bank_lock;
+  @n: jmp restore_bank_after_nmi`. The main-thread variant inherits the
+  game's lock-and-redo; the NMI variant inherits reset-if-locked. Inside the
+  hack bank, every CHR-register sequence issued from the main thread (the
+  scene-page helper, the mirror's page switches) sets `bank_switch_lock`,
+  writes, and redoes if the lock was cleared; sequences issued from the NMI
+  need nothing more because the entry already reset the shift register if a
+  main-thread sequence was interrupted.
+- **Fixed-bank stubs** (sizes approximate):
+  - switcher at `$C611`, as now minus `KANJI_NMI_LOCK` (about 36);
+  - `far_head` + `enter_text` unchanged (14), or `enter_text` replaced by
+    pushing `$B7FF` and jumping to `set_bank_b` so its `rts` lands at `$B800`;
+  - `nmi_entry` (patch `$EE93` `lda #2 / sta OAMDMA` to `jsr nmi_entry / nop
+    / nop`): `lda nmi_mode; bne @plain; lda #FN_ENTRY; jmp call_hack; @plain:
+    lda #2; sta OAMDMA; rts` (15). `FN_ENTRY` does OAM slot 0, the DMA, reg 1
+    = page 1, one upload or two copies, the sprite tile, and sets
+    `KANJI_IN_NMI`;
+  - `band_stub` (patch `$EEDD`): `jsr ppu_nmi_on; lda nmi_mode; bne @r; lda
+    #FN_BAND; jmp call_hack; @r: rts` (13). `FN_BAND` clears `KANJI_IN_NMI`
+    at its end;
+  - flush hook: `flush_vram_queue: jmp flush_hook` (3 in place) and
+    `flush_hook: lda nmi_mode; bne @plain; lda #FN_FLUSH; jmp call_hack;
+    @plain: inc KANJI_PAGE1_DIRTY; ldx vram_queue_read; jmp $D9B3` (17);
+  - block-writer hook: `loc_C343: jmp c343_hook` (3 in place) and
+    `c343_hook: inc KANJI_PAGE1_DIRTY; lda nmi_mode; bne @plain; lda
+    #FN_SCENE; jsr call_hack; @plain: lda PPUSTATUS; jmp loc_C343+3` (18).
+    `FN_SCENE` writes reg 1 = page 1 under the lock protocol. `call_hack`
+    swaps `$8000` while the block writer's source bank is mapped and
+    restores it before the body runs, which is why the hook is at the entry;
+  - reset hook (patch `$F036`): `lda #FN_RESET; jmp call_hack` (5).
+    `FN_RESET` clears all hack state, sets `current_prg_bank` to the bank the
+    original has mapped at `$F039` (verify in the trace; expected `$0E`), and
+    returns with A = 0, X = `$F0`.
+  - Removed: fixed `write_chr1`, both `cell_check` routines, every RAM
+    routine, `KANJI_NMI_LOCK`. Patches `$DBE7`, `$DBEA`, `$D420` go back to the
+    original bytes; the compiler asserts every assigned tile is below `$80`
+    (it already only assigns kana slots) so the original bit-7 control test
+    is correct and the line-scroll redraw conflict disappears.
+  - Budget: about 147 bytes against 102 + 17 (`$C4BA`) + 16 (`$FFE0`) + 17
+    (`$E6B3`) = 152 once task 3.1 confirms the two candidates. If it rejects
+    them, trim: `enter_text` via the `rts` trick (-6), drop X/Y preservation
+    in the switcher after checking the callers (-8), inline `band_stub`'s
+    checks into the hack bank at the cost of about 200 cycles in split
+    scenes (not preferred).
+
+### 2.5 RAM (state only)
+
+- `$0131-$013F`: text bank/address, page pointer, code, pages left, entry,
+  four tiles, uploaded flags (as now).
+- `$0140-$015F`: request block (`REQ_FLAG`, `REQ_BANK`, `REQ_GLYPH` lo/hi,
+  `REQ_TILES` x4), resync cursor, `PAGE1_DIRTY`, `IN_NMI`, `FN`, `HACK_BANK`,
+  `BAND_ON`, band exit reason, pending counters.
+- `$0160-$016F`: RESTORE bitmap (128 tiles).
+- `$0170-$017F`: active-kanji bitmap A (128 tiles).
+- `$01E0-$01EB`: scratch.
+- Nothing in `$01EC-$01FF`, `$0100-$0130`, `$0400-$06FF`. No code in RAM.
+  All of it is initialised by `FN_RESET`; random power-on RAM is a gate.
+
+### 2.6 Overlay (text banks 18-22)
+
+- Entry: move the previous message's A into RESTORE, clear A, set `BAND_ON`,
+  consume the text address, read the page record (as now). No band fill, no
+  RAM stub install, no CHR-register write, no queue use.
+- Per kanji: if not yet uploaded, post the request (bank, glyph index, four
+  tiles), set the four bits in A, loop on `wait_vblank` until `REQ_FLAG`
+  clears (the NMI serves one glyph per frame when the game's queue holds at
+  most 32 bytes), then render the tile numbers into `$0300` as now.
+- Page change: tiles of the finished page that the new page does not use go
+  to RESTORE; `<END>` moves all of A to RESTORE.
+- Exits: `exit_clear`/`jump_exit_13/14` keep only the bank handling; they no
+  longer touch `BAND_ON` or CHR registers.
+- `fill_band`, `copy_kana_row`, the stub source, `overlay_write_chr1` and
+  `wait_queue_empty` are deleted.
+
+### 2.7 Vblank budget
+
+Hack work per NMI stays under about 1,000 cycles: two bank-switch pairs
+(about 300), OAM slot 0 (12), sprite tile (about 150, band frames only), and
+either one glyph (64 PPUDATA writes, about 600) or two tile copies (about
+600), never both; the glyph is skipped when the game's queue holds more
+than 32 bytes. `mask_restore` must stay 0.
+
+### 2.8 Compiler
+
+Unchanged (revision-8 low-tile per-page assignment with forward and backward
+reservations) plus the `< $80` assertion. Capacity work (the oath's nine
+pages) is deferred until the gates are green; it is content, not stability.
+
+### 2.9 Hardware caveat (unchanged)
+
+No MMC1 board has 16 KiB CHR RAM. Emulator-only until tried on an N8; the
+fallback is a mapper port.
+
+---
+
+## 3. Work list (ordered)
+
+### Phase 1 — stabilise the private page (blocking)
+
+3.1 **Fixed-bank audit.** Extend `tools/lua/fixed_reads.lua` to the QA sweep
+    and the town path on the original; confirm `$FFE0-$FFEF` and
+    `$E6B3-$E6C3` are never read or executed; register the confirmed ranges
+    and `$C4BA-$C4CA` in `bank15_lint`.
+3.2 **No RAM code.** Delete `cell_check`, `cell_check_x`, the RAM band and
+    stub routines; restore `$DBE7`, `$DBEA`, `$D420`; add the compiler
+    assertion. Extend `iram_watch` to `$01EC-$01FF` (zero hack writes) and
+    add an exec watch: no execution anywhere in `$0000-$07FF` except the
+    game's `$0601-$0634`.
+3.3 **Hack bank and call path.** Banks 23/24 with code + glyph data;
+    `call_hack`/`map_hack`; the five stubs and `FN_RESET`; the bank-lock
+    rules of 2.4. Gate: `bank_lock_check.lua`, every MMC1 write sequence
+    (PRG, CHR 0, CHR 1) completes with five writes to one register with no
+    other mapper write in between, over the sweep.
+3.4 **Shadow page.** DIRTY, resync cursor, block-writer hook, mirrored flush,
+    RESTORE/A bitmaps. Gate `shadow_check.lua`: at every sampled band frame,
+    `page2[t] == page1[t]` for every `t` not in A that screen rows 18-27
+    reference (nametable rows resolved through the scroll registers); pages
+    0 and 1 equal the original ROM's CHR at the same point of the standard
+    path (align by `text_show_message` count, not frame number; page-0 tile
+    `$FF` excluded); boot and each scene load finish the resync before
+    rendering turns on (report any frame where DIRTY is set with rendering
+    on and the band on).
+3.5 **Sprite-0 switch.** OAM slot 0, page-0 tile `$FF`, bounded poll, border
+    line row `r` from bank 9. Gate `band_switch.lua`: fifth CHR-1 write
+    scanline per band frame, all within 144-151, at least 99% by hit, and
+    zero hack cycles in `nmi_mode != 0` frames (the bank-7 intro scroll and
+    the bank-13 officer scene frames pixel-identical to the original).
+3.6 **Glyph upload through the NMI and the band lifetime of 2.2.** Then the
+    three play-test regressions as gates: (i) history prompt: every frame
+    from completion until the screen change renders the window identically
+    to the completion frame; (ii) the standard 6,000-frame path reaches
+    `text_show_message` #5-#9 within 30 frames of the original's 3,290,
+    4,415, 4,685, 4,955, 5,226 and the oath advances page by page; (iii) the
+    town path opens and closes four dialogues with the map rows outside the
+    window pixel-identical to the original.
+
+### Phase 2 — gates on the final build
+
+`bank15_lint`; `sram_watch` 0; `iram_watch` 0 including `$01EC-$01FF`; exec
+watch; stack min SP at NMI at least `$13`; `mask_restore` 0; `band_switch`;
+`shadow_check`; `bank_lock_check`; CHR writers on the sweep are only `loc_C343`
+and the hack flush; OAM slot 0 and sprite tile `$FF` unused by the game on
+the sweep; `qa_pages` and `qa_field` regenerated on the new ROM (new
+`town_menu.mss` via `town_menu_save.lua`); random-RAM power-on (`$00`, `$FF`,
+random fills); no PRG-register bit-4 writes; second emulator (FCEUX with 16
+KiB CHR RAM support, or document the limitation); save slots 2/3 round-trip.
+
+### Phase 3 — script, tables, menus; Phase 4 — UI; Phase 5 — release
+
+Unchanged from revision 9. Capacity (fewer oath pages) belongs to phase 3.
+
+---
+
+## 4. What remains for the user
+
+- `out/user/` is still empty. Mesen save states at the moment of each bug
+  you see (`.mss`) are the best regression cases; drop them there with a
+  one-line note. The harness now reproduces all three reported bugs without
+  them, but your states cover paths the input scripts do not.
+- The hardware caveat (2.9) stands; say so if emulator-only is not
+  acceptable.
+- Do not distribute the current build (`c8f61a09...`): it freezes in the
+  oath on the harness path.
+- Proofreading waits for phase 3; the hardware pass waits for an N8.
+
+---
+
+## 5. Commands
 
 ```powershell
 python decomp\build.py
 python decomp\build.py --target kanji
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\probe_c16e.lua --name probe   # reference probe script
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\sram_watch.lua    --name sram
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\mask_restore.lua  --name mask
-python tools\qa_sweep.py --workers 4
+python tools\bank15_lint.py
+
+python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\rev9_diag.lua    --name diag
+python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\sram_watch.lua   --name sram
+python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\iram_watch.lua   --name iram
+python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\mask_restore.lua --name mask
+python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\stack_check.lua  --name stack
+python tools\mesen_run.py decomp\build\rom.nes       tools\lua\chr_writers.lua  --name chrw
 ```
 
-Always use a fresh `--name` per ROM variant: Mesen keys the battery save by
-ROM name, and a reused name replays the previous run's saves.
+Always use a fresh `--name` per ROM variant: Mesen keys the battery save on
+the ROM file name and a reused name replays the previous run's save.
+Diagnostic scripts added this iteration, all under `tools/lua/`:
+`rev9_diag.lua` (switch scanlines, stack writes into `$01EC-$01F7`,
+`nmi_mode` conflicts, crash PCs, screenshots), `rev9_freeze.lua`,
+`rev9_input.lua`, `rev9_nmioff.lua`, `ram_exec_survey.lua`,
+`dmc_oam_survey.lua`, `chr_writers.lua`, `fixed_reads.lua`,
+`window_rows_survey.lua`, `town_msg_shots.lua`.

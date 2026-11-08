@@ -1,11 +1,11 @@
 ; ======================================================================
-; Kanji-target text-engine overlay (revision 9, ROM-resident)
+; Kanji-target text-engine overlay (revision 10, ROM-resident)
 ;
 ; Assembled for $B800 and included identically in text banks 18-22.
-; The band page (CHR page 2) holds the kana font in $00-$7F and a
-; 32-glyph kanji cache in $80-$FF.  Consecutive pages alternate the two
-; 64-tile halves so lines left visible from the previous page keep their
-; glyphs.  The scene page (page 1) is never written by this code.
+; At message open the overlay copies CHR page 1 to page 2 and uploads
+; every glyph the message uses, all with NMI disabled.  The NMI then
+; only switches to page 2 at the window border.  No hack-bank code runs
+; on the task stack, which is only a few bytes deep.
 ;
 ; Page records in the text bank:
 ;   count byte, count * (code_lo, code_hi, tile0, tile1, tile2, tile3)
@@ -19,49 +19,43 @@
 .org $B800
 
 ; ----------------------------------------------------------------------
-; Message entry.  The trampoline has put the text bank in KANJI_TEXT_BANK,
-; the text address in KANJI_TEXT_ADDR and the metadata address in
-; KANJI_PAGE_PTR.  It mapped the text bank before jumping here.
+; Message entry.  The trampoline has put the text bank in
+; KANJI_TEXT_BANK, the text address in KANJI_TEXT_ADDR and the metadata
+; address in KANJI_PAGE_PTR, and mapped this bank.
 ; ----------------------------------------------------------------------
 overlay_entry:
     stx KANJI_BUFX
-    ldx #0
-@stub:
-    lda stub_src,x
-    sta KANJI_STUB,x
-    inx
-    cpx #(stub_end-stub_src)
-    bne @stub
 
-    ; Consume the text address before reusing $0132/$0133 for the band queue.
+    ; The text engine runs on a small task stack.  Do the CHR work on the
+    ; main stack: while a task runs, the scheduler's stack frames are dead.
+    lda #0
+    sta KANJI_SAVED_SP
+    tsx
+    cpx #$31
+    bcs @nostack
+    stx KANJI_SAVED_SP
+    ldx #$FF
+    txs
+@nostack:
+
+    lda #0
+    ldx #15
+@clear_a:
+    sta KANJI_A_BITS,x
+    dex
+    bpl @clear_a
+
+    jsr full_sync
+
+    lda #1
+    sta KANJI_MSG_OPEN
+
     lda KANJI_TEXT_ADDR
     sta text_ptr_lo
     lda KANJI_TEXT_ADDR+1
     sta text_ptr_hi
     lda #0
-    sta vram_queue_read
-    sta vram_queue_write
-
-    ; First message after power-on: the band page has not been filled.
-    ; The game's boot RAM clear leaves KANJI_BAND_READY zero.
-
-    ; Map the text band page (CHR page 2) and enable the NMI mid-frame
-    ; switch.  The trampoline has already mapped this text bank.
-    inc KANJI_NMI_LOCK
-    lda #2
-    jsr overlay_write_chr1
-    dec KANJI_NMI_LOCK
-
-    lda KANJI_BAND_READY
-    bne @band_ready
-    jsr fill_band
-@band_ready:
-    lda #1
-    sta KANJI_BAND_ON
-    lda #0
     sta text_col
-    sta KANJI_UPLOADED
-    sta KANJI_UPLOADED+1
 
     ; Read the page count and point at the first page record.
     lda KANJI_PAGE_PTR
@@ -80,128 +74,376 @@ overlay_entry:
     lda $11
     sta KANJI_PAGE_PTR+1
 
+    jsr preupload
+
+    ldx KANJI_SAVED_SP
+    beq @norestore
+    txs
+@norestore:
     ldx KANJI_BUFX
     pla
     pla
     jmp TEXT_LINE_LOOP
 
 ; ----------------------------------------------------------------------
-; Copy the 128 kana rows from bank 9 into CHR page 2.  Twelve tiles per
-; frame through the $0400 queue (228 bytes plus terminator).  Descending
-; order puts the window frame tiles ($6D-$7F) in the first chunks.
+; Copy all 128 page-1 tiles to page 2 (NMI off, CHR reg 1 = page 2),
+; write the sprite-0 pattern, then restore page 1 and NMI.
 ; ----------------------------------------------------------------------
-fill_band:
+full_sync:
+    jsr PPU_NMI_OFF
     lda #0
-    sta KANJI_BAND_READY
-    jsr wait_queue_empty
+    sta KANJI_BAND_ON
     lda #0
-    sta vram_queue_read
-    sta vram_queue_write
-    lda #127
-    sta KANJI_TMP0
-@chunk:
-    lda #0
-    sta vram_queue_read
-    sta vram_queue_write
-    ldx #0
-    ldy #6
-    sty KANJI_TMP1
-@tile:
-    lda KANJI_TMP0
-    jsr copy_kana_row
-    lda KANJI_TMP0
+    sta KANJI_SHADOW_CUR
+@loop:
+    ; Read the tile from page 1.
+    lda #1
+    jsr write_reg1_locked
+    lda KANJI_SHADOW_CUR
+    asl a
+    asl a
+    asl a
+    asl a
+    sta KANJI_OVL0
+    lda KANJI_SHADOW_CUR
     lsr a
     lsr a
     lsr a
     lsr a
     ora #$10
-    sta $0400,x
+    sta KANJI_OVL1
+    sta PPUADDR
+    lda KANJI_OVL0
+    sta PPUADDR
+    lda PPUDATA
+    ldx #0
+@read:
+    lda PPUDATA
+    sta KANJI_GLYPH_BUF,x
     inx
-    lda KANJI_TMP0
-    asl a
-    asl a
-    asl a
-    asl a
-    sta $0400,x
+    cpx #16
+    bne @read
+
+    ; Write it to page 2.
+    lda #2
+    jsr write_reg1_locked
+    lda KANJI_OVL1
+    sta PPUADDR
+    lda KANJI_OVL0
+    sta PPUADDR
+    ldx #0
+@write:
+    lda KANJI_GLYPH_BUF,x
+    sta PPUDATA
     inx
-    lda #16
-    sta $0400,x
-    inx
-    ldy #0
-@data:
-    lda KANJI_GLYPH,y
-    sta $0400,x
-    inx
-    iny
-    cpy #8
-    bne @data
+    cpx #16
+    bne @write
+    inc KANJI_SHADOW_CUR
+    lda KANJI_SHADOW_CUR
+    cmp #128
+    bne @loop
+
+    ; Sprite-0 pattern: page-0 tile $FF, opaque rows 1-2.
+    lda #$0F
+    sta PPUADDR
+    lda #$F0
+    sta PPUADDR
     lda #0
-    ldy #8
+    sta PPUDATA
+    lda #$FF
+    sta PPUDATA
+    sta PPUDATA
+    lda #0
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    ldx #8
 @zero:
-    sta $0400,x
-    inx
-    dey
+    sta PPUDATA
+    dex
     bne @zero
 
-    lda KANJI_TMP0
-    beq @last_tile
-    dec KANJI_TMP0
-    dec KANJI_TMP1
-    bne @tile
-    beq @flush
-@last_tile:
-    lda #$FF
-    sta KANJI_TMP0
-@flush:
-    lda #0
-    sta $0400,x
-    stx vram_queue_write
-    jsr wait_queue_empty
-    lda KANJI_TMP0
-    bpl @chunk
     lda #1
-    sta KANJI_BAND_READY
+    jsr write_reg1_locked
+    lda #1
+    sta KANJI_BAND_ON
+    jsr PPU_NMI_ON
     rts
 
-; A = kana tile 0-127.  Copy its 8 font bytes from bank 9 to KANJI_GLYPH.
-copy_kana_row:
-    sta KANJI_TMP0
-    lda #KANA_FONT_BANK
-    sta KANJI_SRC_BANK
-    lda KANJI_TMP0
+; ----------------------------------------------------------------------
+; Upload every page-record glyph to CHR page 2 with NMI disabled.
+; Sets the active-kanji bitmap for every assigned tile.
+; ----------------------------------------------------------------------
+preupload:
+    jsr PPU_NMI_OFF
+    lda #2
+    jsr write_reg1_locked
+    lda KANJI_PAGES_LEFT
+    sta KANJI_OVL2
+    lda KANJI_PAGE_PTR
     sta $10
-    lda #0
+    lda KANJI_PAGE_PTR+1
     sta $11
-    asl $10
-    rol $11
-    asl $10
-    rol $11
-    asl $10
-    rol $11
+@page:
+    ldy #0
+    lda ($10),y
+    sta KANJI_OVL3
+    inc $10
+    bne @p2
+    inc $11
+@p2:
+    lda KANJI_OVL3
+    beq @next_page
+@entry:
+    ldy #0
+    lda ($10),y
+    sta KANJI_CODE_LO
+    iny
+    lda ($10),y
+    sta KANJI_CODE_HI
+    iny
+    ldx #0
+@tiles:
+    lda ($10),y
+    sta KANJI_TILES,x
+    iny
+    inx
+    cpx #4
+    bne @tiles
     lda $10
     clc
-    adc #<KANA_FONT
+    adc #6
     sta $10
-    lda $11
-    adc #>KANA_FONT
-    sta $11
-    lda #8
-    sta KANJI_SRC_COUNT
-    jsr KANJI_STUB
+    bcc @adv
+    inc $11
+@adv:
+    lda #0
+    sta KANJI_OVL1
+@abits:
+    ldy KANJI_OVL1
+    lda KANJI_TILES,y
+    sta KANJI_OVL0
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda KANJI_OVL0
+    and #7
+    tax
+    lda bitmask,x
+    ora KANJI_A_BITS,y
+    sta KANJI_A_BITS,y
+    inc KANJI_OVL1
+    lda KANJI_OVL1
+    cmp #4
+    bne @abits
+
+    jsr load_and_upload
+    dec KANJI_OVL3
+    bne @entry
+@next_page:
+    dec KANJI_OVL2
+    bne @page
+    lda #1
+    jsr write_reg1_locked
+    jsr PPU_NMI_ON
+    rts
+
+; ----------------------------------------------------------------------
+; Load the glyph named by KANJI_CODE_LO/HI from bank 23/24 and upload
+; the four tiles in KANJI_TILES to CHR page 2.  Inline bank mapping keeps
+; the task-stack depth at four bytes.
+; ----------------------------------------------------------------------
+load_and_upload:
+    lda KANJI_CODE_HI
+    cmp #1
+    bcc @bank23
+    bne @bank24
+    lda KANJI_CODE_LO
+    cmp #$67
+    bcs @bank24
+@bank23:
+    lda #23
+    sta KANJI_OVL0
+    lda KANJI_CODE_LO
+    sta KANJI_OVL1
+    lda KANJI_CODE_HI
+    sta KANJI_OVL2
+    jmp @map
+@bank24:
+    lda #24
+    sta KANJI_OVL0
+    lda KANJI_CODE_LO
+    sec
+    sbc #$67
+    sta KANJI_OVL1
+    lda KANJI_CODE_HI
+    sbc #1
+    sta KANJI_OVL2
+@map:
+    lda #1
+    sta bank_switch_lock
+@retry_map:
+    lda KANJI_OVL0
+    and #$10
+    ldx #5
+@c0:
+    sta MMC1_CHR_BANK0
+    lsr a
+    dex
+    bne @c0
+    lda KANJI_OVL0
+    and #$0F
+    ldx #5
+@p0:
+    sta MMC1_PRG_BANK
+    lsr a
+    dex
+    bne @p0
+    lda bank_switch_lock
+    beq @retry_map
+    lda #0
+    sta bank_switch_lock
+
+    lda KANJI_OVL1
+    sta $12
+    lda KANJI_OVL2
+    sta $13
+    asl $12
+    rol $13
+    asl $12
+    rol $13
+    asl $12
+    rol $13
+    asl $12
+    rol $13
+    asl $12
+    rol $13
+    lda $13
+    clc
+    adc #$88
+    sta $13
+    ldy #0
+@copy:
+    lda ($12),y
+    sta KANJI_GLYPH_BUF,y
+    iny
+    cpy #32
+    bne @copy
+
+    ; Map the text bank back.
+    lda #1
+    sta bank_switch_lock
+@retry_back:
+    lda KANJI_TEXT_BANK
+    and #$10
+    ldx #5
+@c1:
+    sta MMC1_CHR_BANK0
+    lsr a
+    dex
+    bne @c1
+    lda KANJI_TEXT_BANK
+    and #$0F
+    ldx #5
+@p1:
+    sta MMC1_PRG_BANK
+    lsr a
+    dex
+    bne @p1
+    lda bank_switch_lock
+    beq @retry_back
+    lda #0
+    sta bank_switch_lock
+
+    ; Upload the four tiles from KANJI_GLYPH_BUF.
+    lda #0
+    sta KANJI_OVL0
+@tile:
+    ldy KANJI_OVL0
+    lda KANJI_TILES,y
+    asl a
+    asl a
+    asl a
+    asl a
+    sta KANJI_OVL1
+    lda KANJI_TILES,y
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora #$10
+    sta PPUADDR
+    lda KANJI_OVL1
+    sta PPUADDR
+
+    lda KANJI_OVL0
+    and #2
+    asl a
+    asl a
+    asl a
+    sta KANJI_OVL2
+    lda KANJI_OVL0
+    and #1
+    ora KANJI_OVL2
+    sta KANJI_OVL2
+    ldy KANJI_OVL2
+    ldx #8
+@plane:
+    lda KANJI_GLYPH_BUF,y
+    sta PPUDATA
+    tya
+    clc
+    adc #2
+    tay
+    dex
+    bne @plane
+    lda #0
+    ldx #8
+@z:
+    sta PPUDATA
+    dex
+    bne @z
+    inc KANJI_OVL0
+    lda KANJI_OVL0
+    cmp #4
+    bne @tile
+    rts
+
+; ----------------------------------------------------------------------
+; A = 1 or 2; write MMC1 CHR register 1 under the bank-switch lock.
+; ----------------------------------------------------------------------
+write_reg1_locked:
+    sta KANJI_REG1_TMP
+@retry:
+    lda #1
+    sta bank_switch_lock
+    lda KANJI_REG1_TMP
+    ldx #5
+@w:
+    sta MMC1_CHR_BANK1
+    lsr a
+    dex
+    bne @w
+    lda bank_switch_lock
+    beq @retry
+    lda #0
+    sta bank_switch_lock
     rts
 
 ; ----------------------------------------------------------------------
 ; Extended dispatcher for $EC-$F7 (replaces the original $D28E path).
 ; ----------------------------------------------------------------------
 text_dispatch:
-    cmp #$EC
-    bcc @normal
+    cmp #$EF
+    bcc @low
     cmp #$F8
     bcs @normal
     sec
-    sbc #$EC
+    sbc #$EF
     tay
-    sty KANJI_CODE_HI
     inc text_col
     lda #>TEXT_RETURN
     pha
@@ -213,20 +455,22 @@ text_dispatch:
     asl a
     tay
     lda dispatch_table,y
-    sta $EE
+    sta KANJI_OVL0
     lda dispatch_table+1,y
-    sta $EF
-    jmp ($00EE)
+    sta KANJI_OVL1
+    jmp (KANJI_OVL0)
+@low:
+    cmp #$EC
+    bcs KANJI_EC
 @normal:
     jmp TEXT_NORMAL_CHAR
 
 dispatch_table:
-    .dw KANJI_EC, KANJI_EC, KANJI_EC
     .dw $D334, $D30A, $D2FE, $D2F3, $D2ED, $D2E7, $D2E1, $D2DB, $D2CF
 
 ; ----------------------------------------------------------------------
-; One kanji escape: find the code in the current page record, upload the
-; glyph once, and write the four tile numbers into the text buffers.
+; One kanji escape: find the code in the current page record and write
+; the four tile numbers into the text buffers.
 ; ----------------------------------------------------------------------
 KANJI_EC:
     pla
@@ -239,7 +483,6 @@ KANJI_EC:
     jsr page_find
     bcs @blank
 
-    ; Y points at the entry's code_lo; copy tile0..tile3.
     iny
     iny
     ldx #0
@@ -251,26 +494,6 @@ KANJI_EC:
     cpx #4
     bne @copy_tiles
 
-    ; Upload once per page entry.
-    lda KANJI_ENTRY
-    and #7
-    tax
-    lda bitmask,x
-    sta KANJI_TMP0
-    lda KANJI_ENTRY
-    lsr a
-    lsr a
-    lsr a
-    tay
-    lda KANJI_TMP0
-    and KANJI_UPLOADED,y
-    bne @write_tiles
-    lda KANJI_TMP0
-    ora KANJI_UPLOADED,y
-    sta KANJI_UPLOADED,y
-    jsr upload_glyph
-
-@write_tiles:
     ldx KANJI_BUFX
     lda KANJI_TILES
     sta $0300,x
@@ -297,7 +520,6 @@ KANJI_EC:
 ; ----------------------------------------------------------------------
 ; Search the current page record for KANJI_CODE_LO/HI.
 ; Carry set when absent; otherwise Y = entry offset and KANJI_ENTRY = index.
-; Leaves $10/$11 pointing at the page record.
 ; ----------------------------------------------------------------------
 page_find:
     lda KANJI_PAGE_PTR
@@ -306,7 +528,7 @@ page_find:
     sta $11
     ldy #0
     lda ($10),y
-    sta KANJI_TMP0
+    sta KANJI_OVL0
     beq @notfound
     lda #0
     sta KANJI_ENTRY
@@ -326,138 +548,14 @@ page_find:
     adc #6
     tay
     inc KANJI_ENTRY
-    dec KANJI_TMP0
+    dec KANJI_OVL0
     bne @loop
 @notfound:
     sec
     rts
 @found:
-    dey                 ; Y must point at the entry's code_lo
+    dey
     clc
-    rts
-
-; ----------------------------------------------------------------------
-; Upload the current code to KANJI_TILES.
-; The font is 32 bytes per glyph.  Two 16-byte halves are copied through
-; the RAM stub; each half yields a left and a right 8x8 tile.
-; ----------------------------------------------------------------------
-upload_glyph:
-    lda KANJI_CODE_HI
-    lsr a
-    clc
-    adc #16
-    sta KANJI_SRC_BANK
-
-    lda KANJI_CODE_LO
-    sta $10
-    lda KANJI_CODE_HI
-    and #1
-    sta $11
-    asl $10
-    rol $11
-    asl $10
-    rol $11
-    asl $10
-    rol $11
-    asl $10
-    rol $11
-    asl $10
-    rol $11
-    lda $11
-    clc
-    adc #$80
-    sta $11
-
-    lda #16
-    sta KANJI_SRC_COUNT
-    jsr KANJI_STUB
-
-    jsr wait_queue_empty
-    ldx vram_queue_write
-    lda #0
-    sta KANJI_Q
-    lda #0
-    jsr queue_one_tile
-    lda #1
-    jsr queue_one_tile
-
-    ; Second half of the glyph.
-    lda $10
-    clc
-    adc #16
-    sta $10
-    lda $11
-    adc #0
-    sta $11
-    lda #16
-    sta KANJI_SRC_COUNT
-    jsr KANJI_STUB
-
-    lda #0
-    jsr queue_one_tile
-    lda #1
-    jsr queue_one_tile
-
-    lda #0
-    sta $0400,x
-    stx vram_queue_write
-    rts
-
-; ----------------------------------------------------------------------
-; Append one 16-byte tile to the VRAM queue.
-; Input: A = source parity (0/1), KANJI_Q = tile index (0-3), X = queue
-; write offset.  Output: X advanced, KANJI_Q incremented.
-; ----------------------------------------------------------------------
-queue_one_tile:
-    sta KANJI_TMP2
-    ldy KANJI_Q
-    lda KANJI_TILES,y
-    sta KANJI_TMP0
-
-    lda KANJI_TMP0
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    ora #$10
-    sta $0400,x
-    inx
-    lda KANJI_TMP0
-    asl a
-    asl a
-    asl a
-    asl a
-    sta $0400,x
-    inx
-    lda #16
-    sta $0400,x
-    inx
-
-    lda KANJI_TMP2
-    sta KANJI_TMP1
-    lda #8
-    sta KANJI_TMP3
-@plane0:
-    ldy KANJI_TMP1
-    lda KANJI_GLYPH,y
-    sta $0400,x
-    inx
-    lda KANJI_TMP1
-    clc
-    adc #2
-    sta KANJI_TMP1
-    dec KANJI_TMP3
-    bne @plane0
-
-    lda #8
-    sta KANJI_TMP3
-    lda #0
-@plane1:
-    sta $0400,x
-    inx
-    dec KANJI_TMP3
-    bne @plane1
-    inc KANJI_Q
     rts
 
 ; ----------------------------------------------------------------------
@@ -479,10 +577,10 @@ ctrl_store:
     ldy #0
     lda ($10),y
     asl a
-    sta KANJI_TMP1
+    sta KANJI_OVL0
     asl a
     clc
-    adc KANJI_TMP1
+    adc KANJI_OVL0
     clc
     adc #1
     clc
@@ -491,128 +589,32 @@ ctrl_store:
     lda KANJI_PAGE_PTR+1
     adc #0
     sta KANJI_PAGE_PTR+1
-    jsr clear_uploaded
     rts
 @no_next:
     lda #0
     sta KANJI_PAGES_LEFT
-    lda #<empty_record
-    sta KANJI_PAGE_PTR
-    lda #>empty_record
-    sta KANJI_PAGE_PTR+1
-    jsr clear_uploaded
-@done:
-    rts
-
-clear_uploaded:
-    lda #0
-    sta KANJI_UPLOADED
-    sta KANJI_UPLOADED+1
-    rts
-
-; ----------------------------------------------------------------------
-; Wait until the game's NMI has drained the VRAM queue.
-; ----------------------------------------------------------------------
-wait_queue_empty:
-    lda vram_queue_read
-    cmp vram_queue_write
-    beq @done
-    jsr WAIT_VBLANK
-    jmp wait_queue_empty
 @done:
     rts
 
 ; ----------------------------------------------------------------------
-; Text-engine exits: leave the band page for the NMI to unmap at the next
-; vblank (the visible frame is about to be redrawn by the game).
+; Text-engine exits: the message stream is closed but the window stays
+; on screen, so the band and the kanji set survive until the screen is
+; redrawn.
 ; ----------------------------------------------------------------------
 exit_clear:
     lda #0
-    sta KANJI_BAND_ON
-    lda #1
-    jsr overlay_write_chr1
+    sta KANJI_MSG_OPEN
     jmp SET_BANK_CURRENT
 
 jump_exit_13:
     lda #0
-    sta KANJI_BAND_ON
-    lda #1
-    jsr overlay_write_chr1
+    sta KANJI_MSG_OPEN
     jmp SET_BANK_13
 
 jump_exit_14:
     lda #0
-    sta KANJI_BAND_ON
-    lda #1
-    jsr overlay_write_chr1
+    sta KANJI_MSG_OPEN
     jmp SET_BANK_14
 
-; ----------------------------------------------------------------------
-; Write A to MMC1 CHR register 1 (five serial writes).  This copy lives in
-; the text bank because the band stub and the copied RAM routines run while
-; the overlay is mapped.
-; ----------------------------------------------------------------------
-overlay_write_chr1:
-    ldx #5
-@write:
-    sta MMC1_CHR_BANK1
-    lsr a
-    dex
-    bne @write
-    rts
-
-; ----------------------------------------------------------------------
-; text_redraw_lines high-tile hook.  Replaces the original
-; "lda $0319,x / bpl / lda #$0A" sequence:
-;   - low tile < $80: copy it to $0301,x (original behaviour);
-;   - kanji tile $80-$F9: leave the existing $0301,x untouched;
-;   - control $FA-$FF: write a blank tile.
-; ----------------------------------------------------------------------
-redraw_high:
-    lda $0319,x
-    cmp #$FA
-    bcs @blank
-    cmp #$80
-    bcs @skip
-    sta $0301,x
-    jmp $D42A
-@blank:
-    lda #$0A
-    sta $0301,x
-@skip:
-    jmp $D42A
-
-; ----------------------------------------------------------------------
-; Cell-buffer tile test for text_render_cell.  Replaces the original
-; "lda $0300,y / bpl" pair: tiles $00-$F9 are tile numbers, $FA-$FF stay
-; control codes.  Carry is set for $FA-$FF so the patched caller uses bcc.
-; ----------------------------------------------------------------------
-cell_check:
-    lda $0300,y
-    cmp #$FA
-    rts
-
-empty_record:
-    .db 0
-
 bitmask:
-    .db $80,$40,$20,$10,$08,$04,$02,$01
-
-; ----------------------------------------------------------------------
-; RAM font-copy stub.  Installed at KANJI_STUB ($0140) at message open.
-; Copies KANJI_SRC_COUNT bytes from $10/$11 in KANJI_SRC_BANK to
-; KANJI_GLYPH, then maps the text bank again.
-; ----------------------------------------------------------------------
-stub_src:
-    lda KANJI_SRC_BANK
-    jsr SET_BANK_B
-    ldy #0
-@copy:
-    lda ($10),y
-    sta KANJI_GLYPH,y
-    iny
-    cpy #16
-    bne @copy
-    lda KANJI_TEXT_BANK
-    jmp SET_BANK_B
-stub_end:
+    .db $80, $40, $20, $10, $08, $04, $02, $01

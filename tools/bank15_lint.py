@@ -21,17 +21,20 @@ OVERLAY_SIZE = 0x800
 PATCHES = [
     (0xC469, 0xC469),   # mmc1_init control: 4K CHR mode
     (0xC4B7, 0xC4B9),   # jmp SUROM switcher
-    (0xC611, 0xC676),   # switcher + far head + band stub + reset hook
+    (0xC611, 0xC676),   # switcher + far head + call_hack + NMI entry
+    (0xC4BA, 0xC4CA),   # block-writer hook (dead write_prg_bank body)
+    (0xC343, 0xC345),   # jmp c343_hook
     (0xD190, 0xD192),   # jsr jump_exit_13 (<JUMP>)
     (0xD198, 0xD19A),   # jsr jump_exit_14 (<JUMP>)
     (0xD1FA, 0xD1FC),   # jmp exit_clear
     (0xD28E, 0xD290),   # jmp text_dispatch
     (0xD2C7, 0xD2C9),   # jsr ctrl_store
-    (0xDBE7, 0xDBEA),   # jsr cell_check + bcc
-    (0xD420, 0xD422),   # jmp redraw_high
-    (0xEEDD, 0xEEDF),   # jsr band_stub
+    (0xE6B3, 0xE6C3),   # reset hook (zero table padding)
+    (0xEE93, 0xEE97),   # jsr nmi_entry + nop nop
+    (0xEF31, 0xEF33),   # jmp exit_stub (NMI epilogue start)
     (0xF022, 0xF022),   # reset CHR reg 1 = page 1
-    (0xF036, 0xF039),   # jsr reset_extra + nop
+    (0xF036, 0xF039),   # jsr reset_hook + nop
+    (0xFFE0, 0xFFEF),   # band stub (zero padding before the vectors)
 ]
 
 

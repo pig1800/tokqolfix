@@ -1,41 +1,38 @@
 ; ======================================================================
-; Patched fixed-bank support code for the kanji target (revision 9).
+; Patched fixed-bank support code for the kanji target (revision 10).
 ;
-; Lives in the audited unused gap $C611-$C676 of bank 15:
+; The dispatchers live in four audited gaps:
 ;
-;   SUROM write_prg_bank replacement (CHR reg 0 = outer, PRG = bank)
-;   far head: map text_window_x (10/11) and enter the trampoline at $BF00
-;   CHR register 1 write helper (5-write MMC1 sequence)
-;   NMI band stub ($EEDD): scene page, wait, band page at the window row
-;   reset hook: clear the band state on power-on/soft reset
+;   $C611-$C676  SUROM write_prg_bank, F8 far head, call_hack, NMI entry
+;   $C4BA-$C4CA  block-writer hook (dead original write_prg_bank body)
+;   $E6B3-$E6C3  reset hook (zero table padding, never read on the path)
+;   $FFE0-$FFEF  band hook (zero padding before the vectors)
 ;
-; The band delay loop itself lives in internal RAM ($0158/$0170) and is
-; installed by the bank-10/11 trampoline.  cell_check moved to the overlay.
+; There is no CHR-register write, no RAM code, no NMI lock and no queue
+; hook here.  The actual work lives in hack banks 23/24, reached through
+; call_hack with the game's own bank-lock protocol.
 ; ======================================================================
 .include "../../decomp/include/hardware.inc"
 .include "../../decomp/include/ram.inc"
 .include "../../decomp/include/kanji.inc"
-.include "../../decomp/build/kanji/fixed_hooks.inc"
 
+.base $C000
 .base $C611
-.org $C611
 
 ; ----------------------------------------------------------------------
 ; SUROM write_prg_bank.  A = low 4 PRG bits plus outer bit 4; writes the
-; outer bit through CHR bank 0, then the low four PRG bits.  NMI_LOCK
-; covers the serial sequence so the NMI band stub never writes CHR reg 1
-; in the middle of it.
+; outer bit through CHR bank 0, then the low four PRG bits.  X and Y are
+; preserved because the game's set_bank_lock calls this from every bank.
 ; ----------------------------------------------------------------------
-surom_write_prg_bank_b15:
-    pha
-    tya
+surom_write_prg_bank:
     pha
     txa
     pha
+    tya
+    pha
     tsx
-    lda $0103,x
+    lda $0103,x          ; saved A
     tay
-    inc KANJI_NMI_LOCK
     and #$10
     ldx #5
 @chr:
@@ -51,20 +48,18 @@ surom_write_prg_bank_b15:
     lsr a
     dex
     bne @prg
-    dec KANJI_NMI_LOCK
-    pla
-    tax
     pla
     tay
+    pla
+    tax
     pla
     lda #0
     rts
 
 ; ----------------------------------------------------------------------
-; F8 head.  The message stub in banks 10/11 is
+; F8 far head.  The message stub in banks 10/11 is
 ;   F8 <far_head> <text bank> <text addr> <meta addr>
-; Map the bank holding the message stub, then run the trampoline body at
-; $BF00 (identical in banks 10 and 11).
+; Map the bank holding the message stub and run the trampoline at $BF00.
 ; ----------------------------------------------------------------------
 far_head:
     lda text_window_x
@@ -72,55 +67,89 @@ far_head:
     jmp $BF00
 
 ; ----------------------------------------------------------------------
-; Enter the text overlay after the bank-10/11 body has stored the text
-; bank.  This routine stays in the fixed bank while SET_BANK_B swaps the
-; window, so the jump to $B800 executes from mapped-to-fixed code.
-; A = text bank.
+; call_hack.  A = function number.  Map hack bank 23, call $8000, then
+; restore the bank that was current.  The entry/exit mapper uses the
+; game's lock protocol: set_bank_lock on the main thread, and
+; restore_bank_after_nmi inside the NMI.
 ; ----------------------------------------------------------------------
-enter_text:
-    jsr SET_BANK_B
-    jmp RAM_OVERLAY_ENTRY
+call_hack:
+    sta KANJI_FN
+    lda current_prg_bank
+    pha
+    lda #23
+    jsr map_hack
+    jsr $8000
+    pla
+    jmp map_hack
+
+map_hack:
+    ldx KANJI_IN_NMI
+    bne @nmi
+    jmp SET_BANK_LOCK
+@nmi:
+    jmp RESTORE_BANK_AFTER_NMI
 
 ; ----------------------------------------------------------------------
-; NMI band stub, reached from the patched $EEDD call.
-; Always enables NMI first; while a message is open and no bank switch is
-; in flight, run the RAM scene/delay/band routine.  That routine returns
-; to $EEE0 through this call's return address.
+; NMI entry, called where the original writes OAMDMA.  In split-screen
+; frames (nmi_mode != 0) run the original DMA and nothing else.  In
+; normal frames enter FN_ENTRY in the hack bank with IN_NMI set.
 ; ----------------------------------------------------------------------
-band_stub:
-    jsr PPU_NMI_ON
-    lda KANJI_BAND_ON
-    beq @done
-    lda KANJI_NMI_LOCK
-    bne @done
-    jmp KANJI_BAND_RAM
-@done:
+nmi_entry:
+    lda nmi_mode
+    bne @plain
+    lda #1
+    sta KANJI_IN_NMI
+    lda #CALL_HACK_FN_ENTRY
+    jmp call_hack
+@plain:
+    lda #2
+    sta OAMDMA
     rts
 
-; ----------------------------------------------------------------------
-; Write A to MMC1 CHR register 1 (five serial writes).  The fixed-bank
-; copy is used by the RAM band routines so they work while any PRG bank
-; (including the font bank) is mapped.
-; ----------------------------------------------------------------------
-write_chr1:
-    ldx #5
-@write:
-    sta MMC1_CHR_BANK1
-    lsr a
-    dex
-    bne @write
-    rts
+.base $C4BA
 
 ; ----------------------------------------------------------------------
-; Reset hook.  The reset code jumps here with A=0 requested and expects
-; A=0, X=$F0 on return.  Clear the band state so a power-on never runs an
-; uninitialised RAM routine from the NMI.
+; Block-writer hook.  Select CHR page 1 before the game writes CHR and
+; record that the scene page changed.  Split-screen frames keep the
+; original path with no added mapper work.
 ; ----------------------------------------------------------------------
-reset_extra:
+c343_hook:
+    lda nmi_mode
+    bne @plain
+    lda #CALL_HACK_FN_SCENE
+    jsr call_hack
+@plain:
+    lda PPUSTATUS
+    jmp $C346
+
+.base $E6B3
+
+; ----------------------------------------------------------------------
+; Reset hook.  The game's reset code has bank 14 mapped but has just
+; cleared current_prg_bank to zero, so restore that value before
+; call_hack saves it.  IN_NMI is cleared so the main-thread mapper is
+; selected even with random power-on RAM.
+; ----------------------------------------------------------------------
+reset_hook:
     lda #0
-    sta KANJI_BAND_READY
-    sta KANJI_BAND_ON
-    sta KANJI_NMI_LOCK
-    ldx #$F0
-    rts
+    sta KANJI_IN_NMI
+    lda #$0E
+    sta current_prg_bank
+    lda #CALL_HACK_FN_RESET
+    jmp call_hack
 
+.base $FFE0
+
+; ----------------------------------------------------------------------
+; NMI exit.  Replaces the first three bytes of the handler epilogue
+; (pla / tay / pla) at $EF31.  The sound and task code have already run,
+; so the sprite-0 poll now ends the handler and returns immediately:
+; the next vblank is far away and cannot nest.
+; ----------------------------------------------------------------------
+exit_stub:
+    lda #CALL_HACK_FN_BAND
+    jsr call_hack
+    pla
+    tay
+    pla
+    jmp $EF34

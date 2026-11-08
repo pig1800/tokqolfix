@@ -1,5 +1,40 @@
 # Current implementation status
 
+## Revision 10 WIP (branch `rev10-wip`, 2026-11-08)
+
+`PLAN.md` revision 10 is implemented in source but **not stable**; master
+stays at revision 9 (`daba749`).  What is in place:
+
+- No RAM code: the fixed bank dispatches to hack banks 23/24 through
+  `call_hack` and the game's `set_bank_lock`/`restore_bank_after_nmi`
+  protocol.  `cell_check`, `redraw_high`, the RAM stub and the shared
+  queue hack are removed; `$DBE7/$DBEA/$D420` are original bytes.
+- Fixed-bank ranges `$C611-$C676`, `$C4BA-$C4CA`, `$E6B3-$E6C3`,
+  `$FFE0-$FFEF` hold the switcher, far head, call dispatcher, NMI entry,
+  block-writer hook, reset hook and the NMI-exit band switch.  The
+  audit (`tools/fixed_survey.py`, 218 history indices plus the standard
+  and town paths) found no reads of the candidate ranges.
+- The NMI now does only OAM/DMA, CHR reg 1 = page 1 and RAM bookkeeping;
+  the band switch runs at the end of the NMI (after the sound code) so
+  the next vblank cannot nest.  CHR reg 1 = page 2 is selected at the
+  sprite-0 border hit.
+- The overlay copies page 1 to page 2 and pre-uploads every glyph of the
+  message with NMI off, using an inline SUROM mapper and a switch to the
+  main stack (the text engine task stack is only a few bytes deep).
+
+Known failures on the current WIP build:
+
+- The message-open screen is still garbled.  The full shadow copy and the
+  glyph pre-upload write page 2 correctly in isolation, but the visible
+  frame/nametable is wrong after the open.  The page-1 font tiles and
+  the page-2 CHR are not yet verified together at the same frame.
+- The build hash is
+  `fdfcec08b5fb5f3ac92396ef0792e655aec4073bf0d83e366ffb8c074bc48e92`
+  (changes every iteration); do not distribute it.
+- `bank15_lint` is green (16 registered ranges, bank 31 == bank 15).
+
+## Revision 9 build (master, `daba749`)
+
 Status after the revision-9 CHR-page pivot (2026-11-08).  The hack now runs
 with 16 KiB CHR RAM in 4 KiB mode: page 0 sprites, page 1 scene, page 2 a
 private text band.  The scene page is never written by the hack.  This is

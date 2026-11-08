@@ -819,7 +819,10 @@ def build() -> int:
         for page, tiles in zip(rec.pages, page_tiles):
             blob = bytearray((len(page.kanji_order),))
             for code in page.kanji_order:
-                blob += bytes((code & 0xFF, code >> 8, *tiles[code]))
+                t4 = tiles[code]
+                if any(t >= 0x80 for t in t4):
+                    raise SystemExit(f"{rec.labels[:1]}: tile >= $80 in page")
+                blob += bytes((code & 0xFF, code >> 8, *t4))
             page_blobs.append(bytes(blob))
         if len(page_blobs) > MAX_PAGES:
             raise SystemExit(f"message has {len(page_blobs)} pages > {MAX_PAGES}")
