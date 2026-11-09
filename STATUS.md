@@ -1,6 +1,6 @@
 # Current implementation status
 
-Revision 21, 2026-11-09 (branch `rev10-wip`, uncommitted working tree).
+Revision 22, 2026-11-09 (branch `rev10-wip`, uncommitted working tree).
 Implemented by the planner after the revision-10 and revision-11 play
 tests; see CHANGELOG for what each revision fixed.
 
@@ -9,7 +9,7 @@ tests; see CHANGELOG for what each revision fixed.
 - Original 256 KiB ROM: byte-identical,
   `40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367`.
 - Kanji 512 KiB MMC3 ROM (mapper 4, NES 2.0, 16 KiB CHR RAM, CHR mode 1;
-  revision 21): `92eb006ab4a3fa3ee616ea10527ca275cb447f9c07e6661f199b54446f0f10c7`.
+  revision 21; text revision 22): `f53c1973c15d0f3b22dad75c080d1275754d63a1fd1ba2187936644b384e9036`.
 - Fixed-bank hooks in audited regions plus the rewritten reset setup
   (`$F004-$F039`), the dead MMC1 routines (`$C460-$C47D`, `$C489-$C49D`,
   `$C4AD-$C4B9`) and the IRQ vector.  The largest region is `$C5A6-$C6D1`: the game's

@@ -1,5 +1,35 @@
 # Changelog
 
+## 2026-11-09 — revision 22: line-break pass over the whole text
+
+Play-test report: 「張宝と張梁には　張角と／いう兄がいるそうです」 splits
+「という」; there are more such breaks.  Rules: 18 cells a line (「
+included; 17 after an indenting break), 3 lines a page.
+
+- Every multi-line message of both dtx files was read (588 messages) and
+  276 were relaid.  The fixes move breaks out of tight units (「と／いう」,
+  「に／よって」, 「で／ございます」, 「では／ないか」, 「手に／入れた」,
+  「お役に／立つ」, 「歯が／立つ」, te-form + auxiliary), keep demonstratives
+  and adverbs with what they modify (「その／程度」, 「この／まま」,
+  「今／この世は」), keep titles with names (「猛将／呂布」, 「提督／周瑜」)
+  and end each line at a phrase or clause boundary where it fits.
+- Three pages had 4 lines (b10_msg_245, b11_msg_102, b11_msg_163); they
+  are 3 now (b11_msg_163 waits before the second speech, as b11_msg_161).
+- Lists and sentences no longer cross a page where they fit on one
+  (「知人の馬良 ‖ 馬謖兄弟」, 「からと ‖ いって」 and the like).  Four
+  automatic kanji page splits that fell inside a phrase are now explicit
+  page breaks (b10_msg_133, b11_msg_037, b11_msg_168, b11_msg_266);
+  automatic splits 11 -> 6.
+- Wording changed only where no layout fits: b10_msg_123 (その計略は
+  使えません), b10_msg_149 and b10_msg_150 (によって -> に), b10_msg_294
+  (この dropped), b10_msg_394 (知人の dropped), b10_msg_446
+  (くださったのに), b11_msg_002 (捕らわれました), b11_msg_014 (trailing
+  -- dropped), b11_msg_126 (直ちに moved), b11_msg_179 (あまねく
+  dropped), b11_msg_208 (この dropped).
+- Left as is where nothing better fits: b10_msg_128 (願わくば同年／
+  同月同日に), b10_msg_204/205 (曹操殿の／使者), b11_msg_046.
+- Build: width issues 0, no relaxed pages, no menu conflicts.
+
 ## 2026-11-09 — revision 21: MMC3; the band switch is a scanline IRQ
 
 Request: move the kanji target to MMC3 (the revision-17 assessment's
