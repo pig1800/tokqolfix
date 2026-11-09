@@ -25,6 +25,12 @@ for s in string.gmatch(PATH, "[^,]+") do
   for i = 1, n do sched[total + i] = keymap[k] end
   total = total + n
 end
+-- SD_BOOT ("300start,420a,..."): power on (with the run's battery save) and
+-- press these buttons; the SD_PATH schedule starts at frame SD_START.
+local BOOT = os.getenv("SD_BOOT")
+local boot = {}
+for s in string.gmatch(BOOT or "", "[^,]+") do local f, k = s:match("^(%d+)(%a+)$"); boot[tonumber(f)] = k end
+local START = tonumber(os.getenv("SD_START") or "900")
 if STATE then
   local loaded = false
   emu.addMemoryCallback(function()
@@ -54,6 +60,12 @@ local function stdInput()
   else emu.setInput({}, 0) end
 end
 emu.addEventCallback(function()
+  if BOOT then
+    local k = boot[frame] or boot[frame - 1] or boot[frame - 2]
+    if not k and frame > START then k = sched[frame - START] end
+    if k then local t = {}; t[k] = true; emu.setInput(t, 0) else emu.setInput({}, 0) end
+    return
+  end
   if not STATE then stdInput(); return end
   if not lf then emu.setInput({}, 0); return end
   local f = frame - lf - 10

@@ -37,7 +37,8 @@ HOOK_RANGES = ((0xC5A6, 0xC6D1), (0xC460, 0xC47D), (0xC489, 0xC49D),
 # Map-canvas step 2 (four-screen nametables): game routines rewritten in
 # place by the fixed-bank source (cursor_to_ppu + set_scroll_from_cursor,
 # the walking scroll's vertical part, draw_tile_run's column wrap,
-# draw_map_object, text_render_cell's row wrap).  Original bytes, by hash; the source may only assemble
+# draw_map_object, text_render_cell's row wrap, tile_address, the walking
+# tasks' tables, the full-redraw starts).  Original bytes, by hash; the source may only assemble
 # inside these ranges (they join HOOK_RANGES).
 FOURSCREEN_REGIONS = (
     (0xD7E9, 0xD83D, "1a20e8d1517f631dc22d5b53b063acb4dfe2c433d0e1985519ea16f217a9633d"),
@@ -45,6 +46,22 @@ FOURSCREEN_REGIONS = (
     (0xDAB9, 0xDAF1, "6cce9391919f5510e2f58d8ea573235dbecd841c456e5fa934308cde8f62d34c"),
     (0xDAF2, 0xDB7D, "7ffbf00e0d7de955c9ff4ea7ad5bed1497d29b3f6e96f1b4cd12f0b08be32f77"),
     (0xDC0E, 0xDC19, "2c349426dc267b6e6e560da18eafca9d5f2008b10cbf1758c5eda8a0aa598454"),
+    # write-ahead rows (the 256-byte attribute shadow at MAP_ATTR): tile_address
+    # and its table, the shadow's users at $CAA2 / $F5E7, the walking tasks'
+    # tables, the 17-row full redraws
+    (0xD953, 0xD97B, "6333b4c2e5c79be00e0e38f789109888a551ba7e864d22064e4e491dd21af516"),
+    (0xCAA3, 0xCAA4, "1417a296c21274cec9c3d2c91ca16a5dff7840833de2a46b05c29e5de9900d9f"),
+    (0xCAA8, 0xCAA9, "1417a296c21274cec9c3d2c91ca16a5dff7840833de2a46b05c29e5de9900d9f"),
+    (0xF5E8, 0xF5E9, "1417a296c21274cec9c3d2c91ca16a5dff7840833de2a46b05c29e5de9900d9f"),
+    (0xF5EF, 0xF5F0, "1417a296c21274cec9c3d2c91ca16a5dff7840833de2a46b05c29e5de9900d9f"),
+    (0xF697, 0xF697, "beead77994cf573341ec17b58bbf7eb34d2711c993c1d976b128b3188dc1829a"),
+    (0xF6A1, 0xF6A4, "02e79c102e8e0f3cba6eeda99a4986ebbc0f1db25a370b4a11d01ab1cb9b6cf9"),
+    (0xF6BD, 0xF6C0, "0edb780690f2c0fa78849f05ab91dd5e8497e5c437e5fc4b92c4131c4fc62111"),
+    (0xF6C5, 0xF6C8, "f47d636092da9ae44e31d7c4c26ea7bdc91103a436f550bbc71d0b20602f8727"),
+    (0xF6D4, 0xF6DB, "d5447f859e320b870d1494e555e597021fe36b1d751d0f380e96e71ff988bfd3"),
+    (0xF6DC, 0xF6DF, "cbfd342bd219e33284ed36c42bda65fdc7633dac9c1415ff568c2bbd3b26ca10"),
+    (0xCDDF, 0xCDE9, "d815102641b740f24cb15013a14430e151a40ecb2d9b269124de8c65ab99dd1f"),
+    (0xD97C, 0xD983, "59d6fbaa0e124fedafa8d71450788ecc66187c4de7c1cb26c187811e297e4619"),
 )
 HOOK_RANGES = HOOK_RANGES + tuple((lo, hi) for lo, hi, _ in FOURSCREEN_REGIONS)
 

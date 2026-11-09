@@ -335,16 +335,50 @@ build `garble_state` would report false "active_outside" cells (its window
 and screen addresses fall in different mirrors), so they are for this
 branch's builds only.
 
-**Not done: buffer rows.**  Writing the vertical row one block ahead (like
-the horizontal columns) keeps 17 metarows live.  The game's attribute
-shadow (`$0780-$07FF`, 128 bytes) covers a 30-row ring; with 17 live rows
-two pairs of rows share shadow bytes, so a 256-byte shadow is needed.
-Internal RAM has no free 128 bytes (`$0700-$077F` is the sound engine's,
-`$0100-$01FF` the task stacks, text rows and hack state), and WRAM
-`$6000-$67FF` is the game state that save/load copy whole to the slots at
-`$6800/$7000/$7800`; its unused-looking gaps are entries of 256-entry
-tables (`$6400`, `$6600`, `$6700/$6780`).  So vertical steps keep the
-original timing (the entering row is written in frames 4-6 of the step).
+**Write-ahead rows (2026-11-10, second round).**  The kanji target keeps
+two save records (user's call); the third record's 2 KiB of battery RAM
+(`$7800-$7FFF`) is map engine RAM.  Bank 13's title menus loop over
+`SAVE_SLOTS` records (2 in the kanji target, 3 in the original build):
+with both records in use the menu offers continue and erase, with one it
+offers continue, new, erase and copy (new: record 2 only), with none only
+new (records 1 and 2).
+
+- The attribute shadow is 256 bytes at `MAP_ATTR` (`$7800`): index =
+  lower half << 7 | attribute row << 4 | right table << 3 | attribute
+  column (`tile_address`, rewritten in place).  `draw_map_object` writes
+  every byte to its own table in one pass; columns run through all 16
+  attribute rows.  `$0780-$07FF` (the old shadow) is free internal RAM.
+- Vertical steps write the row one block beyond the destination (8 rows
+  above / below the player instead of 7), as the horizontal steps write
+  their column.  Columns are 17 metatiles (34 tiles, 10 attribute rows),
+  so the buffer rows stay valid after horizontal steps.
+- Full redraws draw 17 rows (`redraw_start`): `render_map_column`
+  (rendering off) costs nothing; `text_draw_screen`, the redraw after a
+  dialogue, takes 17 frames instead of 15.
+
+`tools/lua/edge_check.lua` follows every map cell on screen during a step
+(all 240 lines) and compares it with the same world cell at rest before
+and after the step:
+
+| Build | Overworld (screen crossings) | Village | Town |
+|---|---|---|---|
+| original two-screen | 6,722 overscan + 802 picture cells wrong | 512 + 22 | - |
+| step 2 (original timing) | 2,139 + 458 | - | - |
+| write-ahead | 0 + 0 | 0 + 0 | 0 + 0 |
+
+A/B against the step-2 build from the user's battery save (record 1,
+town walks, a dialogue): identical picture apart from the step-2 build's
+one-frame flashes during vertical steps; the redraw after the dialogue 2
+frames later.  Gates as above (band_check +1: 3,592 / +2: 28, 0 mismatches;
+garble_run 0; deadline 0; taint 0; ram_gate 0 / 0 / 0 with min SP `$16`;
+zp, mask, palette 0).  Converted save states have no valid buffer rows
+until the next full redraw (map change); play from the battery save is
+right from the start.
+
+The build's "first 256 KiB stays original" check now allows banks 13 and
+14, and `bank15_lint.py` reads the rewritten ranges from `kanji_build.py`
+(the step-2 commit `a5afe81` failed that check on bank 14 unnoticed: the
+ROM was written, the lint was not run).
 
 **Tools**: `tools/mss_4screen.py` converts two-screen MMC3 states (into
 `out/user/m4/`); `tools/run_gates.sh` takes `GSTATES=`; the gates compute

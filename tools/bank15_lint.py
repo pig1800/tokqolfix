@@ -2,7 +2,8 @@
 """Fail if the kanji target changes the fixed bank outside registered sites.
 
 The fixed bank (bank 15) must keep every original byte and address except the
-registered patch ranges below.  Bank 31 (the MMC3 fixed bank at
+registered patch ranges below (and the four-screen rewrites listed in
+kanji_build.py).  Bank 31 (the MMC3 fixed bank at
 $C000-$FFFF) must be a byte-identical copy of patched bank 15.
 """
 from __future__ import annotations
@@ -41,6 +42,17 @@ PATCHES = [
 ]
 
 
+def fourscreen_ranges():
+    """Map-canvas step 2: the game routines and tables kanji_build.py
+    rewrites in place (FOURSCREEN_REGIONS, checked there by hash)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "kanji_build", Path(__file__).resolve().parent / "kanji_build.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return [(lo, hi) for lo, hi, _ in mod.FOURSCREEN_REGIONS]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rom", type=Path, default=KANJI)
@@ -61,7 +73,8 @@ def main() -> int:
               file=sys.stderr)
         return 1
     allowed = set()
-    for a, b in PATCHES:
+    patches = PATCHES + fourscreen_ranges()
+    for a, b in patches:
         allowed.update(range(a - 0xC000, b - 0xC000 + 1))
     bad = [i for i in range(0x4000) if got[i] != original[i] and i not in allowed]
     if bad:
@@ -81,7 +94,10 @@ def main() -> int:
     if data[4] != 32 or (data[6] >> 4) | (data[7] & 0xF0) != 4:
         print("lint: header is not 32 x 16 KiB PRG, mapper 4", file=sys.stderr)
         return 1
-    print(f"bank15 lint: OK ({len(PATCHES)} registered patch ranges, "
+    if not data[6] & 0x08:
+        print("lint: header lacks four-screen nametables (map-canvas)", file=sys.stderr)
+        return 1
+    print(f"bank15 lint: OK ({len(patches)} registered patch ranges, "
           f"bank31 == bank15, mapper 4)")
     return 0
 

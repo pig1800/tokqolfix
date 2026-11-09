@@ -125,6 +125,9 @@ IRQ_ARM_MAX       = 40
 ; scratch in the read-back buffer, written after the frame's last unit.
 KANJI_IRQ_ST      = KANJI_BUF+12 ; 1 = the next IRQ is stage 0
 KANJI_IRQ_N       = KANJI_BUF+13 ; stage 1 comes at the clock of this line
+MAP_ATTR          = $7800         ; 256 bytes: the map's attribute shadow for all
+                                ; four nametables (the third save record's RAM,
+                                ; map-canvas step 2; $7900-$7FFF free)
 WINROW_LOWER      = $40         ; KANJI_WIN_ROW: four-screen lower half (row
                                 ; * 8 and row >> 3 | $20 keep working)
 

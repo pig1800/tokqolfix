@@ -140,9 +140,10 @@ def main() -> int:
             print("FAIL: unexpected kanji-target size", file=sys.stderr)
             return 1
         # The first 256 KiB must stay identical to the original except for the
-        # banks intentionally replaced by the kanji target (10, 11, 15).
+        # banks intentionally replaced by the kanji target (10, 11, 15) and the
+        # map-canvas patches (13: two save records; 14: the battle shake).
         original = ORIGINAL.read_bytes()
-        allowed = {10, 11, 15}
+        allowed = {10, 11, 13, 14, 15}
         for bank in range(16):
             a = got[16 + bank * 0x4000:16 + (bank + 1) * 0x4000]
             b = original[16 + bank * 0x4000:16 + (bank + 1) * 0x4000]

@@ -12,7 +12,9 @@ s & 1, PPUCTRL bit 1 = the camera's top screen & 1.  The state's 2 KiB of
 nametables are copied into both vertical halves (what the two-screen
 build showed, wherever the camera's rows fall), the PPU's nametable pages
 are remapped, and in map mode PPUCTRL's shadow ($FF) gets bit 1 from the
-camera position (text_y:text_x - 7 rows), and an open window's row
+camera position (text_y:text_x - 7 rows), the map's 256-byte attribute
+shadow at $7800 (the third save record's RAM) is filled from the
+attribute tables, and an open window's row
 ($0177) gets bit 6 when its corner shows from the lower half.  A state in the middle of a
 vertical step (scroll_y not on the camera's row) is refused.
 """
@@ -65,9 +67,21 @@ def convert(src: str, dst: str) -> None:
             note += f"; window row {wr} -> ${ram[0x177]:02X}"
     elif tx < 15 and tx2 < 16 and sx == (left % 16) * 16 and (sy & 0x0F) and sy < 0xF0:
         raise SystemExit(f"{src}: mid-step state (scroll_y {sy:02X}); save at rest")
+    # The map's attribute shadow (256 bytes at $7800, write-ahead rows):
+    # index = lower << 7 | attribute row << 4 | right << 3 | column, filled
+    # from the four attribute tables (the game fills it at a full redraw).
+    nt4 = nt + nt
+    sram = bytearray(d["mapper.saveRam"])
+    for v in (0, 1):
+        for h in (0, 1):
+            for ar in range(8):
+                for ac in range(8):
+                    sram[0x1800 + (v << 7 | ar << 4 | h << 3 | ac)] =                         nt4[(v * 2 + h) * 0x400 + 0x3C0 + ar * 8 + ac]
     out = []
     for k, v in recs:
-        if k == "mapper.nametableRam":
+        if k == "mapper.saveRam":
+            v = bytes(sram)
+        elif k == "mapper.nametableRam":
             v = nt + nt
         elif k == "mapper.chrMemoryOffset":
             v = struct.pack("<64i", *off)

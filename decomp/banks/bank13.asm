@@ -13,6 +13,14 @@
 ;   $BEA8-$BFFF  b13_data_tail: Bank 13 data tail.
 ; ======================================================================
 
+; Save records.  The kanji target keeps two (map-canvas step 2): the
+; third record's 2 KiB of battery RAM ($7800-$7FFF) holds map engine RAM.
+.ifdef KANJI_TARGET
+SAVE_SLOTS = 2
+.else
+SAVE_SLOTS = 3
+.endif
+
 ; Overlapping data aliases (tables referenced inside instructions)
 b13_data_A0E1 = $A0E1
 
@@ -243,10 +251,10 @@ b13_data_8A94:
 b13_loc_8A9B:
     inc text_palette
     lda text_palette
-    cmp #$03
+    cmp #SAVE_SLOTS
     bne b13_loc_8A55
 b13_loc_8AA3:
-    lda #$02
+    lda #SAVE_SLOTS-1
     sta text_palette
     lda #$00
     sta $0F
@@ -277,7 +285,7 @@ b13_loc_8AC1:
     stx ppu_update_len
 b13_loc_8AD7:
     lda ppu_update_len
-    cmp #$03
+    cmp #SAVE_SLOTS
     beq b13_loc_8AF1
     lsr ppu_update_off
     bcc b13_loc_8AE8
@@ -300,7 +308,7 @@ b13_loc_8AF1:
     sty $6090                   ; Party member order (actor ids).
     bne b13_loc_8B1F
 b13_loc_8B04:
-    cmp #$07
+    cmp #(1 << SAVE_SLOTS) - 1   ; every record in use: no new game
     bne b13_loc_8B14
     lda #$00
     sta $6090                   ; Party member order (actor ids).

@@ -444,11 +444,15 @@ wait_text:
 ; flag 6 bit 3).  The map's 30-row ring becomes a 60-row ring: world
 ; metarow m = 15 * screen + row sits in the vertical nametable (screen & 1)
 ; ($2000/$2400 or $2800/$2C00), and PPUCTRL bit 1 follows the camera's
-; top screen.  The other vertical half is free for the dialogue canvas.
-; Attributes keep the original 30-row model: the 128-byte shadow at $0780
-; is unchanged and every map attribute write goes to both vertical halves.
-; Each block below replaces the original routine's bytes in place (the
-; build checks them).
+; top screen.  Vertical steps write the row one block beyond the camera's
+; destination, as the horizontal steps write their column: 17 x 18
+; metatiles are live (the visible 15 x 16 and one buffer row / column on
+; each side), and the rest of the ring is free for the dialogue canvas.
+; The attribute shadow covers all four tables: 256 bytes at MAP_ATTR
+; ($7800, the third save record's RAM), index = lower half << 7 |
+; attribute row << 4 | right table << 3 | attribute column.  Each block
+; below replaces the original routine's bytes in place (the build checks
+; them).
 ; ======================================================================
 
 UPDATE_PARTY_SPRITES = $F421
@@ -600,18 +604,17 @@ column_wrap:
     jmp $DA94                   ; the run's copy loop
 column_wrap_end:
 
-; draw_map_object pieces placed in the bytes column_wrap freed.
-dmo_col_next:                   ; column: the next attribute row (8-row wrap)
+; draw_map_object, columns: the next attribute row (in the bytes
+; column_wrap freed; 8-bit wrap through the 16 attribute rows).
+dmo_col_next:
     lda battle_cursor
     clc
     adc #$10
-    and #$7F
     sta battle_cursor
-    bpl dmo_entry
-dmo_column:                     ; column entries are one byte each
-    lda #$01
-    bne dmo_run
-dmo_pieces_end:
+    dec ptr_hi_
+    bne dmo_entry
+    beq dmo_done
+dmo_col_next_end:
 
 ; ----------------------------------------------------------------------
 .base $DAF2
@@ -619,26 +622,12 @@ dmo_pieces_end:
 
 ; draw_map_object (the map attribute writer, called by draw_party_footer
 ; and the window code): queues tile_id_base attribute bytes of the shadow
-; from index battle_cursor.  Rows (tile_attr bit 7 clear): along the row,
-; wrapping in its 16 bytes, into the vertical half of the row being drawn
-; (ppu_addr_hi_shadow bit 3, set by cursor_to_ppu).  Columns: down the
-; column, wrapping at 8 rows; a column spans both vertical halves, so its
-; bytes go to both (two passes): the attribute tables keep the original
-; 30-row model.  $F1/$F2 are scratch (as in draw_tile_run); no extra stack.
-; The original's rts at $DB7E (a branch target of scroll_map) stays;
-; data_DB7F is no longer read.
+; from index battle_cursor, each into its own table (index bit 3: right
+; table, bit 7: lower half).  Rows (tile_attr bit 7 clear) run along the
+; shadow row, wrapping in its 16 bytes; columns run down, wrapping through
+; all 16 attribute rows of the 60-row ring.  The original's rts at $DB7E
+; (a branch target of scroll_map) stays.
 draw_map_object:
-    ldy #$FF                    ; rows: one pass
-    lda ppu_addr_hi_shadow
-    and #$08
-    bit tile_attr
-    bpl dmo_save
-    ldy battle_cursor           ; columns: the start, for the second pass
-    lda #$00                    ; upper half first
-dmo_save:
-    sty ppu_update_len_
-dmo_pass:
-    sta ppu_update_off_         ; $00 / $08: vertical half
     lda tile_id_base
     sta ptr_hi_
     ldx vram_queue_write
@@ -647,7 +636,10 @@ dmo_entry:
     and #$08
     lsr a
     ora #$23
-    ora ppu_update_off_
+    bit battle_cursor
+    bpl @upper
+    ora #$08
+@upper:
     sta $0400,x
     inx
     lda battle_cursor
@@ -661,27 +653,30 @@ dmo_entry:
     sta $0400,x
     inx
     ldy tile_attr
-    bmi dmo_column
+    bmi @column
     and #$07
     eor #$07                    ; 7 - column
     cmp ptr_hi_
     bcs @count                  ; the rest of the count fits in this table's row
     adc #$01                    ; 8 - column (C = 0)
-    bne dmo_run
+    bne @run
 @count:
     lda ptr_hi_
-dmo_run:
+    bne @run
+@column:
+    lda #$01                    ; column entries are one byte each
+@run:
     sta $0400,x
     inx
 @byte:
     ldy battle_cursor
-    lda $0780,y
+    lda MAP_ATTR,y
     sta $0400,x
     inx
-    dec ptr_hi_
-    beq @done
     lda tile_attr
     bmi dmo_col_next
+    dec ptr_hi_
+    beq dmo_done
     inc battle_cursor
     lda battle_cursor
     and #$0F
@@ -694,20 +689,111 @@ dmo_run:
     and #$07
     bne @byte
     beq dmo_entry
-@done:
+dmo_done:
     lda #$00
     sta $0400,x
     stx vram_queue_write
-    ldy ppu_update_len_
-    bmi @ret                    ; a row, or a column's second pass
-    lda ppu_update_off_
-    bne @ret
-    sty battle_cursor
-    lda #$08
-    bne dmo_pass
-@ret:
+    rts
+
+; data_D979 (tile_address's attribute-table bank pointers), moved here:
+; tile_address needs its bytes.
+attr_table_hi:
+    .db $8C, $99, $A6
+
+; Full map redraws (text_draw_screen, render_map_column) draw 17 rows: the
+; camera's 15 and a buffer row above and below.  They walk "up" from one
+; screen below; this starts them 17 rows below the player (an up step
+; draws 8 rows above its position).  Returns A = 17 rows.
+redraw_start:
+    inc text_y
+    lda #$02
+    jsr $D7A9                   ; cursor_add_x: cursor = text + 2 rows
+    lda cursor_x
+    sta text_x
+    lda cursor_y
+    sta text_y
+    lda #$11
     rts
 draw_map_object_end:
+
+; ----------------------------------------------------------------------
+.base $D953
+; ----------------------------------------------------------------------
+
+; tile_address: the shadow index of the cursor's metatile,
+;   X = (cursor_y & 1) << 7 | (cursor_x >> 1) << 4 | (cursor_y2 & 1) << 3
+;       | cursor_x2 >> 1
+; and $14/$15 = its attribute table, as the original.  Y is kept.
+tile_address:
+    lda #$00
+    sta ppu_addr_lo
+    ldx class_index
+    lda attr_table_hi,x
+    sta ppu_addr_hi
+    lda cursor_y
+    lsr a
+    lda cursor_x
+    bcc @upper
+    ora #$10
+@upper:
+    and #$FE
+    asl a
+    asl a
+    asl a
+    sta ptr_lo_
+    lda cursor_y2
+    lsr a
+    lda cursor_x2
+    bcc @left
+    ora #$10
+@left:
+    lsr a
+    ora ptr_lo_
+    tax
+    rts
+tile_address_end:
+
+; ----------------------------------------------------------------------
+; The attribute shadow's readers and writers outside this file: the
+; window code at $CAA2 and draw_party_status at $F5E7 ($0780,x -> MAP_ATTR,x).
+.base $CAA3
+    .dw MAP_ATTR
+.base $CAA8
+    .dw MAP_ATTR
+.base $F5E8
+    .dw MAP_ATTR
+.base $F5EF
+    .dw MAP_ATTR
+
+; Row and column tables of the walking / redraw tasks (indexed by
+; game_mode: up, down, left, right).
+.base $F697
+    .db $0A                     ; draw_party_footer: 10 attribute rows per column
+.base $F6A1
+    .db $F8, $08, $F8, $F8      ; first metarow: 8 above / below (was 7)
+.base $F6BD
+    .db $24, $24, $22, $22      ; run length: columns 34 tiles (was 30)
+.base $F6C5
+    .db $00, $24, $22, $22      ; second run's buffer offset
+.base $F6D4
+    .db $23, $01, $22, $00      ; column tiles in the row buffer
+    .db $23, $01, $22, $00
+.base $F6DC
+    .db $12, $12, $11, $11      ; metatiles: columns 17 (was 15)
+
+; text_draw_screen and render_map_column: 17 rows (redraw_start).
+.base $CDDF
+    lda game_mode
+    pha
+    lda #$00
+    sta game_mode
+    jsr redraw_start
+    nop
+.base $D97C
+    lda #$00
+    sta game_mode
+    jsr redraw_start
+    nop
 
 ; ----------------------------------------------------------------------
 .base $DC0E

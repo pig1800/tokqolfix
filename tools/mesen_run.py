@@ -39,11 +39,15 @@ def main() -> int:
     ap.add_argument("lua", type=Path)
     ap.add_argument("--name", default=None)
     ap.add_argument("--timeout", type=int, default=120)
+    ap.add_argument("--sav", type=Path, default=None,
+                    help="battery save to start from (copied, never written)")
     args = ap.parse_args()
 
     RUN_DIR.mkdir(parents=True, exist_ok=True)
     name = args.name or args.rom.stem
     fresh_battery(name)
+    if args.sav:
+        shutil.copyfile(args.sav, SAVES / f"{name}.sav")
     rom_copy = RUN_DIR / f"{name}.nes"
     shutil.copyfile(args.rom, rom_copy)
     lua = args.lua.resolve()
