@@ -265,3 +265,89 @@ The probes are `tools/lua/irq_precision.lua` (environment variables
 `IP_STATE`, `IP_PATH`, `IP_FRAMES`, `IP_OUT`) and
 `tools/lua/vblank_deadline.lua`, which now reports the address force on its
 own line.
+
+### Step 2: four-screen nametables (2026-11-10)
+
+The kanji ROM now has four-screen nametables (NES 2.0 flag 6 bit 3, as
+TR1ROM / TVROM; Mesen gives `$2000-$2FFF` 4 KiB, unmirrored).  The map is a
+64 x 60 ring: world metarow `15 * screen + row` sits in the vertical half
+`screen & 1`, and PPUCTRL bit 1 follows the camera's top screen.  The other
+vertical half (address EOR `$0800`) is free for the canvas: walking writes
+only the visible rows and the entering row.
+
+**Fixed-bank rewrites** (in place, original bytes checked by hash in
+`kanji_build.py`, `FOURSCREEN_REGIONS`):
+
+| Routine | Change |
+|---|---|
+| `cursor_to_ppu` `$D7E9` | address bit 11 = `cursor_y & 1` (shared `nt_bits`) |
+| `set_scroll_from_cursor` `$D815` | PPUCTRL bits 0-1 from the camera's top-left metatile |
+| walking scroll `$F3A3-$F3CA` | crossing the 240-line wrap toggles PPUCTRL bit 1 |
+| `draw_tile_run` column wrap `$DAB9` | a column past row 29 goes on at row 0 of the other half |
+| `draw_map_object` `$DAF2` | rows: into the drawn row's half; columns: both halves |
+| `text_render_cell` `$DC0E` | a text cell's bottom tile below row 29: row 0 of the other half |
+| battle shake (bank 14 `$ACBF` -> `battle_shake`) | PPUCTRL bit 1 while the screen is shifted up 3 lines |
+
+The overlay's `window_geometry` stores the window corner's vertical half in
+`KANJI_WIN_ROW` bit 6 (`WINROW_LOWER`); `probe_window`, the queue tracker
+and `irq_arm0` work unchanged with it (`row >> 3 | $20` and `row * 8`).
+
+**What the comparison found** (two-screen build vs four-screen build, same
+input, `tools/lua/screen_digest.lua` + `tools/sd_compare.py`):
+
+1. Text lines start at odd rows (corner + 1).  A window whose corner is at
+   row 28 puts the first line's bottom tiles past row 29; the engine wrapped
+   them to row 0 of the same table.  Kanji messages lost their bottom
+   halves (and the band probe lost the window) until `text_render_cell` and
+   `window_geometry` knew the other half.
+2. The battle shake sets `scroll_y = $ED`: with four tables that wraps into
+   the lower half.
+3. Writing every attribute row to both halves slowed the full map redraw
+   after a dialogue by up to 6 frames (the original's main thread already
+   ends at line 228-240 there).  Rows now go to their own half only;
+   columns (one per horizontal step) to both.
+
+**Result**: the NTSC picture (lines 8-231) is pixel-identical on every path
+(standard boot path, village, overworld with screen crossings, town, shop,
+partner shop, normal and boss battles).  The only differences are in the
+overscan lines during vertical steps and the battle shake, where the
+four-screen build shows the right rows.  Drawing pace: identical (one
+frame once in the standard path).
+
+**Gates** (kanji ROM `ce4709c7...`; the original 256 KiB build is still
+`40f19e17...`; states converted into `out/user/m4/`):
+
+| Gate | Result |
+|---|---|
+| A/B picture, 9 paths | identical in lines 8-231; drawing pace equal |
+| `band_check` | +1: 3,576, +2: 28; 0 page-2 mismatches; 0 kana over kanji |
+| `garble_run` (6 offsets) | 0 frames |
+| `garble_state` battle, boss, play-test battle, lv, sv | 0 frames |
+| `garble_state` partner shop n1, p1-p4 | the save state's opening episode only (42-123 frames), identical on the two-screen build with the committed gate |
+| `vblank_deadline` std, bt, nb, bb | 0 |
+| `ram_gate` | 0 / 0 / 0, min SP `$17` |
+| `taint_check` bt, nb, bb | 0 / 0, min SP `$12` / `$0F` / `$0F` |
+| `zp_check`, `mask_restore`, `palette_check` | 0, 0, 0 wrong |
+| `anim_timing` | scroll restore by line 259 |
+
+The window and screen gates now address the 60-row ring; on a two-screen
+build `garble_state` would report false "active_outside" cells (its window
+and screen addresses fall in different mirrors), so they are for this
+branch's builds only.
+
+**Not done: buffer rows.**  Writing the vertical row one block ahead (like
+the horizontal columns) keeps 17 metarows live.  The game's attribute
+shadow (`$0780-$07FF`, 128 bytes) covers a 30-row ring; with 17 live rows
+two pairs of rows share shadow bytes, so a 256-byte shadow is needed.
+Internal RAM has no free 128 bytes (`$0700-$077F` is the sound engine's,
+`$0100-$01FF` the task stacks, text rows and hack state), and WRAM
+`$6000-$67FF` is the game state that save/load copy whole to the slots at
+`$6800/$7000/$7800`; its unused-looking gaps are entries of 256-entry
+tables (`$6400`, `$6600`, `$6700/$6780`).  So vertical steps keep the
+original timing (the entering row is written in frames 4-6 of the step).
+
+**Tools**: `tools/mss_4screen.py` converts two-screen MMC3 states (into
+`out/user/m4/`); `tools/run_gates.sh` takes `GSTATES=`; the gates compute
+screen addresses on the 60-row ring (`$177 & $1F`, bit 6 = lower half).
+`tools/ref_scan.py` lists absolute references into address ranges across
+the 16 original banks.

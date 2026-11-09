@@ -73,7 +73,7 @@ end, emu.callbackType.exec, A_ST0, A_ST0, emu.memType.nesMemory, emu.cpuType.nes
 emu.addMemoryCallback(function()
   local st = emu.getState()
   local sl = st["ppu.scanline"]
-  local T = (rd(0x177) * 8 - rd(0xFC)) % 240
+  local T = ((rd(0x177) & 0x1F) * 8 - rd(0xFC)) % 240
   local d = sl - T
   n_sw = n_sw + 1
   local q = rd(0x175)

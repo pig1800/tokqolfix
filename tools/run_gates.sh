@@ -2,11 +2,12 @@
 # Every gate on decomp/build/rom_kanji.nes (revision 21, MMC3), as background
 # Mesen jobs; results in out/test/$GDIR (default r21g), Mesen names get the
 # suffix $TAG.  States: the SUROM play-test states converted by
-# tools/mss_to_mmc3.py into out/user/m3/.  When every log ends with "exit=",
+# tools/mss_to_mmc3.py into out/user/m3/ (four-screen builds: GSTATES=out/user/m4,
+# made by tools/mss_4screen.py).  When every log ends with "exit=",
 # summarise as in STATUS.md (garble_k_0.txt per gs_* dir, dead_*.txt,
 # taint_*.txt, out/test/r11 and r12 for the standard-path gates).
 cd /d/EMU/NES/tokqolfix
-U=D:/EMU/NES/tokqolfix/out/user/m3; O=D:/EMU/NES/tokqolfix/out/test/${GDIR:-r21g}; R=decomp/build/rom_kanji.nes
+U=${GSTATES:-D:/EMU/NES/tokqolfix/out/user/m3}; O=D:/EMU/NES/tokqolfix/out/test/${GDIR:-r21g}; R=decomp/build/rom_kanji.nes
 T=${TAG:-21}
 B="w,w,w,w,w$(printf ',a,w%.0s' $(seq 1 14))$(printf ',w%.0s' $(seq 1 25))"
 B2="w,w,w,w,w,w,w$(printf ',a,w%.0s' $(seq 1 30))$(printf ',w%.0s' $(seq 1 20))"

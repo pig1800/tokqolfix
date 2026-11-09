@@ -151,6 +151,8 @@ message_setup:
 ; ----------------------------------------------------------------------
 ; Window geometry from the engine's current line cell address
 ; (ppu_addr shadow = corner + $21 + text_line * $40, rows wrap at 30).
+; Four-screen (map-canvas step 2): KANJI_WIN_ROW bit 6 = the corner's
+; vertical half (the line's, flipped when the rows wrap above row 0).
 ; ----------------------------------------------------------------------
 window_geometry:
     lda ppu_addr_hi_shadow
@@ -166,6 +168,7 @@ window_geometry:
     lsr a
     lsr a
     ora KANJI_M0                ; cell row 0-29
+    ldy #$00
     sec
     sbc #1
     sec
@@ -175,7 +178,17 @@ window_geometry:
     bpl @row_ok
     clc
     adc #30
+    ldy #WINROW_LOWER           ; wrapped: the other vertical half
 @row_ok:
+    sta KANJI_WIN_ROW
+    sty KANJI_M0
+    lda ppu_addr_hi_shadow
+    and #$08
+    asl a
+    asl a
+    asl a                       ; WINROW_LOWER when the line is in $2800/$2C00
+    eor KANJI_M0
+    ora KANJI_WIN_ROW
     sta KANJI_WIN_ROW
     lda ppu_addr_hi_shadow
     and #$04

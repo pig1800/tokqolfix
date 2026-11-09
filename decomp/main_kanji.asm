@@ -14,12 +14,14 @@ KANJI_TARGET = 1
 
 .db "NES",$1A
 ; NES 2.0: 32 x 16 KiB PRG, 16 KiB CHR RAM, mapper 4 (MMC3), 8 KiB
-; battery PRG RAM.
-.db $20,$00,$42,$08,$00,$00,$70,$08,$00,$00,$00,$01
+; battery PRG RAM, four-screen nametables (map-canvas step 2: 4 KiB of
+; nametable RAM, $2000-$2FFF unmirrored, as TR1ROM / TVROM).
+.db $20,$00,$4A,$08,$00,$00,$70,$08,$00,$00,$00,$01
 
 .include "include/hardware.inc"
 .include "include/ram.inc"
 .include "build/text/index_symbols.inc"
+.include "build/kanji/fixed_hooks.inc"
 
 ; ---------------- banks 00-14 ----------------
 .base $8000

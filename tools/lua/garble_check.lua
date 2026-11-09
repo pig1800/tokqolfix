@@ -141,18 +141,20 @@ local function onFrame()
   -- text window interior (nametable cells) from the corner the overlay
   -- computed; nothing is checked for kanji when the window is not there
   local inside = {}
-  local wr, wc = rd(0x177), rd(0x178)
+  local wr, wc = rd(0x177) & 0x1F, rd(0x178)
+  local wv = (rd(0x177) >> 6) & 1   -- four-screen: the corner's vertical half
   local wnt = (wc & 0x20) ~= 0 and 1 or 0
   local c0 = wc & 0x1F
-  local function nta(r, k)      -- row r, column k counted across both nametables
+  local function nta(r, k)      -- row r (60-row ring), column k across both nametables
     local nt = (wnt + (k >> 5)) % 2
-    return 0x2000 + nt * 0x400 + r * 32 + (k & 31)
+    local rr = (wv * 30 + r) % 60
+    return 0x2000 + (rr >= 30 and 0x800 or 0) + nt * 0x400 + (rr % 30) * 32 + (k & 31)
   end
   if ppu(nta(wr, c0)) == 0x6D then
     local c1 = c0 + 1
     while c1 < c0 + 33 and ppu(nta(wr, c1)) == 0x0C do c1 = c1 + 1 end
     local r1 = wr + 1
-    while r1 < 30 and ppu(nta(r1, c0)) == 0x7D do r1 = r1 + 1 end
+    while r1 < wr + 30 and ppu(nta(r1, c0)) == 0x7D do r1 = r1 + 1 end
     for r = wr + 1, r1 - 1 do
       for k = c0 + 1, c1 - 1 do inside[nta(r, k)] = true end
     end
@@ -163,8 +165,9 @@ local function onFrame()
   for row = 0, 30 do
     local ytop = row * 8 - fine
     if ytop <= 239 then
-      local wy = (ytop + sy) % 240
-      local trow = math.floor(wy / 8)
+      local wy = (ytop + sy + ((ctrl >> 1) & 1) * 240) % 480   -- four-screen ring
+      local vnt = wy >= 240 and 0x800 or 0
+      local trow = math.floor((wy % 240) / 8)
       local ymid = math.max(ytop, 0)
       local pt = {page_at(ymid, 1), page_at(ymid, 2)}
       local pb = {page_at(math.min(ytop + 7, 239), 1), page_at(math.min(ytop + 7, 239), 2)}
@@ -172,7 +175,7 @@ local function onFrame()
         local wx = x + sx + (ctrl & 1) * 256
         local nt = math.floor(wx / 256) % 2
         local tcol = math.floor((wx % 256) / 8)
-        local a = 0x2000 + nt * 0x400 + trow * 32 + tcol
+        local a = 0x2000 + vnt + nt * 0x400 + trow * 32 + tcol
         if not seen[a] then
           seen[a] = true
           local t = ppu(a)

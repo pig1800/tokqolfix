@@ -8,7 +8,7 @@
 -- Output BT_OUT (default out/test/r17/band_timing.txt); BT_FRAMES frames;
 -- BT_SHOTS=f1,f2,... adds screenshots and the window's nametable rows.
 -- Hack addresses: python tools/lua_addrs.py tools/lua/band_timing.lua
-local A_EF31  = 0x89A5  -- @nmi_ef31@
+local A_EF31  = 0x899E  -- @nmi_ef31@
 local A_POLL  = 0x8A3E  -- @band_poll@
 local A_MISS  = 0x8A65  -- @band_miss@
 local A_HIT   = 0x8A73  -- @band_switched@
@@ -70,8 +70,8 @@ emu.addEventCallback(function()
   frame = frame + 1
   if loaded and not lf then lf = frame end
   if lf and frame > lf + 1 then
-    local wr, wc = rd(0x177), rd(0x178)
-    local wnt = (wc & 0x20) ~= 0 and 1 or 0
+    local wr, wc = rd(0x177) & 0x1F, rd(0x178)
+    local wnt = ((wc & 0x20) ~= 0 and 1 or 0) + ((rd(0x177) & 0x40) ~= 0 and 2 or 0)
     local c0 = wc & 0x1F
     local corner = ppu(0x2000 + wnt * 0x400 + wr * 32 + c0)
     local side = ppu(0x2000 + wnt * 0x400 + (wr + 1) * 32 + c0)

@@ -65,7 +65,8 @@ KANJI_QBYTES      = $0175   ; NMI scratch: VRAM-queue bytes the game flushed
                             ; this frame ($FF: CHR animation); revision 21b
                             ; (was KANJI_SPR0, the sprite-0 state)
 KANJI_BAND        = $0176   ; 1 = band page shown below the window border
-KANJI_WIN_ROW     = $0177   ; window top-border nametable row (0-29)
+KANJI_WIN_ROW     = $0177   ; window top-border nametable row (0-29), bit 6:
+                            ; in the lower vertical half ($2800/$2C00)
 KANJI_WIN_COL     = $0178   ; window left column 0-31, +$20 for nametable 1;
                             ; bits 6-7 pool state (WINCOL_*; readers mask)
 KANJI_QPOS        = $0179   ; VRAM queue position already scanned
@@ -124,6 +125,8 @@ IRQ_ARM_MAX       = 40
 ; scratch in the read-back buffer, written after the frame's last unit.
 KANJI_IRQ_ST      = KANJI_BUF+12 ; 1 = the next IRQ is stage 0
 KANJI_IRQ_N       = KANJI_BUF+13 ; stage 1 comes at the clock of this line
+WINROW_LOWER      = $40         ; KANJI_WIN_ROW: four-screen lower half (row
+                                ; * 8 and row >> 3 | $20 keep working)
 
 ; Battle pool (revision 18).  The battle tile set leaves tiles $A4-$DF of
 ; the scene page blank and never shows them.  A message printed while the

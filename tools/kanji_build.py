@@ -34,6 +34,20 @@ HOOK_RANGES = ((0xC5A6, 0xC6D1), (0xC460, 0xC47D), (0xC489, 0xC49D),
                (0xC4AD, 0xC4B9), (0xC4BA, 0xC4CA), (0xD291, 0xD2B6),
                (0xF004, 0xF039), (0xFFE0, 0xFFEF))
 
+# Map-canvas step 2 (four-screen nametables): game routines rewritten in
+# place by the fixed-bank source (cursor_to_ppu + set_scroll_from_cursor,
+# the walking scroll's vertical part, draw_tile_run's column wrap,
+# draw_map_object, text_render_cell's row wrap).  Original bytes, by hash; the source may only assemble
+# inside these ranges (they join HOOK_RANGES).
+FOURSCREEN_REGIONS = (
+    (0xD7E9, 0xD83D, "1a20e8d1517f631dc22d5b53b063acb4dfe2c433d0e1985519ea16f217a9633d"),
+    (0xF3A3, 0xF3CA, "a928dd4f41b3d773dd5920dd700e35c68e84877aca64d92da85eb240d7d530f6"),
+    (0xDAB9, 0xDAF1, "6cce9391919f5510e2f58d8ea573235dbecd841c456e5fa934308cde8f62d34c"),
+    (0xDAF2, 0xDB7D, "7ffbf00e0d7de955c9ff4ea7ad5bed1497d29b3f6e96f1b4cd12f0b08be32f77"),
+    (0xDC0E, 0xDC19, "2c349426dc267b6e6e560da18eafca9d5f2008b10cbf1758c5eda8a0aa598454"),
+)
+HOOK_RANGES = HOOK_RANGES + tuple((lo, hi) for lo, hi, _ in FOURSCREEN_REGIONS)
+
 # load_text_graphics and the palette tables it alone reads ($C5A6-$C6D1).
 # The routine is rewritten in place to read the tables from the hack bank;
 # the rest of the range holds hook code.  Original bytes, by hash.
@@ -121,7 +135,7 @@ def listing_bytes(listing: Path, ranges) -> dict[int, int]:
 def write_hook_constants(labels: dict[str, int]) -> None:
     need = ("main_prg", "nmi_prg", "irq_handler", "far_head", "call_hack", "c343_hook",
             "ef08_hook", "ef08_gate", "ef31_hook", "ef31_gate", "chr1_scene", "wait_text", "scroll_text",
-            "page_flip", "window_clear", "ltg_copied")
+            "page_flip", "window_clear", "ltg_copied", "battle_shake")
     for label in need:
         if label not in labels:
             raise SystemExit(f"missing fixed-hook label {label}")
@@ -240,6 +254,9 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     a, b, digest = PALETTE_REGION
     if hashlib.sha256(bytes(bank[a - 0xC000:b - 0xC000])).hexdigest() != digest:
         raise SystemExit(f"palette region ${a:04X}-${b - 1:04X} differs from the audited original")
+    for lo, hi, digest in FOURSCREEN_REGIONS:
+        if hashlib.sha256(bytes(bank[lo - 0xC000:hi - 0xC000 + 1])).hexdigest() != digest:
+            raise SystemExit(f"four-screen region ${lo:04X}-${hi:04X} differs from the audited original")
     base, want = RESET_REGION
     have = bytes(bank[base - 0xC000:base - 0xC000 + len(want)])
     if have != want:

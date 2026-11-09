@@ -842,7 +842,20 @@ b14_data_A800:
     .incbin "build/assets/bank14_data.bin", $2800, $0400
 
 b14_data_AC00:
+.ifdef KANJI_TARGET
+    ; Four-screen nametables (map-canvas step 2): the battle shake's
+    ; "sta scroll_y / lda $AD7B,y / sta scroll_x" at $ACBF calls the fixed
+    ; bank, which also sets PPUCTRL bit 1 while the screen is shifted up.
+    .incbin "build/assets/bank14_data.bin", $2C00, $00BF
+    jsr BATTLE_SHAKE
+    nop
+    nop
+    nop
+    nop
+    .incbin "build/assets/bank14_data.bin", $2CC6, $033A
+.else
     .incbin "build/assets/bank14_data.bin", $2C00, $0400
+.endif
 
 b14_data_B000:
     .incbin "build/assets/bank14_data.bin", $3000, $0400

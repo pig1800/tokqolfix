@@ -54,7 +54,7 @@ local function onFrame()
   local sl = switch_sl
   switch_sl = nil
   if band ~= 0 and sl then
-    local row, sy = rd(0x177), rd(0xFC)
+    local row, sy = rd(0x177) & 0x1F, rd(0xFC)
     local band_y = (row * 8 - sy) % 240
     local d = sl - band_y
     sw_hist[d] = (sw_hist[d] or 0) + 1
@@ -66,13 +66,14 @@ local function onFrame()
     local ntx = ctrl & 1
     local bad = 0
     for y = band_y, 239, 8 do
-      local wy = (y + sy) % 240
-      local trow = math.floor(wy / 8)
+      local wy = (y + sy + ((ctrl >> 1) & 1) * 240) % 480   -- four-screen ring
+      local vnt = wy >= 240 and 0x800 or 0
+      local trow = math.floor((wy % 240) / 8)
       for x = 0, 255, 8 do
         local wx = x + sx + ntx * 256
         local nt = math.floor(wx / 256) % 2
         local tcol = math.floor((wx % 256) / 8)
-        local t = ppu(0x2000 + nt * 0x400 + trow * 32 + tcol)
+        local t = ppu(0x2000 + vnt + nt * 0x400 + trow * 32 + tcol)
         local active = false
         if t < 0x80 then
           local bit = 0x80 >> (t & 7)

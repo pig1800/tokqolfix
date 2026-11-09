@@ -251,6 +251,26 @@ irq_switched:                   ; (label for the test scripts)
 irq_off:
     jmp irq_off_tail
 
+; Battle shake (bank 14 $ACBF, four-screen): A = the scroll_y offset ($00
+; or $ED, the screen shifted 3 lines down), Y = the shake step.  With 4
+; nametables a negative offset would wrap from row 29 into the lower
+; half; PPUCTRL bit 1 makes the wrap land in row 0 of the battle screen
+; (the 3 lines above come from the lower half, in the overscan).  The
+; shake always ends on step 3 (offset 0), which clears the bit again.
+battle_shake:
+    sta scroll_y
+    cmp #$01
+    lda ppu_ctrl_shadow
+    and #$FD
+    bcc @set
+    ora #$02
+@set:
+    sta ppu_ctrl_shadow
+    lda $AD7B,y                 ; scroll_x offset, as the original
+    sta scroll_x
+    rts
+battle_shake_end:               ; (game code for the RAM gates)
+
 ; ----------------------------------------------------------------------
 .base $C460
 ; ----------------------------------------------------------------------
@@ -418,3 +438,289 @@ wait_text:
     jsr WAIT_VBLANK
     lda KANJI_TEXT_BANK
     jmp SET_BANK_LOCK
+
+; ======================================================================
+; Map-canvas step 2: four-screen nametables (TR1ROM/TVROM-style, header
+; flag 6 bit 3).  The map's 30-row ring becomes a 60-row ring: world
+; metarow m = 15 * screen + row sits in the vertical nametable (screen & 1)
+; ($2000/$2400 or $2800/$2C00), and PPUCTRL bit 1 follows the camera's
+; top screen.  The other vertical half is free for the dialogue canvas.
+; Attributes keep the original 30-row model: the 128-byte shadow at $0780
+; is unchanged and every map attribute write goes to both vertical halves.
+; Each block below replaces the original routine's bytes in place (the
+; build checks them).
+; ======================================================================
+
+UPDATE_PARTY_SPRITES = $F421
+WALK_DY              = $E660            ; data_E660: scroll_y step per direction/speed
+ppu_update_off_      = $F2
+ppu_update_len_      = $F1
+ptr_lo_              = $F3
+ptr_hi_              = $F4
+
+; ----------------------------------------------------------------------
+.base $D7E9
+; ----------------------------------------------------------------------
+
+; cursor_to_ppu: nametable address of the cursor's metatile.
+;   hi = $20 | (cursor_y & 1) << 3 | (cursor_y2 & 1) << 2 | cursor_x >> 2
+;   lo = (cursor_x & 3) << 6 | cursor_x2 << 1
+; Leaves $F3 = cursor_x2 * 2 and $F4 = cursor_x >> 2 as the original.
+cursor_to_ppu:
+    lda cursor_x2
+    asl a
+    sta ptr_lo_
+    lda cursor_x
+    lsr a
+    lsr a
+    sta ptr_hi_
+    jsr nt_bits
+    asl a
+    asl a
+    ora ptr_hi_
+    ora #$20
+    sta ppu_addr_hi_shadow
+    lda cursor_x
+    ror a
+    ror a
+    ror a
+    and #$C0
+    ora ptr_lo_
+    sta ppu_addr_lo_shadow
+    rts
+
+; A = (cursor_y & 1) << 1 | (cursor_y2 & 1): the cursor's nametable.
+nt_bits:
+    lda cursor_y2
+    lsr a
+    lda cursor_y
+    rol a
+    and #$03
+    rts
+cursor_to_ppu_end:
+
+; ----------------------------------------------------------------------
+.base $D815
+; ----------------------------------------------------------------------
+
+; set_scroll_from_cursor (original entry): the camera's top-left metatile
+; is 7 rows above and 8 columns left of the player; PPUCTRL bits 0-1 =
+; its nametable.
+set_scroll_from_cursor:
+    lda #$F9
+    jsr $D7A9                   ; cursor_add_x
+    lda cursor_x
+    asl a
+    asl a
+    asl a
+    asl a
+    sta scroll_y
+    lda #$F8
+    jsr $D7C9                   ; cursor_add_y
+    lda cursor_x2
+    asl a
+    asl a
+    asl a
+    asl a
+    sta scroll_x
+    jsr nt_bits
+    sta ptr_lo_
+    lda ppu_ctrl_shadow
+    and #$FC
+    ora ptr_lo_
+    sta ppu_ctrl_shadow
+    rts
+set_scroll_end:
+
+; ----------------------------------------------------------------------
+.base $F3A3
+; ----------------------------------------------------------------------
+
+; Walking scroll, after "jsr update_party_sprites" at $F3A0.  X = direction
+; * 2 + speed, Y = $F3 = $FF / $FE as the original.  Crossing the 240-line
+; wrap toggles PPUCTRL bit 1 (the camera enters the other vertical half);
+; $F0 -> $00 going down, $FF/$FE -> $EF/$EE going up.  The horizontal part
+; ($F3CB-$F3EE) is the original's.
+walk_scroll:
+    lda battle_flags2
+    lsr a
+    lsr a                       ; C = speed bit
+    lda game_mode
+    rol a                       ; direction * 2 + speed, C = 0
+    tax
+    and #$01
+    eor #$FF
+    tay
+    sty ptr_lo_
+    lda WALK_DY,x
+    adc scroll_y                ; C = 0
+    cmp #$F0
+    bcc @store
+    and #$0F
+    beq @toggle                 ; $F0: down into the next screen, row 0
+    ora #$E0                    ; $FF/$FE: up into the screen above
+@toggle:
+    pha
+    lda ppu_ctrl_shadow
+    eor #$02
+    sta ppu_ctrl_shadow
+    pla
+@store:
+    sta scroll_y
+walk_scroll_end:
+
+; ----------------------------------------------------------------------
+.base $DAB9
+; ----------------------------------------------------------------------
+
+; draw_tile_run, vertical run past row 29: continue at row 0 of the other
+; vertical half (the original wrapped to row 0 of the same table).  The
+; new run starts at row 0, so its length is min(30, remaining).
+column_wrap:
+    lda ptr_hi_
+    eor #$0B                    ; hi & 3 = 3 here: (hi & $FC) EOR $08
+    sta $0400,x
+    sta ptr_hi_
+    inx
+    lda ptr_lo_
+    and #$1F
+    sta $0400,x
+    sta ptr_lo_
+    inx
+    lda #$00
+    sta ppu_update_off_
+    lda #$1E
+    cmp ppu_update_len_
+    bcc @len
+    lda ppu_update_len_
+@len:
+    ora #$80
+    sta $0400,x
+    inx
+    jmp $DA94                   ; the run's copy loop
+column_wrap_end:
+
+; draw_map_object pieces placed in the bytes column_wrap freed.
+dmo_col_next:                   ; column: the next attribute row (8-row wrap)
+    lda battle_cursor
+    clc
+    adc #$10
+    and #$7F
+    sta battle_cursor
+    bpl dmo_entry
+dmo_column:                     ; column entries are one byte each
+    lda #$01
+    bne dmo_run
+dmo_pieces_end:
+
+; ----------------------------------------------------------------------
+.base $DAF2
+; ----------------------------------------------------------------------
+
+; draw_map_object (the map attribute writer, called by draw_party_footer
+; and the window code): queues tile_id_base attribute bytes of the shadow
+; from index battle_cursor.  Rows (tile_attr bit 7 clear): along the row,
+; wrapping in its 16 bytes, into the vertical half of the row being drawn
+; (ppu_addr_hi_shadow bit 3, set by cursor_to_ppu).  Columns: down the
+; column, wrapping at 8 rows; a column spans both vertical halves, so its
+; bytes go to both (two passes): the attribute tables keep the original
+; 30-row model.  $F1/$F2 are scratch (as in draw_tile_run); no extra stack.
+; The original's rts at $DB7E (a branch target of scroll_map) stays;
+; data_DB7F is no longer read.
+draw_map_object:
+    ldy #$FF                    ; rows: one pass
+    lda ppu_addr_hi_shadow
+    and #$08
+    bit tile_attr
+    bpl dmo_save
+    ldy battle_cursor           ; columns: the start, for the second pass
+    lda #$00                    ; upper half first
+dmo_save:
+    sty ppu_update_len_
+dmo_pass:
+    sta ppu_update_off_         ; $00 / $08: vertical half
+    lda tile_id_base
+    sta ptr_hi_
+    ldx vram_queue_write
+dmo_entry:
+    lda battle_cursor
+    and #$08
+    lsr a
+    ora #$23
+    ora ppu_update_off_
+    sta $0400,x
+    inx
+    lda battle_cursor
+    lsr a
+    and #$38
+    sta ptr_lo_
+    lda battle_cursor
+    and #$07
+    ora ptr_lo_
+    ora #$C0
+    sta $0400,x
+    inx
+    ldy tile_attr
+    bmi dmo_column
+    and #$07
+    eor #$07                    ; 7 - column
+    cmp ptr_hi_
+    bcs @count                  ; the rest of the count fits in this table's row
+    adc #$01                    ; 8 - column (C = 0)
+    bne dmo_run
+@count:
+    lda ptr_hi_
+dmo_run:
+    sta $0400,x
+    inx
+@byte:
+    ldy battle_cursor
+    lda $0780,y
+    sta $0400,x
+    inx
+    dec ptr_hi_
+    beq @done
+    lda tile_attr
+    bmi dmo_col_next
+    inc battle_cursor
+    lda battle_cursor
+    and #$0F
+    bne @same_row
+    lda battle_cursor
+    sec
+    sbc #$10
+    sta battle_cursor
+@same_row:
+    and #$07
+    bne @byte
+    beq dmo_entry
+@done:
+    lda #$00
+    sta $0400,x
+    stx vram_queue_write
+    ldy ppu_update_len_
+    bmi @ret                    ; a row, or a column's second pass
+    lda ppu_update_off_
+    bne @ret
+    sty battle_cursor
+    lda #$08
+    bne dmo_pass
+@ret:
+    rts
+draw_map_object_end:
+
+; ----------------------------------------------------------------------
+.base $DC0E
+; ----------------------------------------------------------------------
+
+; text_render_cell, the bottom tile of a cell below row 29: row 0 of the
+; other vertical half (the original wrapped to row 0 of the same table).
+; Here hi & 3 = 3, so hi EOR $0B = (hi & $FC) EOR $08.  Same 12 bytes.
+cell_wrap:
+    lda ptr_hi_
+    eor #$0B
+    sta ptr_hi_
+    lda ptr_lo_
+    and #$1F
+    sta ptr_lo_
+cell_wrap_end:
