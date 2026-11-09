@@ -11,8 +11,28 @@ parts:
 
 Every figure below was measured on the build of 2026-11-09.  The probes are
 `tools/lua/canvas_survey.lua` and `tools/lua/irq_precision.lua`; their output
-is in `out/test/canvas/`.  The decision is pending.  Implementation goes on a
-new branch.
+is in `out/test/canvas/`.  Implementation goes on a new branch.
+
+## User direction (2026-11-09, second round)
+
+- Go 4-screen.  Patch the vertical scroll engine so that it works like the
+  horizontal one: a 60-row ring, with two buffer rows written after each
+  move.  The canvas then sits at +30 rows (address EOR `$0800`), clear of
+  both buffers, so no tile recovery is needed.  The 2-screen alternative
+  would have to re-render the two horizontal buffer blocks after each window.
+- The splits must be exact (see "IRQ landing").
+- Scope the dialogue panel path first, with less code, fewer cycles and less
+  memory.  Menus come later; the user is investigating them.
+
+The vertical engine touches these places in bank 15:
+- the walking code's wrap at 240 (`$F3B2-$F3C9`);
+- `cursor_add_x` (15-row wrap);
+- `set_scroll_from_cursor`;
+- `tile_address`;
+- `scroll_map` (row writes);
+- the NMI's scroll write and the PPUCTRL vertical-nametable bit.
+
+Our own row code (`KANJI_WIN_ROW`, the IRQ arm modulo 240) changes too.
 
 ## Measured facts
 
@@ -123,9 +143,28 @@ It lands at T + `a12` + (1 - `par`), with zero spread within each class:
 | `a12` = 0 | +1 | +0 |
 | `a12` = 1 | +2 | +1 |
 
-The code can normalise A12, but the CPU cannot see the frame parity.  Frames
-that queue more than 40 bytes, which includes the window-open frames, arm
-late and land between -4 and +6.
+`tools/lua/mmc3_clock_trace.lua` follows the counter clock by clock.  It shows
+one clock per line at about dot 325, plus two extra clocks:
+
+- **Pre-render line, dot 5, when vblank ends with A12 low.**  This is the
+  first BG fetch from `$1000` after a long low.  The code can control it by
+  leaving the PPU address at a fixed value.
+- **Line 0, dot 5, on every other frame.**  The game draws BG from `$1000` and
+  sprites from `$0000`, the reverse of the usual MMC3 setup.  The A12 low time
+  across the frame start is borderline, and the shorter pre-render line on odd
+  frames tips it.  With sprites at `$1000` and BG at `$0000`, A12 rises once a
+  line at dot 260 and never at the frame start.
+
+There is a separate problem with the arm position.  Our NMI arms after its
+own bookkeeping.  In frames where the game queues more than 40 bytes (window
+drawing), that bookkeeping ends between lines 263.9 and 278.7, which is past
+the pre-render clock.  Those frames therefore fall back to the IRQ's own
+re-arm.
+
+Both problems are in our code, not the MMC3.  Exact splits need two fixes:
+- arm right after the game's last PPU write;
+- remove the frame-start clock, either by rendering with sprites at `$1000`
+  in canvas frames or by tracking frame parity.
 
 ## Options
 
