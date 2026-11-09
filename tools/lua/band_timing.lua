@@ -10,8 +10,8 @@
 -- Hack addresses: python tools/lua_addrs.py tools/lua/band_timing.lua
 local A_EF31  = 0x8A02  -- @nmi_ef31@
 local A_POLL  = 0x8A3E  -- @band_poll@
-local A_MISS  = 0x8A5E  -- @band_miss@
-local A_HIT   = 0x8A7E  -- @band_switched@
+local A_MISS  = 0x8A65  -- @band_miss@
+local A_HIT   = 0x8A73  -- @band_switched@
 local A_FIX   = 0xBB16  -- @spr0_fix@
 local STATE = os.getenv("SHOP_STATE")
 local PATH = os.getenv("SHOP_PATH") or ""

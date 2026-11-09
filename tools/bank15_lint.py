@@ -2,8 +2,8 @@
 """Fail if the kanji target changes the fixed bank outside registered sites.
 
 The fixed bank (bank 15) must keep every original byte and address except the
-registered patch ranges below.  Bank 31 must be a byte-identical copy of
-patched bank 15 so code can run with either SUROM outer bit selected.
+registered patch ranges below.  Bank 31 (the MMC3 fixed bank at
+$C000-$FFFF) must be a byte-identical copy of patched bank 15.
 """
 from __future__ import annotations
 
@@ -19,11 +19,11 @@ OVERLAY_OFF = 0x3800
 OVERLAY_SIZE = 0x800
 
 PATCHES = [
-    (0xC469, 0xC469),   # mmc1_init control: 4K CHR mode
-    (0xC4B7, 0xC4B9),   # jmp SUROM switcher
-    (0xC48C, 0xC48E),   # set_bank_lock: jsr SUROM switcher
+    (0xC460, 0xC47D),   # dead mmc1_reset/mmc1_init: render_ctl, chr1_scene
+    (0xC486, 0xC488),   # set_bank_lock: jmp main_prg (MMC3)
+    (0xC4AA, 0xC4AC),   # restore_bank_after_nmi: jmp nmi_prg (MMC3)
     (0xC44F, 0xC450),   # clear_oam_shadow: ldx #$04 / bne (slot 0 is the NMI's)
-    (0xC5A6, 0xC6D1),   # load_text_graphics (tables moved), switcher, call_hack, block hook
+    (0xC5A6, 0xC6D1),   # load_text_graphics (tables moved), MMC3 switches, call_hack, block hook
     (0xC4BA, 0xC4CA),   # NMI EF08 hook (dead write_prg_bank body)
     (0xC343, 0xC345),   # jmp c343_hook
     (0xD28E, 0xD290),   # jmp text_dispatch
@@ -34,7 +34,7 @@ PATCHES = [
     (0xD416, 0xD426),   # text_redraw_lines: keep cells below $FA (battle pool scroll)
     (0xEF0B, 0xEF0F),   # jmp ef08_gate + nop nop
     (0xEF31, 0xEF33),   # jmp ef31_gate
-    (0xF00C, 0xF039),   # reset CHR registers + hack RAM clear (rewritten)
+    (0xF004, 0xF039),   # reset: MMC3 registers + hack RAM clear (rewritten)
     (0xFFE0, 0xFFEF),   # block-writer entry, overlay frame wait (padding)
 ]
 
@@ -76,16 +76,11 @@ def main() -> int:
             print(f"lint: bank {bank} overlay differs from bank 18",
                   file=sys.stderr)
             return 1
-    # Outer-half marker read by surom_write_prg_bank (revision 15): $BFFF
-    # has bit 7 set in every lower-half bank and clear in banks 16-30.
-    for bank in range(31):
-        mark = data[16 + bank * 0x4000 + 0x3FFF]
-        if bool(mark & 0x80) != (bank < 16):
-            print(f"lint: bank {bank} $BFFF = ${mark:02X} breaks the outer-half "
-                  "marker (bit 7 set only in banks 0-15)", file=sys.stderr)
-            return 1
+    if data[4] != 32 or (data[6] >> 4) | (data[7] & 0xF0) != 4:
+        print("lint: header is not 32 x 16 KiB PRG, mapper 4", file=sys.stderr)
+        return 1
     print(f"bank15 lint: OK ({len(PATCHES)} registered patch ranges, "
-          f"bank31 == bank15, outer marker)")
+          f"bank31 == bank15, mapper 4)")
     return 0
 
 

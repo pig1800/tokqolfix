@@ -2,8 +2,10 @@
 -- the band page lands on the window's top border row (scanlines
 -- band_y .. band_y+7), and (2) every tile shown on the band rows has the
 -- same CHR on page 1 and page 2 unless it is an active kanji slot.
+-- MMC3 (revision 21): only tiles $00-$7F come from the band page (R0);
+-- $80-$FF always show the scene page and are not compared.
 -- Standard path + town, 6000 frames.  Output: out/test/r11/band_check.txt
-local A_SWITCHED = 0x8A7E  -- @band_switched@
+local A_SWITCHED = 0x8A73  -- @band_switched@
 local outdir = "D:/EMU/NES/tokqolfix/out/test/r11"
 local frame = 0
 local log = assert(io.open(outdir .. "/band_check.txt", "w"))
@@ -76,7 +78,7 @@ local function onFrame()
           local bit = 0x80 >> (t & 7)
           active = (rd(0x140 + (t >> 3)) & bit) ~= 0
         end
-        if not active then
+        if not active and t < 0x80 then
           for i = 0, 15 do
             if chr(0x1000 + t * 16 + i) ~= chr(0x2000 + t * 16 + i) then
               bad = bad + 1

@@ -1,16 +1,28 @@
 ; ======================================================================
-; Patched fixed-bank support code for the kanji target (revision 11).
+; Patched fixed-bank support code for the kanji target (revision 11;
+; MMC3 since revision 21).
 ;
-; Audited gaps of bank 15 (mirrored to bank 31):
+; Audited gaps of bank 15 (bank 31, the fixed bank at $C000-$FFFF, is a
+; copy):
 ;
 ;   $C5A6-$C6D1  load_text_graphics (its palette tables moved to the hack
-;                bank), SUROM write_prg_bank, call_hack/map_hack,
+;                bank), the MMC3 bank switches, call_hack/map_hack,
 ;                block-writer hook
+;   $C460-$C47D  dead mmc1_reset / mmc1_init: render_ctl, chr1_scene
 ;   $C4BA-$C4CA  NMI hook at loc_EF08 (dead original write_prg_bank body)
 ;   $D291-$D2B6  NMI epilogue hook at loc_EF31 (dead original $EF-$F7
 ;                dispatcher, replaced by the overlay's text_dispatch)
-;   $F00C-$F039  reset CHR/RAM setup, rewritten
+;   $F004-$F039  reset mapper/RAM setup, rewritten
 ;   $FFE0-$FFEF  block-writer original entry, overlay frame wait
+;
+; MMC3 bank-switch protocol (revision 21).  MMC3_SEL ($EB, the game's MMC1
+; bank_switch_lock, which only the rewritten switch routines used) holds the
+; last value the main thread wrote to the bank-select register $8000.  The
+; main thread stores it there before every $8000 write; interrupt code
+; writes $8000 directly and leaves with $8000 = MMC3_SEL | $80
+; (restore_bank_after_nmi does it last in every NMI that touched the
+; mapper).  So an NMI between a main-thread select and its data write
+; changes nothing: the data lands in the register the main thread chose.
 ;
 ; Nothing here runs before the game's own split-screen code: the NMI work
 ; is attached after the nmi_mode branch ($EF0B, normal frames only) and in
@@ -73,55 +85,51 @@ ltg_copied:                     ; a jump there and back: no extra stack depth
     tax
     rts
 
-; SUROM write_prg_bank.  A = bank (bit 4 = outer 256 KiB half).  CHR
-; register 0 carries the outer bit (its low bits keep sprite page 0), the
-; PRG register the low four bits (bit 4 clear: PRG RAM stays enabled).
-; The outer register is written only when the half changes (revision 15):
-; $BFFF of the bank mapped now tells the half, from the hardware itself
-; (every game bank 0-15 has $EE there, every hack/text bank 16-30 has
-; $00; kanji_build.py checks this), so an NMI that switched banks in
-; between cannot leave a stale copy behind.  X and Y are untouched and at
-; most one stack byte is used: an NMI can interrupt a main-thread switch
-; and nest a second one.  Returns A = 0.
-surom_write_prg_bank:
-    cmp #$10
-    bcs @hi
-    bit OUTER_MARK              ; N = 1: a game bank is mapped (outer 0)
-    bpl @lo_outer
-@prg:
-    sta MMC1_PRG_BANK
-    lsr a
-    sta MMC1_PRG_BANK
-    lsr a
-    sta MMC1_PRG_BANK
-    lsr a
-    sta MMC1_PRG_BANK
-    lsr a
-    sta MMC1_PRG_BANK
-    rts
-@lo_outer:
+; set_bank_lock body (jumped to from $C486, after "sta current_prg_bank";
+; A = the 16 KiB bank).  Main thread: $8000-$9FFF = R6 = 2 * bank,
+; $A000-$BFFF = R7 = 2 * bank + 1, MMC3_SEL stored before each select.
+; X and Y untouched, one stack byte.  Returns as the original: A = 0,
+; Z set, N clear, C = bit 3 of the bank, V unchanged.
+main_prg:
+    asl a
     pha
-    lda #$00
-    beq @outer
-@hi:
-    bit OUTER_MARK
-    bpl @hi_prg                 ; upper half already mapped
-    pha
-    lda #$10
-@outer:
-    sta MMC1_CHR_BANK0
-    sta MMC1_CHR_BANK0
-    sta MMC1_CHR_BANK0
-    sta MMC1_CHR_BANK0
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    sta MMC1_CHR_BANK0
+    lda #MMC3_R6
+    sta MMC3_SEL
+    sta MMC3_SELECT
     pla
-@hi_prg:
-    and #$0F
-    bpl @prg                    ; always
+    sta MMC3_DATA
+    pha
+    lda #MMC3_R7
+    sta MMC3_SEL
+    sta MMC3_SELECT
+    pla
+    ora #1
+    sta MMC3_DATA
+    lda current_prg_bank
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lda #0
+    rts
+
+; restore_bank_after_nmi body (jumped to from $C4AA; A = bank).  NMI only:
+; MMC3_SEL stays the main thread's, and $8000 gets it back last.  Clobbers
+; X (every caller reloads it).
+nmi_prg:
+    asl a
+    tax
+    lda #MMC3_R6
+    sta MMC3_SELECT
+    stx MMC3_DATA
+    inx
+    lda #MMC3_R7
+    sta MMC3_SELECT
+    stx MMC3_DATA
+    lda MMC3_SEL
+    ora #MMC3_CHR_MODE
+    sta MMC3_SELECT
+    rts
 
 ; NMI epilogue gate (jumped to from $EF31 in place of "pla / tay / pla").
 ; The hack's epilogue work is the band split and the split-mode reset;
@@ -238,21 +246,31 @@ c343_hook:
     lda #FN_BLOCK_POST
     jmp call_hack
 
-; CHR register 1 = page 1 (scene) under the game's bank-switch protocol:
-; reset the MMC1 shift register and clear bank_switch_lock, so a
-; main-thread switch that this interrupted starts over (as after
-; restore_bank_after_nmi).  Returns A = 0; X and Y untouched.  (Revision
-; 16c: moved here from $E6B3-$E6C3, which is part of two battle tables.)
+; ----------------------------------------------------------------------
+.base $C460
+; ----------------------------------------------------------------------
+
+; text_render_cell, patched at $DBED (its "jmp loc_DC7C"): a row-buffer
+; byte with bit 7 set ends the line in the original, whose tiles are all
+; below $80.  The battle pool's kanji tiles $A4-$DF (revision 18) are drawn
+; like any tile; every other byte keeps the original path.
+render_ctl:
+    cmp #POOL_FIRST
+    bcc @ctl
+    cmp #POOL_LAST+1
+    bcs @ctl
+    jmp $DBEF                   ; queue the cell (top tile in A)
+@ctl:
+    jmp $DC7C                   ; end of line, as the original
+
+; BG tiles $00-$7F = the scene page (R0).  NMI only (c343_hook): $8000 is
+; given back by the restore_bank_after_nmi that ends every such NMI.
+; X and Y untouched.
 chr1_scene:
-    inc MMC1_RESET_ADDR
-    lda #1
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta bank_switch_lock
-    sta MMC1_CHR_BANK1
-    sta MMC1_CHR_BANK1
-    sta MMC1_CHR_BANK1
-    sta MMC1_CHR_BANK1
+    lda #MMC3_R0
+    sta MMC3_SELECT
+    lda #CHR_SCENE_LO
+    sta MMC3_DATA
     rts
 
 ; ----------------------------------------------------------------------
@@ -305,19 +323,33 @@ scroll_text:
     jmp SET_BANK_LOCK
 
 ; ----------------------------------------------------------------------
-.base $F00C
+.base $F004
 ; ----------------------------------------------------------------------
 
-; Reset: CHR register 1 = page 1, CHR register 0 = page 0 (lower outer
-; half, as the original), clear the hack state $0103-$017F, then the
-; game's own RAM clear at $F03A with A = 0, X = $F0 as before.
-reset_chr:
-    jsr chr1_scene
-    sta MMC1_CHR_BANK0
-    sta MMC1_CHR_BANK0
-    sta MMC1_CHR_BANK0
-    sta MMC1_CHR_BANK0
-    sta MMC1_CHR_BANK0
+; Reset (in place of "lda #$0E / jsr write_prg_bank / jsr mmc1_init"):
+; every MMC3 register, then clear the hack state $0103-$017F, then the
+; game's own RAM clear at $F03A with A = 0, X = $F0 as before.  The first
+; $8000 write sets PRG mode 0, so $C000-$DFFF is the fixed bank from then
+; on (the MMC3 powers up in an unknown mode; this code is in $E000-$FFFF).
+; CHR mode 1: BG $1000-$17FF = R0 (2 KiB, tiles $00-$7F: scene or band
+; page), $1800-$1FFF = R1 (scene, never switched), sprites = R2-R5.
+; The RAM clear zeroes MMC3_SEL; restores OR in the mode bit.
+reset_mmc3:
+    ldx #7
+@reg:
+    txa
+    ora #MMC3_CHR_MODE
+    sta MMC3_SELECT
+    lda mmc3_init,x
+    sta MMC3_DATA
+    dex
+    bpl @reg
+    inx
+    stx MMC3_MIRROR             ; vertical, as the original's MMC1 control
+    stx MMC3_IRQ_OFF
+    lda #$80
+    sta MMC3_WRAM               ; battery RAM enabled, writable
+    txa
     ldx #$7C
 @clear:
     sta KANJI_MAINCHR,x
@@ -326,21 +358,12 @@ reset_chr:
     ldx #$F0
     jmp $F03A
 
-; text_render_cell, patched at $DBED (its "jmp loc_DC7C"): a row-buffer
-; byte with bit 7 set ends the line in the original, whose tiles are all
-; below $80.  The battle pool's kanji tiles $A4-$DF (revision 18) are drawn
-; like any tile; every other byte keeps the original path.  In the dead
-; tail of the rewritten reset code.
-render_ctl:
-    cmp #POOL_FIRST
-    bcc @ctl
-    cmp #POOL_LAST+1
-    bcs @ctl
-    jmp $DBEF                   ; queue the cell (top tile in A)
-@ctl:
-    jmp $DC7C                   ; end of line, as the original
+; R0-R7: scene BG halves, sprite page 0, bank 14 (as the original reset).
+mmc3_init:
+    .db CHR_SCENE_LO, CHR_SCENE_HI, 0, 1, 2, 3, 28, 29
 
 ; ----------------------------------------------------------------------
+.base $FFE0; ----------------------------------------------------------------------
 .base $FFE0
 ; ----------------------------------------------------------------------
 

@@ -1,6 +1,7 @@
 -- Revision-11 diagnostic on the standard path + town: band switch scanline
--- (fifth CHR-1 write per sequence), hit/miss flags, PPU data access while
--- rendering by non-game code, crash detector, screenshots.
+-- (MMC3 R0 data writes since revision 21: value / 4 = page of BG tiles
+-- $00-$7F), hit/miss flags, PPU data access while rendering by non-game
+-- code, crash detector, screenshots.
 local outdir = "D:/EMU/NES/tokqolfix/out/test/r11"
 local frame = 0
 local log = assert(io.open(outdir .. "/diag.txt", "w"))
@@ -29,12 +30,13 @@ local function onInput()
 end
 local function rd(a) return emu.read(a, emu.memType.nesMemory) end
 local function st() return emu.getState() end
+local sel = 0
 local function onChr1(addr, value)
+  if (addr & 0xE001) == 0x8000 then sel = value; return end
+  if (addr & 0xE001) ~= 0x8001 or (sel & 7) ~= 0 then return end
   n1 = n1 + 1
-  if n1 % 5 == 0 then
-    local s = st()
-    switches[#switches+1] = string.format("%d:%d@%04X", s["ppu.scanline"], value, emu.getCpuState().pc)
-  end
+  local s = st()
+  switches[#switches+1] = string.format("%d:%d@%04X", s["ppu.scanline"], value // 4, emu.getCpuState().pc)
 end
 local function onPpu(addr, value)
   local s = st()
@@ -93,7 +95,7 @@ local function onFrame()
     log:close(); emu.stop(0)
   end
 end
-emu.addMemoryCallback(onChr1, emu.callbackType.write, 0xC000, 0xDFFF, emu.memType.nesMemory, emu.cpuType.nes)
+emu.addMemoryCallback(onChr1, emu.callbackType.write, 0x8000, 0x9FFF, emu.memType.nesMemory, emu.cpuType.nes)
 emu.addMemoryCallback(onPpu, emu.callbackType.write, 0x2006, 0x2007, emu.memType.nesMemory, emu.cpuType.nes)
 emu.addMemoryCallback(onPpu, emu.callbackType.read, 0x2007, 0x2007, emu.memType.nesMemory, emu.cpuType.nes)
 emu.addMemoryCallback(onBad, emu.callbackType.exec, 0x0800, 0x5FFF, emu.memType.nesMemory, emu.cpuType.nes)

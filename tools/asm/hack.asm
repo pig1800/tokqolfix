@@ -434,10 +434,13 @@ mark_range:
 
 ; A = tile 0-255: mark it stale on the band page.  Clobbers A, X and
 ; KANJI_BUF+15 (scratch outside restore_tile), preserves Y and KANJI_T0/T1.
+; Upper tiles are never stale (revision 21): the band page switches only
+; BG tiles $00-$7F, $80-$FF always show the scene page.  The upper-group
+; restore paths stay but never find a group.
 mark_stale:
     sta MS_TMP
     cmp #$80
-    bcs @hi
+    bcs @upper
     and #7
     tax
     lda bitmask,x
@@ -473,6 +476,7 @@ mark_stale:
     lda KANJI_NFLAGS            ; restart the group cursor
     and #<~FLAG_HI_SUB
     sta KANJI_NFLAGS
+@upper:
     rts
 
 ; ----------------------------------------------------------------------
@@ -1248,7 +1252,10 @@ nmi_ef31:
     bne @rts
     ; The previous frame's hit flag stays set until the pre-render line.
 band_poll:                      ; (labels for the test scripts)
-    ldx #0
+    lda #MMC3_R0                ; select BG tiles $00-$7F now: after the
+    sta MMC3_SELECT             ; hit only the data write remains (the
+    lda #CHR_BAND_LO            ; epilogue's restore_bank_after_nmi gives
+    ldx #0                      ; $8000 back)
     ldy #2
 @wait_clear:
     bit PPUSTATUS
@@ -1275,16 +1282,7 @@ band_miss:
     sta KANJI_NFLAGS
     rts
 band_hit:
-    lda #2
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
+    sta MMC3_DATA               ; A = CHR_BAND_LO (bit/branch keep A)
 band_switched:                  ; (label for the test scripts)
     lda KANJI_NFLAGS
     and #$3F
@@ -1304,8 +1302,9 @@ fn_dispatch:
 @svc:
     jmp fn_service
 
-; A = CHR page for register 1.  Main-thread hack code runs with
-; KANJI_MAINCHR set and uses the lock protocol; the NMI writes directly.
+; A = CHR page (1 scene, 2 band) for BG tiles $00-$7F.  Main-thread hack
+; code runs with KANJI_MAINCHR set and uses the bank-select shadow; the
+; NMI writes directly.
 set_page:
     pha
     lda KANJI_MAINCHR
@@ -1317,69 +1316,51 @@ set_page:
     jmp wr_reg1_main
 
 
-; CHR register 1 = A, five serial writes (NMI context or lock held).
+; NMI: R0 = page A's lower half (4 * A).  $8000 is left on R0; the
+; restore_bank_after_nmi that ends every NMI gives it back.  Preserves X
+; and Y.
 wr_reg1:
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
+    asl a
+    asl a
+    pha
+    lda #MMC3_R0
+    sta MMC3_SELECT
+    pla
+    sta MMC3_DATA
     rts
 
-; Main thread: CHR register 1 = A under the game's bank-switch lock.  An
-; NMI that interrupts the sequence resets the shift register and clears
-; the lock; reset again and retry.  Preserves X and Y.
+; Main thread: the same, under the bank-select shadow (an NMI between the
+; select and the data write restores $8000 = MMC3_SEL = R0).  Preserves X
+; and Y.
 wr_reg1_main:
+    asl a
+    asl a
     pha
-@retry:
-    lda #1
-    sta bank_switch_lock
+    lda #MMC3_R0
+    sta MMC3_SEL
+    sta MMC3_SELECT
     pla
-    pha
-    ; the five writes inline: an NMI in this window runs the game's
-    ; lock path (mmc1_reset) on top of us, so keep the stack shallow
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lda bank_switch_lock
-    bne @ok
-    inc MMC1_RESET_ADDR
-    jmp @retry
-@ok:
-    pla
-    lda #0
-    sta bank_switch_lock
+    sta MMC3_DATA
     rts
 
-; A = glyph bank 24-30, using the context's protocol.  In the NMI the hook
-; has already mapped bank 23 through the game's protocol (shift register
-; clean, lock clear) and banks 16-31 share the outer 256 KiB select, so only
-; the PRG register is written (saves ~90 cycles of vblank).
+; A = glyph bank 24-30, using the context's protocol.  The NMI writes R6
+; and R7 directly (the hack code is the same in every hack bank; the
+; NMI's last restore_bank_after_nmi gives $8000 back).  Clobbers X and Y
+; in the NMI (glyph_upload reloads them).
 map_bank:
     pha
     lda KANJI_MAINCHR
     bne @main_pla
     pla
-    and #$0F
-    sta MMC1_PRG_BANK
-    lsr a
-    sta MMC1_PRG_BANK
-    lsr a
-    sta MMC1_PRG_BANK
-    lsr a
-    sta MMC1_PRG_BANK
-    lsr a
-    sta MMC1_PRG_BANK
+    asl a
+    tax
+    lda #MMC3_R6
+    sta MMC3_SELECT
+    stx MMC3_DATA
+    inx
+    lda #MMC3_R7
+    sta MMC3_SELECT
+    stx MMC3_DATA
     rts
 @main_pla:
     pla
@@ -1447,7 +1428,7 @@ fn_block_post:
 @tile:
     lda KANJI_M1
     cmp #$80
-    bcs @copy                   ; upper tiles are never active
+    bcs @upper                  ; upper tiles: scene page only (R1)
     lsr a
     lsr a
     lsr a
@@ -1464,6 +1445,7 @@ fn_block_post:
     jmp @next
 @copy:
     jsr restore_tile_main       ; page 1 -> page 2, clears a lower stale bit
+@upper:
     lda KANJI_M1
     cmp #POOL_FIRST
     bcc @next
@@ -1872,10 +1854,9 @@ spr0_fix:
 ; ----------------------------------------------------------------------
 ; Block writer copy (main thread, busy mode, KANJI_MAINCHR set): tile
 ; KANJI_M1 from page 1 (selected) to page 2, back to page 1, and clear its
-; lower stale bit, as restore_tile.  The CHR register 1 writes are inline
-; under the game's bank-switch lock: an NMI in that window runs the game's
-; lock path (mmc1_reset) on top of us, so the stack holds only this
-; routine's return address there (revision 18; was 6 bytes).
+; lower stale bit, as restore_tile.  The R0 writes are inline under the
+; bank-select shadow, so the stack holds only this routine's return
+; address there (revision 18; was 6 bytes).
 ; ----------------------------------------------------------------------
 restore_tile_main:
     jsr tile_ppuaddr
@@ -1887,26 +1868,11 @@ restore_tile_main:
     inx
     cpx #16
     bne @rd
-@retry2:
-    lda #1
-    sta bank_switch_lock
-    lda #2                      ; band page
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lda bank_switch_lock
-    bne @ok2
-    inc MMC1_RESET_ADDR         ; an NMI reset the shift register: again
-    jmp @retry2
-@ok2:
-    lda #0
-    sta bank_switch_lock
+    lda #MMC3_R0                ; band page, under the bank-select shadow
+    sta MMC3_SEL
+    sta MMC3_SELECT
+    lda #CHR_BAND_LO
+    sta MMC3_DATA
     jsr tile_ppuaddr
     ldx #0
 @wr:
@@ -1915,26 +1881,8 @@ restore_tile_main:
     inx
     cpx #16
     bne @wr
-@retry1:
-    lda #1
-    sta bank_switch_lock
-    lda #1                      ; scene page
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lsr a
-    sta MMC1_CHR_BANK1
-    lda bank_switch_lock
-    bne @ok1
-    inc MMC1_RESET_ADDR
-    jmp @retry1
-@ok1:
-    lda #0
-    sta bank_switch_lock
+    lda #CHR_SCENE_LO           ; scene page ($8000 = MMC3_SEL = R0 still:
+    sta MMC3_DATA               ; an NMI in between restored it)
     lda KANJI_M1
     bmi @done                   ; upper tiles: no lower stale bit
     lsr a

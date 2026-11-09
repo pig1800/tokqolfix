@@ -1,7 +1,7 @@
 -- Visible-garble gate (revision 12).  Every frame, for every background
 -- cell on screen, decide which CHR page the PPU actually used for it
--- (MMC1 CHR register 1 is tracked write by write, with the scanline of the
--- commit) and flag:
+-- (MMC3 R0 / R1 data writes are tracked with their scanline since revision
+-- 21: R0 = BG tiles $00-$7F, R1 = $80-$FF, value // 4 = page) and flag:
 --   kanji_on_scene  an active kanji tile drawn from page 1 (shows kana junk)
 --   not_uploaded    an active kanji tile drawn from page 2 whose page-2
 --                   pattern still equals page 1 (glyph not uploaded yet)
@@ -43,24 +43,19 @@ local function onInput()
   else emu.setInput({}, 0) end
 end
 
--- MMC1 shift register model (CHR register 1 only matters here).
-local sr, cnt = 0, 0
-local reg1 = 1
+-- MMC3 model (revision 21): bank select $8000, data $8001; R0 (BG tiles
+-- $00-$7F) and R1 ($80-$FF) data writes with their scanline.
+local sel = 0
 local events = {}
 local function onMapper(addr, value)
-  if (value & 0x80) ~= 0 then sr, cnt = 0, 0; return end
-  sr = sr | ((value & 1) << cnt)
-  cnt = cnt + 1
-  if cnt == 5 then
-    if addr >= 0xC000 and addr <= 0xDFFF then
-      reg1 = sr & 0x0F
-      events[#events+1] = {emu.getState()["ppu.scanline"], reg1}
-    end
-    sr, cnt = 0, 0
+  local r = addr & 0xE001
+  if r == 0x8000 then sel = value & 7; return end
+  if r == 0x8001 and sel <= 1 then
+    events[#events+1] = {emu.getState()["ppu.scanline"], sel + 1, value // 4}
   end
 end
 
-local page_prev = 1
+local page_prev = {1, 1}
 local counts = {pool_outside=0, pool_glyph_changed=0, pool_on_band=0, pool_not_uploaded=0, kanji_left=0, kanji_on_scene=0, not_uploaded=0, band_mismatch=0, released_shown=0, active_outside=0, glyph_changed=0}
 -- Battle pool kanji (revision 18): tiles $A4-$DF on the scene page while
 -- the pool is armed ($0178 bit 6).  Inside the window (or a cell that
@@ -102,23 +97,24 @@ local sigs = {}        -- nt address -> page-2 pattern first shown there
 local function onFrame()
   frame = frame + 1
   -- page timeline for this frame's visible scanlines
-  local p0 = page_prev
+  local p0 = {page_prev[1], page_prev[2]}
   local changes = {}
   for _, e in ipairs(events) do
-    local sl, v = e[1], e[2]
-    if sl >= 240 or sl < 0 then p0 = v else changes[#changes+1] = e end
+    local sl = e[1]
+    if sl >= 240 or sl < 0 then p0[e[2]] = e[3] else changes[#changes+1] = e end
   end
-  local final = p0
-  for _, e in ipairs(changes) do final = e[2] end
+  local final = {p0[1], p0[2]}
+  for _, e in ipairs(changes) do final[e[2]] = e[3] end
   if DEBUG and frame >= 645 and frame <= 650 then
     local parts = {}
-    for _, e in ipairs(events) do parts[#parts+1] = e[1] .. ":" .. e[2] end
-    log:write(string.format("dbg f=%d p0=%d ev=%s" .. string.char(10), frame, p0, table.concat(parts, " ")))
+    for _, e in ipairs(events) do parts[#parts+1] = e[1] .. ":R" .. (e[2] - 1) .. "=" .. e[3] end
+    log:write(string.format("dbg f=%d p0=%d/%d ev=%s" .. string.char(10), frame, p0[1], p0[2], table.concat(parts, " ")))
   end
   events = {}
-  local function page_at(y)
-    local p = p0
-    for _, e in ipairs(changes) do if e[1] < y then p = e[2] end end
+  -- page of tile half h (1: $00-$7F, 2: $80-$FF) on scanline y
+  local function page_at(y, h)
+    local p = p0[h]
+    for _, e in ipairs(changes) do if e[2] == h and e[1] < y then p = e[3] end end
     return p
   end
   page_prev = final
@@ -170,8 +166,8 @@ local function onFrame()
       local wy = (ytop + sy) % 240
       local trow = math.floor(wy / 8)
       local ymid = math.max(ytop, 0)
-      local pg_top = page_at(ymid)
-      local pg_bot = page_at(math.min(ytop + 7, 239))
+      local pt = {page_at(ymid, 1), page_at(ymid, 2)}
+      local pb = {page_at(math.min(ytop + 7, 239), 1), page_at(math.min(ytop + 7, 239), 2)}
       for x = 0, 255, 8 do
         local wx = x + sx + (ctrl & 1) * 256
         local nt = math.floor(wx / 256) % 2
@@ -180,6 +176,8 @@ local function onFrame()
         if not seen[a] then
           seen[a] = true
           local t = ppu(a)
+          local h = t >= 0x80 and 2 or 1
+          local pg_top, pg_bot = pt[h], pb[h]
           local active = t < 0x80 and (A[t >> 3] & (0x80 >> (t & 7))) ~= 0
           local pool = t >= 0xA4 and t <= 0xDF and (rd(0x178) & 0x40) ~= 0
           if not pool and pmarks[a] then pmarks[a] = nil; psigs[a] = nil end

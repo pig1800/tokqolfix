@@ -15,10 +15,33 @@
 ; number scratch) or in $01E0-$01FF (main stack and its overflow margin).
 ; There is no RAM code.
 ;
-; CHR (16 KiB RAM, 4 KiB mode): page 0 sprites, page 1 scene, page 2 band.
-; Page 2 is kept equal to page 1 except for the tiles in KANJI_STALE; the
-; NMI selects page 2 from the dialogue window's top border to the bottom
-; of the frame (sprite-0 sync) while KANJI_BAND is set.
+; CHR (16 KiB RAM, MMC3 CHR mode 1, revision 21): page 0 sprites (R2-R5),
+; page 1 scene, page 2 band.  Only BG tiles $00-$7F switch (R0, 2 KiB):
+; tiles $80-$FF always show the scene page (R1).  Page 2's lower half is
+; kept equal to page 1's except for the tiles in KANJI_STALE; the NMI
+; selects it from the dialogue window's top border to the bottom of the
+; frame (sprite-0 sync) while KANJI_BAND is set.
+
+; MMC3 registers and the bank-select shadow (see mmc3_b15.asm).
+MMC3_SELECT       = $8000
+MMC3_DATA         = $8001
+MMC3_MIRROR       = $A000
+MMC3_WRAM         = $A001
+MMC3_IRQ_LATCH    = $C000
+MMC3_IRQ_RELOAD   = $C001
+MMC3_IRQ_OFF      = $E000
+MMC3_IRQ_ON       = $E001
+MMC3_CHR_MODE     = $80     ; every select: CHR mode 1, PRG mode 0
+MMC3_R0           = $80     ; BG tiles $00-$7F (2 KiB)
+MMC3_R1           = $81     ; BG tiles $80-$FF (2 KiB)
+MMC3_R6           = $86     ; PRG $8000-$9FFF
+MMC3_R7           = $87     ; PRG $A000-$BFFF
+MMC3_SEL          = $00EB   ; main thread's last $8000 value (the game's
+                            ; MMC1 bank_switch_lock, unused by the game
+                            ; outside the rewritten switch routines)
+CHR_SCENE_LO      = 4       ; 1 KiB CHR bank numbers: page 1 tiles $00-$7F
+CHR_SCENE_HI      = 6       ;   page 1 tiles $80-$FF
+CHR_BAND_LO       = 8       ;   page 2 tiles $00-$7F
 
 KANJI_TEXT_BANK   = $0131
 KANJI_TEXT_ADDR   = $0132   ; 2 bytes (consumed at overlay entry)
@@ -130,8 +153,6 @@ SET_BANK_14       = $C4A6
 WAIT_VBLANK       = $C09F
 TEXT_DRAW_CHAR    = $D456   ; prompt + wait for the button
 TEXT_REDRAW_LINES = $D405   ; shift the window's tile rows up one row
-OUTER_MARK        = $BFFF   ; bit 7 set in game banks 0-15, clear in banks 16-30
-MMC1_RESET_ADDR   = $FFD9   ; inc here resets the MMC1 shift register
 
 ; call_hack function numbers (hack bank $8000 dispatcher).
 FN_BLOCK_PRE      = 0       ; before a block write: page 1, save params
