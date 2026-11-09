@@ -101,25 +101,29 @@ FLAG_PPU_DIRTY    = $08     ; NMI-internal: PPU address used, restore scroll
 FLAG_HI_SUB       = $30     ; upper-tile restore cursor within a group
 FLAG_HIT          = $40     ; this frame: the IRQ switched to the band page
 FLAG_MISS         = $80     ; (unused since revision 21b)
+FLAG_ARMED        = $80     ; this NMI: irq_arm0 ran (map-canvas step 1)
 
-; Scanline IRQ (revision 21b).  The counter clocks once per rendered line
-; (and on every A12 rise of vblank VRAM traffic, so the NMI reloads it
-; after its last PPU access, before the pre-render line's clock at dot
-; 325 of line 261).  Latch T + IRQ_OFS (T = the border row's first line):
-; the IRQ comes at the end of line T + 1 and the switch lands in line
-; T + 2.  Mesen clocks the counter once more at the start of line 0 on
-; every other frame (A12 low time across the pre-render line's end), and
-; once more when vblank ends with the PPU address below $1000, so the
-; switch lands in border lines 0-2, inside the 8-line border row; an arm
-; a little after the pre-render clock moves it a line later, still inside.
-; Frames whose game queue flushed at most IRQ_ARM_MAX bytes reach the arm
-; before that clock (standard path: at most 32 bytes, latest 261.3; 48 or
-; more: 263.9-278.7).  Heavier frames keep IRQ_CHAIN, the IRQ's own
-; re-arm for the same line one frame later, which vblank CHR/palette
-; writes can only make come early (onto the map above the window).
+; Scanline IRQ (revision 21b; two stages since map-canvas step 1).  The
+; counter clocks once per rendered line at dot ~325 (BG at $1000, sprites
+; at $0000), on A12 rises of vblank VRAM traffic, at the pre-render line's
+; first BG fetch when vblank ends with the PPU address below $1000, and in
+; Mesen once more at line 0 dot 5 on every other frame.  irq_arm0 (hack
+; bank) runs right after the frame's last PPU access: it sets the PPU
+; address to $1000, so the only clock left before rendering is the
+; pre-render line's at dot ~325, and reloads with 0 there: IRQ stage 0.
+; Its handler (irq_stage0) runs in line 0, after the irregular clock, and
+; reloads the counter for line T (the window border row's first line):
+; stage 1 comes at line T's clock and switches in line T + 1, on every
+; frame whose game NMI flushed at most ARM_FORCE_MAX bytes (hack.asm).
+; Heavier flushes (full-screen redraws) end the game's NMI at line 259.6
+; and arm in line 0: the switch comes one line later there.
 IRQ_OFS           = 2
 IRQ_CHAIN         = 240
 IRQ_ARM_MAX       = 40
+; Map-canvas step 1: the two-stage arm (irq_arm0, irq_stage0).  NMI
+; scratch in the read-back buffer, written after the frame's last unit.
+KANJI_IRQ_ST      = KANJI_BUF+12 ; 1 = the next IRQ is stage 0
+KANJI_IRQ_N       = KANJI_BUF+13 ; stage 1 comes at the clock of this line
 
 ; Battle pool (revision 18).  The battle tile set leaves tiles $A4-$DF of
 ; the scene page blank and never shows them.  A message printed while the

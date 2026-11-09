@@ -27,8 +27,14 @@ local function onInput()
   else emu.setInput({start=false, a=false, b=false, select=false, down=false}, 0) end
 end
 local function rd(a) return emu.read(a, emu.memType.nesMemory) end
-local fixed_ranges = {{0xC5E2,0xC6D1},{0xC460,0xC47D},{0xC489,0xC49D},{0xC4AD,0xC4CA},{0xD291,0xD2B6},{0xF004,0xF039},{0xFFE0,0xFFEF}}
+local A_MAIN_PRG = 0xC5BA  -- @main_prg@
+local fixed_ranges = {{A_MAIN_PRG,0xC6D1},{0xC460,0xC47D},{0xC489,0xC49D},{0xC4AD,0xC4CA},{0xD291,0xD2B6},{0xF004,0xF039},{0xFFE0,0xFFEF}}
+local A_LTG_MASK = 0xB943  -- @ltg_mask@
+local A_LTG_MASK_END = 0xB96E  -- @ltg_mask_end@
 local function hack_pc(pc)
+  -- load_text_graphics' palette mask, moved to the hack bank (map-canvas
+  -- step 1): the original routine's writes ($3D, $A5), game code
+  if pc > A_LTG_MASK and pc <= A_LTG_MASK_END and rd(0x8000) == 0x4C then return false end  -- (write callbacks see the next pc)
   if pc >= 0x8000 and pc < 0x8C00 and rd(0x8000) == 0x4C and rd(0x8003) == 0x4C and rd(0x8006) == 0x4C then return true end
   if pc >= 0xB900 and pc < 0xBF00 and rd(0x8000) == 0x4C and rd(0x8003) == 0x4C and rd(0x8006) == 0x4C then return true end  -- second hack segment
   if pc >= 0xB800 and pc < 0xC000 and rd(0xB800) == 0x8E then return true end

@@ -6,11 +6,13 @@
 -- Unit entry addresses come from decomp/build/kanji/hack.lst (@ADDR@ lines
 -- are rewritten by tools/garble_run.py --lua ... or edited by hand).
 local A_ENTRY  = 0x800C  -- @nmi_ef08@
-local A_PROBE  = 0x82C0  -- @probe_window@
-local A_UPLOAD = 0x8469  -- @upload_go@
-local A_POOLCHK = 0xBB4C  -- @pool_check_go@
-local A_RESTORE= 0x859D  -- @restore_tile@
-local A_REPLAY = 0x81F9  -- @replay_entry@
+local A_PROBE  = 0x82D9  -- @probe_window@
+local A_UPLOAD = 0x8482  -- @upload_go@
+local A_POOLCHK = 0xBB74  -- @pool_check_go@
+local A_RESTORE= 0x85B6  -- @restore_tile@
+local A_FORCE  = 0x89E0  -- @arm_force@
+local A_FORCE_END = 0x89FC  -- @arm_force_end@
+local A_REPLAY = 0x8212  -- @replay_entry@
 local LAST = tonumber(os.getenv("DL_FRAMES") or "6000")
 -- DL_STATE: run from a save state instead of power-on, with DL_PATH steps
 -- (one every 40 frames from load+30, "w" = wait) as in garble_state.lua.
@@ -76,9 +78,19 @@ local function onEntry()
   end
 end
 local function mark(n) return function() if hm() then units[#units+1] = n end end end
+local force_late, force_max = 0, 0
 local function onData()
   local pc = emu.getCpuState().pc
-  if hackpc(pc) then lastdata = pos() end
+  if hackpc(pc) then
+    if pc >= A_FORCE and pc < A_FORCE_END then
+      -- irq_arm0's address force: allowed up to pre-render dot 180
+      local p = pos()
+      if p > force_max then force_max = p end
+      if p >= 261 * 341 + 180 then force_late = force_late + 1; if #ex < 20 then ex[#ex+1] = string.format("f=%d force %s", frame, fmt(p)) end end
+    else
+      lastdata = pos()
+    end
+  end
 end
 local function onScroll()
   local pc = emu.getCpuState().pc
@@ -102,6 +114,7 @@ local function onFrame()
   if frame == LAST then
     log:write(string.format("NMIs with a hack PPUADDR/PPUDATA/OAMDATA access after the pre-render line start: %d\n", over_data))
     log:write(string.format("NMIs with the scroll restore after pre-render dot 250: %d\n", over_scroll))
+    log:write(string.format("irq_arm0 address-force writes after pre-render dot 180: %d (latest %s)", force_late, fmt(force_max)) .. string.char(10))
     for _, e in ipairs(ex) do log:write("  " .. e .. "\n") end
     for k, e in pairs(E) do log:write(string.format("  entry %-5s n=%5d max %s", k, e.n, fmt(e.max)) .. string.char(10)) end
     local ks = {}

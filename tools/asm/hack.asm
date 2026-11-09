@@ -23,6 +23,16 @@ GLYPH_TAB    = $8C00
 GSTRIDE      = 359
 LIGHT_QUEUE  = 8            ; max queued bytes for a light frame
 REPLAY_MAX   = 27           ; max queued bytes for a page-1 CHR replay
+; irq_arm0 forces the PPU address only after flushes of at most this many
+; bytes.  Measured on five paths (map-canvas step 1), the arm starts by
+; line 260.6 after flushes up to 87 bytes, by pre-render dot 24 after
+; 88-103 (the force then ends by dot ~150: harmless, the PPU reloads v
+; from t at dots 257 and 280-304), and in line 0 after 104 or more.
+ARM_FORCE_MAX = 103
+; IRQs are enabled inside the NMI (so stage 0 preempts a long NMI tail) only
+; when the switch line is this low: the longest NMI tail measured ends in
+; line 25, and stage 1 writes $8000.
+ARM_CLI_MIN   = 40
 ; NMI scratch in the read-back buffer (free outside restore_tile; the main
 ; thread uses the buffer only while the NMI is in busy mode or disabled).
 MS_TMP       = KANJI_BUF+15
@@ -63,11 +73,27 @@ nmi_ef08:
 @live:
     ; Everything up to the scroll restore races the end of vblank: keep it
     ; short.  CPU-only bookkeeping (queue scan, DMA flag, upload marks,
-    ; page select) runs after the frame's last PPU access.
+    ; page select) runs after the frame's last PPU access.  A frame that
+    ; flushed more than REPLAY_MAX bytes or stepped the CHR animation runs
+    ; no unit and no replay: arm the IRQ first (map-canvas step 1: the arm
+    ; must come before the pre-render line's clock).
+    lda vram_queue_read
+    sec
+    sbc KANJI_QPOS
+    sta KANJI_QBYTES            ; bytes the game flushed this frame
+    cmp #REPLAY_MAX+1
+    bcs @arm_now
+    lda $39
+    cmp KANJI_LAST39
+    beq @arm_later
+@arm_now:
+    jsr irq_arm0
+@arm_later:
     jsr anim_check
     bcc @no_anim
     ; The game's NMI uploaded a CHR-animation step and ran long: no VRAM
-    ; work this frame (not even a replay), no IRQ arm.
+    ; work this frame (not even a replay).
+    jsr irq_arm0
     lda #$FF
     sta KANJI_QBYTES
     jsr scene_page_now
@@ -75,11 +101,7 @@ nmi_ef08:
     jsr queue_scan
     jmp @post_nounit
 @no_anim:
-    lda vram_queue_read
-    sec
-    sbc KANJI_QPOS
-    tax                         ; bytes the game flushed this frame
-    stx KANJI_QBYTES
+    ldx KANJI_QBYTES            ; bytes the game flushed this frame
     ; Dormant (no band shown, no request): only track stale tiles.  The
     ; band page is brought up to date when the next message starts
     ; (REQ_SYNC), so no restore runs while nobody can see page 2.
@@ -118,6 +140,7 @@ nmi_ef08:
     ; (revision 16).  Small flushes keep the replay's timing.
     cpx #REPLAY_MAX+1           ; C clear: replay allowed
     bcc @scan
+    jsr irq_arm0                ; no PPU access follows; preserves X
     jsr scene_page_now          ; preserves X
     sec
 @scan:
@@ -159,11 +182,12 @@ nmi_ef08:
     sta PPUSCROLL
     lda scroll_y
     sta PPUSCROLL
+    jsr irq_arm0                ; after the frame's last PPU access
     sec                         ; no replay after the scroll restore
     jsr queue_scan
 @post_nounit:
+    jsr irq_arm0                ; (no-op when armed above)
     jsr nt_rescan               ; window-gone check, now past the deadline
-    jsr irq_post                ; after the frame's last PPU access
     ; No unit ran: CHR register 1 still holds the scene page unless the
     ; last epilogue switched to the band page.
     lda KANJI_NFLAGS
@@ -1173,55 +1197,77 @@ nmi_ef31:
     rts
 
 ; ----------------------------------------------------------------------
-; Scanline IRQ arming (revision 21b), after the frame's last PPU access.
-; T = the window's top border row's first scanline in the frame about to
-; be drawn (WIN_ROW * 8 - scroll_y, modulo 240; 16-208 as the sprite-0
-; rule had it).  The MMC3 counter also counts the A12 rises of vblank VRAM
-; traffic, so the reload must follow the frame's last PPU access and
-; precede the pre-render line's clock: frames whose game queue flushed at
-; most IRQ_ARM_MAX bytes arm here (see kanji.inc); heavier ones (and CHR
-; animation frames, KANJI_QBYTES = $FF) keep the counter the IRQ re-armed.
+; Scanline IRQ arming (map-canvas step 1), right after the frame's last
+; PPU access; once per NMI (FLAG_ARMED).  T = the window's top border row's
+; first scanline in the frame about to be drawn (WIN_ROW * 8 - scroll_y,
+; modulo 240; 16-208).  The PPU address is set to $1000 first, so A12 is
+; high when vblank ends and the pre-render line's first BG fetch is no
+; clock; then the counter reloads with 0 at the pre-render line's clock
+; (dot ~325) and IRQ stage 0 comes there.  Its handler runs in line 0,
+; after the frame's last irregular clock, and reloads the counter for
+; line T: stage 1 comes at the clock of line T and switches in line T + 1.
+; IRQs are enabled here, so stage 0 also preempts a long NMI tail.
+; Preserves X and Y.
 ; ----------------------------------------------------------------------
-irq_post:
-    lda KANJI_QBYTES
-    cmp #IRQ_ARM_MAX+1
-    bcs irq_check_off
-irq_arm:
+irq_arm0:
+    lda KANJI_NFLAGS
+    bmi arm0_rts
+    ora #FLAG_ARMED
+    sta KANJI_NFLAGS
     lda ppu_mask_shadow
     and #$18
-    beq irq_disable             ; rendering off: nothing to switch
+    beq arm0_off                    ; rendering off: nothing to switch
     lda KANJI_BAND
-    beq irq_disable
+    beq arm0_off
+    lda KANJI_QBYTES
+    cmp #ARM_FORCE_MAX+1
+    bcs arm0_noforce                ; the game's NMI ran late: no PPU access
+arm_force:                      ; (label for vblank_deadline.lua)
+    lda PPUSTATUS
+    lda #$10
+    sta PPUADDR
+    lda #$00
+    sta PPUADDR                 ; v = $1000: A12 high until the BG fetches
+    lda ppu_ctrl_shadow
+    sta PPUCTRL
+    lda scroll_x
+    sta PPUSCROLL
+    lda scroll_y
+    sta PPUSCROLL
+arm_force_end:
+arm0_noforce:
+    lda #0
+    sta MMC3_IRQ_LATCH
+    sta MMC3_IRQ_RELOAD
+    sta MMC3_IRQ_OFF            ; acknowledge anything pending
+    sta MMC3_IRQ_ON
+    lda #1
+    sta KANJI_IRQ_ST
+    ; T for stage 0 (it runs only after the cli below).
     lda KANJI_WIN_ROW
     asl a
     asl a
     asl a
     sec
     sbc scroll_y
-    bcs @row
+    bcs arm0_row
     sbc #15                     ; borrow: wrap modulo 240 (carry clear: -16)
-@row:
+arm0_row:
     cmp #16
-    bcc irq_disable
+    bcc arm0_cancel
     cmp #209
-    bcs irq_disable
-    adc #IRQ_OFS                ; carry clear
-    sta MMC3_IRQ_LATCH
-    sta MMC3_IRQ_RELOAD
-    sta MMC3_IRQ_ON
+    bcs arm0_cancel
+    sta KANJI_IRQ_N
+    cmp #ARM_CLI_MIN
+    bcc arm0_rts                ; switch near the top: stage 0 waits for the
+    cli                         ; NMI's end (its tail could still be running
+arm0_rts:                       ; when stage 1 writes $8000)
     rts
-irq_disable:
+arm0_cancel:
+    lda #0
+    sta KANJI_IRQ_ST
+arm0_off:
     sta MMC3_IRQ_OFF
-    rts
-
-; Heavy frame: no band or no rendering means no IRQ (any time in the NMI
-; will do); otherwise the IRQ's own re-arm stands.
-irq_check_off:
-    lda KANJI_BAND
-    beq irq_disable
-    lda ppu_mask_shadow
-    and #$18
-    beq irq_disable
     rts
 
 ; ======================================================================
@@ -1462,9 +1508,9 @@ pal_copy:
     sta KANJI_WIN_COL
     lda text_graphics_index
     cmp #POOL_SET
-    bne @ltg
+    bne ltg_mask
     lda KANJI_REQ
-    bne @ltg                    ; busy: the overlay checks at its next message
+    bne ltg_mask                ; busy: the overlay checks at its next message
     lda #POOL_FIRST
     sta KANJI_TILES
     lda #0
@@ -1473,8 +1519,40 @@ pal_copy:
     sta KANJI_CODE_HI
     lda #REQ_UPLOAD
     sta KANJI_REQ
-@ltg:
+ltg_mask:                       ; (the gates count ltg_mask..ltg_mask_end as game code)
+    ; load_text_graphics' palette mask (moved from the fixed bank in
+    ; map-canvas step 1): every set bit of $A5 blacks one palette, the
+    ; DMA flag gets Y, as the original.
+    lda $A5
+    beq @done
+    ldy #$00
+@mask:
+    lsr a
+    bcs @black
+    iny
+    iny
+    iny
+    iny
+    cpy #$20
+    bne @mask
+    beq @done
+@black:
+    ldx #$04
+@black4:
+    pha
+    lda #$0F
+    sta $03E0,y
+    pla
+    iny
+    dex
+    bne @black4
+    beq @mask
+@done:
+    sty vram_dma_pending
+    lda #$00
+    sta $A5
     jmp LTG_COPIED
+ltg_mask_end:
 
 ; Epilogue: choose the next tile to restore (no PPU access, no deadline).
 ; KANJI_PICK = tile, or $FF when nothing is stale.

@@ -209,3 +209,59 @@ switch.  The current arm is reused, with a second IRQ chained from the first.
   R0 band unless they are moved too.  Battle keeps the pool.  The history
   screen shows no tile `$80` or above in its band rows, so it could use the
   canvas directly.
+
+## Progress (branch `map-canvas`)
+
+### Step 1: exact IRQ (2026-11-09)
+
+The two-stage arm:
+
+1. **`irq_arm0`** (hack bank) runs right after the frame's last PPU access.
+   - It sets v = `$1000` and restores t, so A12 is high when vblank ends.
+   - It reloads the counter with 0.
+   - It enables IRQs, so stage 0 can interrupt a long NMI tail.
+2. **Stage 0** comes at the pre-render line's clock (dot ~325).  Its handler
+   runs in line 0, after the odd-frame clock at dot 5, and reloads the
+   counter for line T.
+3. **Stage 1** comes at the clock of line T and switches in line T + 1.
+
+Frames that flush more than 27 bytes, or that step the CHR animation, arm
+first thing in `nmi_ef08`, because no unit or replay follows.  The others arm
+after their unit or replay.
+
+Space: `load_text_graphics`' palette mask loop moved into the hack bank
+(`pal_copy`, `ltg_mask`), which freed 46 fixed-bank bytes.
+
+**Results** (switch line minus T):
+
+| Path | Switches | Exactly +1 |
+|---|---|---|
+| Standard | 3,605 | 3,577 |
+| Shop | 647 | 639 |
+| Village | 446 | 446 |
+| Overworld | 448 | 448 |
+
+All are exact on both frame parities, in light, CHR-animation and
+window-drawing frames.  The exceptions (28 standard, 8 shop) are frames whose
+game queue held 104 or more bytes (full-screen redraws).  There the game's
+NMI ends at line 259.6, `irq_arm0` skips the address force (no PPU access
+during rendering), and the switch comes one line later.
+
+Before this step:
+- light frames landed 0 to 2 lines after T, depending on parity and A12;
+- heavy frames landed between -4 and +6.
+
+**Gates:**
+
+| Gate | Result |
+|---|---|
+| `vblank_deadline` (standard, battle, shop) | 0 hack accesses after the pre-render line start; the address force ends by pre-render dot 152 (allowed up to 180, because the PPU reloads v from t at dots 257 and 280-304) |
+| `band_check` | +1: 3,575, +2: 28; 0 page-2 mismatches; 0 kana over kanji |
+| `garble_run` (6 offsets) | 0 frames |
+| `ram_gate` | 0 / 0 / 0; min SP `$17` |
+| `taint_check` (normal battle, boss battle, play-test battle) | 0 / 0; min SP `$0F` / `$0F` / `$12` |
+
+The probes are `tools/lua/irq_precision.lua` (environment variables
+`IP_STATE`, `IP_PATH`, `IP_FRAMES`, `IP_OUT`) and
+`tools/lua/vblank_deadline.lua`, which now reports the address force on its
+own line.

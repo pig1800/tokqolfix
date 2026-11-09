@@ -54,37 +54,9 @@ load_text_graphics:
     jsr SET_BANK_LOCK
     jmp HACK_PAL_COPY           ; the table copy (Y as the original's);
 ltg_copied:                     ; a jump there and back: no extra stack depth
-    pla
-    jsr SET_BANK_LOCK           ; preserves X and Y
-    lda $A5
-    beq @done
-    ldy #$00
-@mask:
-    lsr a
-    bcs @black
-    iny
-    iny
-    iny
-    iny
-    cpy #$20
-    bne @mask
-    beq @done
-@black:
-    ldx #$04
-@black4:
-    pha
-    lda #$0F
-    sta $03E0,y
-    pla
-    iny
-    dex
-    bne @black4
-    beq @mask
-@done:
-    sty vram_dma_pending
-    lda #$00
-    sta $A5
-    pla
+    pla                         ; (the palette mask loop runs in the hack
+    jsr SET_BANK_LOCK           ; bank since map-canvas step 1); preserves
+    pla                         ; X and Y
     tax
     rts
 
@@ -248,17 +220,20 @@ c343_hook:
     lda #FN_BLOCK_POST
     jmp call_hack
 
-; MMC3 scanline IRQ (revision 21b; the vector at $FFFE, IRQs enabled at
-; reset).  The NMI arms the counter for the line after the window's top
-; border row starts (irq_arm in the hack bank); here BG tiles $00-$7F
-; switch to the band page, and the counter is re-armed for the same line
-; one frame later (240 clocks: lines up to 239 and the pre-render line),
-; which the next light frame's NMI overrides.  No switch while no band is
-; shown or the main thread owns the PPU (busy mode: its CHR writes clock
-; the counter too).  $8000 goes back to MMC3_SEL, as after every NMI.
-; Split over three gaps; A and the stack only.
+; MMC3 scanline IRQ (the vector at $FFFE, IRQs enabled at reset).  Two
+; per frame since map-canvas step 1.  Stage 0 (KANJI_IRQ_ST = 1) comes at
+; the pre-render line's clock (irq_arm0 in the hack bank) and runs in line
+; 0: it reloads the counter for line KANJI_IRQ_N (irq_stage0).  Stage 1:
+; BG tiles $00-$7F switch to the band page, the IRQ is acknowledged and
+; stays off until the next arm.  No switch while no band is shown or the
+; main thread owns the PPU.  $8000 goes back to MMC3_SEL, as after every
+; NMI.  A and the stack only.
 irq_handler:
     pha
+    lda KANJI_IRQ_ST
+    beq irq_band
+    jmp irq_stage0
+irq_band:
     lda KANJI_BAND
     beq irq_off
     lda nmi_busy
@@ -268,9 +243,11 @@ irq_handler:
     lda #CHR_BAND_LO
     sta MMC3_DATA
 irq_switched:                   ; (label for the test scripts)
-    lda #IRQ_CHAIN
-    sta MMC3_IRQ_LATCH
-    jmp irq_mid
+    sta MMC3_IRQ_OFF            ; acknowledge; off until the next arm
+    lda KANJI_NFLAGS
+    ora #FLAG_HIT|FLAG_PAGE2    ; the next vblank finds page 2 selected
+    sta KANJI_NFLAGS
+    jmp irq_tail
 irq_off:
     jmp irq_off_tail
 
@@ -307,15 +284,19 @@ irq_off_tail:
 .base $C489
 ; ----------------------------------------------------------------------
 
-; IRQ middle: reload, acknowledge, re-enable; the band flags for the NMI.
-irq_mid:
+; IRQ stage 0, in line 0 after the frame's last irregular clock (Mesen
+; clocks once more at line 0 dot 5 on every other frame): the counter
+; reloads at this line's clock (dot ~325), so the stage-1 IRQ comes at the
+; clock of line KANJI_IRQ_N and its handler runs in line KANJI_IRQ_N + 1.
+irq_stage0:
+    lda KANJI_IRQ_N
+    sta MMC3_IRQ_LATCH
     sta MMC3_IRQ_RELOAD
     sta MMC3_IRQ_OFF
     sta MMC3_IRQ_ON
-    lda KANJI_NFLAGS
-    ora #FLAG_HIT|FLAG_PAGE2    ; the next vblank finds page 2 selected
-    sta KANJI_NFLAGS
-    jmp irq_tail
+    dec KANJI_IRQ_ST
+    pla
+    rti
 
 ; ----------------------------------------------------------------------
 .base $C4AD
