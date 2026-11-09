@@ -8,7 +8,7 @@
 -- Output BT_OUT (default out/test/r17/band_timing.txt); BT_FRAMES frames;
 -- BT_SHOTS=f1,f2,... adds screenshots and the window's nametable rows.
 -- Hack addresses: python tools/lua_addrs.py tools/lua/band_timing.lua
-local A_EF31  = 0x899E  -- @nmi_ef31@
+local A_EF31  = 0x89A8  -- @nmi_ef31@
 local A_POLL  = 0x8A3E  -- @band_poll@
 local A_MISS  = 0x8A65  -- @band_miss@
 local A_HIT   = 0x8A73  -- @band_switched@

@@ -45,7 +45,7 @@ MAX_PAGE_ENTRIES = 16
 # from the shared-CHR design; the runtime never needs a spare tile).
 PAGE_TILE_MARGIN = 0
 TEXT_BANKS = [18, 19, 20, 21, 22]          # grown into 30, 29, ... as needed
-TEXT_BANKS_EXTRA = [30, 29, 28, 27, 26, 25]   # never the glyph banks (23 + n)
+TEXT_BANKS_EXTRA = [30, 29, 28, 26, 25]   # never the glyph banks (23 + n) or 27 (the canvas RAM image, kanji_build.CV_BANK)
 TEXT_BANK_LIMIT = 0x3800     # overlay occupies $B800-$BFFF
 OVERLAY_SIZE = 0x800
 SCENE_BORROW = set(range(0x42, 0x5C))  # measured oath-scene overwrite range

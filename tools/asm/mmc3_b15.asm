@@ -34,6 +34,7 @@
 .include "../../decomp/include/hardware.inc"
 .include "../../decomp/include/ram.inc"
 .include "../../decomp/include/kanji.inc"
+.include "../../decomp/build/kanji/canvas_ram.inc"
 
 ; ----------------------------------------------------------------------
 .base $C5A6
@@ -129,8 +130,10 @@ ef31_gate:
 ; FLAG_PAGE2 = 0: the NMI that clears the band also clears the flag; the
 ; game keeps OAM slot 0 hidden, so sprite 0 needs no write either.)
 ef08_gate:
+    jsr CV_NMI                  ; v = $1000, the dialogue canvas's arm
     lda KANJI_BAND
     ora KANJI_REQ
+    ora CV_ROWS                 ; a shown canvas is armed every frame
     bne @go
     lda $39
     cmp KANJI_LAST39
@@ -221,18 +224,20 @@ c343_hook:
     jmp call_hack
 
 ; MMC3 scanline IRQ (the vector at $FFFE, IRQs enabled at reset).  Two
-; per frame since map-canvas step 1.  Stage 0 (KANJI_IRQ_ST = 1) comes at
-; the pre-render line's clock (irq_arm0 in the hack bank) and runs in line
-; 0: it reloads the counter for line KANJI_IRQ_N (irq_stage0).  Stage 1:
-; BG tiles $00-$7F switch to the band page, the IRQ is acknowledged and
-; stays off until the next arm.  No switch while no band is shown or the
-; main thread owns the PPU.  $8000 goes back to MMC3_SEL, as after every
-; NMI.  A and the stack only.
+; per frame since map-canvas step 1.  Stage 0 (KANJI_IRQ_ST = 1 or 2)
+; comes at the pre-render line's clock (irq_arm0 in the hack bank) and
+; runs in line 0: it reloads the counter for line KANJI_IRQ_N.  It and the
+; dialogue canvas's two stages (KANJI_IRQ_ST bit 7, map-canvas step 3) run
+; from RAM (cv_irq).  The band stage (KANJI_IRQ_ST = 0): BG tiles $00-$7F
+; switch to the band page, the IRQ is acknowledged and stays off until the
+; next arm.  No switch while no band is shown or the main thread owns the
+; PPU.  $8000 goes back to MMC3_SEL, as after every NMI.  A and the stack
+; only.
 irq_handler:
     pha
     lda KANJI_IRQ_ST
     beq irq_band
-    jmp irq_stage0
+    jmp CV_IRQ
 irq_band:
     lda KANJI_BAND
     beq irq_off
@@ -300,23 +305,7 @@ irq_off_tail:
     pla
     rti
 
-; ----------------------------------------------------------------------
-.base $C489
-; ----------------------------------------------------------------------
-
-; IRQ stage 0, in line 0 after the frame's last irregular clock (Mesen
-; clocks once more at line 0 dot 5 on every other frame): the counter
-; reloads at this line's clock (dot ~325), so the stage-1 IRQ comes at the
-; clock of line KANJI_IRQ_N and its handler runs in line KANJI_IRQ_N + 1.
-irq_stage0:
-    lda KANJI_IRQ_N
-    sta MMC3_IRQ_LATCH
-    sta MMC3_IRQ_RELOAD
-    sta MMC3_IRQ_OFF
-    sta MMC3_IRQ_ON
-    dec KANJI_IRQ_ST
-    pla
-    rti
+; ($C489-$C49D: free since map-canvas step 3; IRQ stage 0 is cv_irq.)
 
 ; ----------------------------------------------------------------------
 .base $C4AD
@@ -394,6 +383,17 @@ scroll_text:
 ; page), $1800-$1FFF = R1 (scene, never switched), sprites = R2-R5.
 ; The RAM clear zeroes MMC3_SEL; restores OR in the mode bit.
 reset_mmc3:
+    cli                         ; the MMC3 IRQ is the only IRQ source (APU
+    lda #0                      ; frame IRQ inhibited at $EFFF, no DMC)
+    ldx #$F0
+    jmp $F03A
+
+; The reset vector's "jmp reset_init" comes here first (map-canvas step 3):
+; every MMC3 register and hack_init (clear the hack state, install the
+; canvas RAM code) before reset_init's PPU warm-up, whose three vblank waits
+; absorb the copy (after them it cost the game a frame).  NMIs and IRQs are
+; off; the stack is the power-on one until reset_init's txs.
+early_reset:
     ldx #7
 @reg:
     txa
@@ -408,19 +408,13 @@ reset_mmc3:
     stx MMC3_IRQ_OFF
     lda #$80
     sta MMC3_WRAM               ; battery RAM enabled, writable
-    cli                         ; the MMC3 IRQ is the only IRQ source (APU
-    txa                         ; frame IRQ inhibited at $EFFF, no DMC)
-    ldx #$7C
-@clear:
-    sta KANJI_MAINCHR,x
-    dex
-    bpl @clear
-    ldx #$F0
-    jmp $F03A
+    jsr HACK_INIT
+    jmp $EFC9                   ; reset_init
 
-; R0-R7: scene BG halves, sprite page 0, bank 14 (as the original reset).
+; R0-R7: scene BG halves, sprite page 0, the hack bank (hack_init; the
+; game's code from $F03A on maps its banks before it uses them).
 mmc3_init:
-    .db CHR_SCENE_LO, CHR_SCENE_HI, 0, 1, 2, 3, 28, 29
+    .db CHR_SCENE_LO, CHR_SCENE_HI, 0, 1, 2, 3, KANJI_HACK_BANK*2, KANJI_HACK_BANK*2+1
 
 ; ----------------------------------------------------------------------
 .base $FFE0; ----------------------------------------------------------------------
@@ -490,8 +484,7 @@ cursor_to_ppu:
     ror a
     and #$C0
     ora ptr_lo_
-    sta ppu_addr_lo_shadow
-    rts
+    jmp CV_CTP                  ; stores $68; the dialogue canvas (map-canvas step 3)
 
 ; A = (cursor_y & 1) << 1 | (cursor_y2 & 1): the cursor's nametable.
 nt_bits:
@@ -528,10 +521,9 @@ set_scroll_from_cursor:
     asl a
     sta scroll_x
     jsr nt_bits
-    sta ptr_lo_
-    lda ppu_ctrl_shadow
-    and #$FC
-    ora ptr_lo_
+    eor ppu_ctrl_shadow
+    and #$03
+    eor ppu_ctrl_shadow
     sta ppu_ctrl_shadow
     rts
 set_scroll_end:
@@ -705,6 +697,7 @@ attr_table_hi:
 ; screen below; this starts them 17 rows below the player (an up step
 ; draws 8 rows above its position).  Returns A = 17 rows.
 redraw_start:
+    lsr CV_REDIR                ; the dialogue canvas closes as the redraw passes
     inc text_y
     lda #$02
     jsr $D7A9                   ; cursor_add_x: cursor = text + 2 rows
@@ -794,6 +787,23 @@ tile_address_end:
     sta game_mode
     jsr redraw_start
     nop
+
+; ----------------------------------------------------------------------
+; Map-canvas step 3: text_init's window rows go through the canvas code
+; (RAM): "jsr cursor_to_ppu / jsr tile_address" at $CA59 and both
+; "jsr scroll_map" ($CB1B, $CB80).
+.base $CA59
+    jsr CV_TI
+    nop
+    nop
+    nop
+.base $CB1B
+    jsr CV_SM
+.base $CB80
+    jsr CV_SM
+
+.base $FFDC
+    jmp early_reset             ; reset vector: "jmp reset_init"
 
 ; ----------------------------------------------------------------------
 .base $DC0E

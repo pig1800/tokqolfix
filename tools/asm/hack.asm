@@ -18,17 +18,16 @@
 .include "../../decomp/include/ram.inc"
 .include "../../decomp/include/kanji.inc"
 .include "../../decomp/build/kanji/fixed_hooks.inc"
+.include "../../decomp/build/kanji/canvas_ram.inc"
 
 GLYPH_TAB    = $8C00
 GSTRIDE      = 359
 LIGHT_QUEUE  = 8            ; max queued bytes for a light frame
-REPLAY_MAX   = 27           ; max queued bytes for a page-1 CHR replay
 ; irq_arm0 forces the PPU address only after flushes of at most this many
 ; bytes.  Measured on five paths (map-canvas step 1), the arm starts by
 ; line 260.6 after flushes up to 87 bytes, by pre-render dot 24 after
 ; 88-103 (the force then ends by dot ~150: harmless, the PPU reloads v
 ; from t at dots 257 and 280-304), and in line 0 after 104 or more.
-ARM_FORCE_MAX = 103
 ; IRQs are enabled inside the NMI (so stage 0 preempts a long NMI tail) only
 ; when the switch line is this low: the longest NMI tail measured ends in
 ; line 25, and stage 1 writes $8000.
@@ -46,6 +45,7 @@ OFF_UNITS    = 16           ; work units per NMI with rendering off
     jmp nmi_ef08
     jmp nmi_ef31
     jmp pal_copy                ; $8009 HACK_PAL_COPY (load_text_graphics)
+    jmp hack_init               ; $800C HACK_INIT (reset)
 
 ; ======================================================================
 ; NMI, normal frames, after the game's PPU work (still in vblank).
@@ -87,13 +87,13 @@ nmi_ef08:
     cmp KANJI_LAST39
     beq @arm_later
 @arm_now:
-    jsr irq_arm0
+    jsr irq_arm0_nf
 @arm_later:
     jsr anim_check
     bcc @no_anim
     ; The game's NMI uploaded a CHR-animation step and ran long: no VRAM
     ; work this frame (not even a replay).
-    jsr irq_arm0
+    jsr irq_arm0_nf
     lda #$FF
     sta KANJI_QBYTES
     jsr scene_page_now
@@ -140,7 +140,7 @@ nmi_ef08:
     ; (revision 16).  Small flushes keep the replay's timing.
     cpx #REPLAY_MAX+1           ; C clear: replay allowed
     bcc @scan
-    jsr irq_arm0                ; no PPU access follows; preserves X
+    jsr irq_arm0_nf             ; no PPU access follows; preserves X
     jsr scene_page_now          ; preserves X
     sec
 @scan:
@@ -286,9 +286,10 @@ scene_page_now:
 ; ----------------------------------------------------------------------
 ; Scan the VRAM queue entries flushed since the last scan and mark the
 ; CHR tiles they wrote as stale on the band page.  C clear on entry: a
-; page-1 CHR entry of at most 16 bytes that the game flushed while the
-; band page was still selected (FLAG_PAGE2) is written again on page 1
-; from the queue ring (sets FLAG_PPU_DIRTY; the caller restores scroll).
+; page-1 CHR entry of at most 16 bytes for tiles $00-$7F that the game
+; flushed while the band page was still selected (FLAG_PAGE2) is written
+; again on page 1 from the queue ring (sets FLAG_PPU_DIRTY; the caller
+; restores scroll).  Tiles $80-$FF (R1) always show the scene page.
 ; ----------------------------------------------------------------------
 queue_scan:
     lda #0
@@ -326,6 +327,9 @@ queue_scan:
     lda KANJI_NFLAGS
     and #FLAG_PAGE2
     beq @mark
+    lda KANJI_T1
+    cmp #$18
+    bcs @mark                   ; tiles $80-$FF: R1, always the scene page
     dex
     lda $0400,x                 ; length byte: +32 mode or > 16 bytes?
     inx
@@ -1209,16 +1213,39 @@ nmi_ef31:
 ; IRQs are enabled here, so stage 0 also preempts a long NMI tail.
 ; Preserves X and Y.
 ; ----------------------------------------------------------------------
+irq_arm0_nf:
+    ; Before any PPU access of ours: the game's NMI already left v = $1000
+    ; (nmi_force, map-canvas step 3), in vblank however long its flush ran.
+    lda #$80
+    bne arm0_go
 irq_arm0:
+    lda #$00
+arm0_go:
+    sta CV_NOFORCE
     lda KANJI_NFLAGS
-    bmi arm0_rts
+    bpl arm0_once
+    rts                         ; armed once already in this NMI
+arm0_once:
     ora #FLAG_ARMED
     sta KANJI_NFLAGS
     lda ppu_mask_shadow
     and #$18
     beq arm0_off                    ; rendering off: nothing to switch
+    lda CV_ROWS
+    beq arm0_nocv
+    ; The dialogue canvas (map-canvas step 3): the game's NMI armed it
+    ; (nmi_force -> cv_nmi) right after its last PPU write.  That stands in
+    ; a long frame (first thing, no PPU access of ours); after our own PPU
+    ; work (which clocks the counter) force and arm again.
+    bit CV_NOFORCE
+    bpl arm0_force
+    rts
+arm0_nocv:
     lda KANJI_BAND
     beq arm0_off
+    bit CV_NOFORCE
+    bmi arm0_noforce
+arm0_force:
     lda KANJI_QBYTES
     cmp #ARM_FORCE_MAX+1
     bcs arm0_noforce                ; the game's NMI ran late: no PPU access
@@ -1241,6 +1268,13 @@ arm0_noforce:
     sta MMC3_IRQ_RELOAD
     sta MMC3_IRQ_OFF            ; acknowledge anything pending
     sta MMC3_IRQ_ON
+    lda CV_ROWS
+    beq arm0_band
+    lda #2
+    sta KANJI_IRQ_ST            ; canvas stage 1 after stage 0
+    lda #CV_TOP*8-2
+    bne arm0_row
+arm0_band:
     lda #1
     sta KANJI_IRQ_ST
     ; T for stage 0 (it runs only after the cli below).
@@ -1268,6 +1302,46 @@ arm0_cancel:
     sta KANJI_IRQ_ST
 arm0_off:
     sta MMC3_IRQ_OFF
+    rts
+
+; ----------------------------------------------------------------------
+; Reset (map-canvas step 3), called by the fixed bank's reset with this
+; bank at R6/R7 and NMIs off: clear the hack state ($0103-$017F) and the
+; canvas state ($0780-$07FF), copy the canvas RAM code from bank CV_BANK
+; ($A000, mapped at R7 for the copy) to CV_RAM.
+; ----------------------------------------------------------------------
+hack_init:
+    lda #0
+    ldx #$7C
+@c1:
+    sta KANJI_MAINCHR,x
+    dex
+    bpl @c1
+    ldx #$7F
+@c2:
+    sta CV_REDIR,x
+    dex
+    bpl @c2
+    lda #MMC3_R7
+    sta MMC3_SELECT
+    lda #CV_BANK*2+1
+    sta MMC3_DATA
+    ldx #0                      ; (unrolled: the reset must not cost the
+@cp:                            ; game a frame)
+    lda $A000,x
+    sta CV_RAM,x
+    lda $A100,x
+    sta CV_RAM+$100,x
+    lda $A200,x
+    sta CV_RAM+$200,x
+    lda $A300,x
+    sta CV_RAM+$300,x
+    lda $A400,x
+    sta CV_RAM+$400,x
+    inx
+    bne @cp
+    lda #KANJI_HACK_BANK*2+1
+    sta MMC3_DATA
     rts
 
 ; ======================================================================

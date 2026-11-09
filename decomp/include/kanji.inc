@@ -182,3 +182,59 @@ TEXT_REDRAW_LINES = $D405   ; shift the window's tile rows up one row
 FN_BLOCK_PRE      = 0       ; before a block write: page 1, save params
 FN_BLOCK_POST     = 1       ; after a block write: mirror to page 2
 FN_SERVICE        = 2       ; main thread, rendering off: serve KANJI_REQ
+
+; Map-canvas step 3: the dialogue canvas.  A text window whose rows reach
+; the band (screen rows 18-27, metarows 9-13 below the camera's top) in
+; map mode is drawn into the other vertical half (address EOR $0800, the
+; same in-half rows), with the map's tiles and palettes beside it, and a
+; split IRQ shows it from line 144.  The visible half keeps the map.
+; State in internal RAM $0780-$07FF (the old attribute shadow), cleared by
+; hack_init at reset; the code runs from battery RAM at CV_RAM (copied from
+; PRG bank CV_BANK at reset: it calls the game's map lookups, which map
+; other banks over $8000-$BFFF).
+CV_REDIR          = $0780   ; bit 7: band-row writes go to the canvas
+CV_MROWS          = $0781   ; band metarows set up in the canvas (flanks written)
+CV_PEND           = $0782   ; canvas tile rows to show (main thread)
+CV_ROWS           = $0783   ; canvas tile rows shown: CV_PEND once the queue is flushed (NMI)
+CV_CUR            = $0784   ; text_init: this metarow's band index, $FF = not in the canvas
+CV_BC             = $0785   ; text_init: the metarow's canvas attribute-shadow index
+CV_V1H            = $0786   ; $2006 pair, stage 1: the canvas's top row (fine Y 0)
+CV_V1L            = $0787
+CV_V2H            = $0788   ; $2006 pair, stage 2: the map row below the canvas
+CV_V2L            = $0789
+CV_LATCH          = $078A   ; stage 2's IRQ latch: 8 * CV_ROWS - 1
+CV_S              = $078B   ; main-thread scratch
+CV_T0             = $078C
+CV_M0             = $078D   ; the camera's left metacol on the 32-metacol ring
+CV_WL             = $078E   ; the window's first screen metacol
+CV_WR             = $078F   ; the first screen metacol right of the window's whole metatiles
+CV_C0             = $0790   ; screen column 0's nametable column (0-63)
+CV_HB             = $0791   ; the canvas row's address high byte (left table)
+CV_LB             = $0792   ; the canvas row's address low byte, column 0, tile row 0
+CV_R              = $0793   ; emit: tile row 0/1
+CV_C              = $0794   ; emit: screen column
+CV_N              = $0795   ; emit: cells left
+CV_K              = $0796   ; emit: cells in this entry
+CV_SAVE           = $0798   ; 7 bytes: state around the map lookups
+CV_NOFORCE        = $079F   ; NMI: bit 7 = irq_arm0 skips its address force
+CV_FLANK          = $07A0   ; 64 bytes: the metarow's map tiles by screen column (row 0, row 1)
+CV_I0             = $07E0   ; IRQ stage 0 scratch (cv_split)
+CV_I1             = $07E1
+CV_I2             = $07E2
+CV_Q              = $07E3   ; the queue's write index when the canvas last shrank
+CV_SROWS          = $07E4   ; CV_ROWS that CV_V1H-CV_LATCH were computed for
+CV_ARMED          = $07E5   ; cv_nmi: bit 7 = armed in this NMI (cli pending)
+
+; NMI frame classes (hack.asm's nmi_ef08 and the canvas's cv_nmi agree on
+; them).  A frame whose game flush exceeded REPLAY_MAX bytes, or that
+; stepped the CHR animation, runs no hack unit or replay: it arms the IRQ
+; first thing.  The PPU-address force is skipped after flushes over
+; ARM_FORCE_MAX bytes (the game's NMI then ends in the pre-render line).
+REPLAY_MAX        = 27      ; max queued bytes for a page-1 CHR replay
+ARM_FORCE_MAX     = 103
+CV_FORCE_MAX      = 103     ; cv_nmi's force: 104-byte flushes end it at pre-render dot ~262
+CV_TOP            = 18      ; the canvas's first tile row on screen
+CV_BANK           = 27      ; PRG bank with the RAM image at $A000
+CV_RAM            = $7900   ; the RAM code (MAP_ATTR is $7800-$78FF)
+CV_RAM_PAGES      = 5       ; 1280 bytes copied at reset ($7900-$7DFF)
+HACK_INIT         = $800C   ; hack bank entry, reset: clear the hack state, install CV_RAM

@@ -385,3 +385,111 @@ ROM was written, the lint was not run).
 screen addresses on the 60-row ring (`$177 & $1F`, bit 6 = lower half).
 `tools/ref_scan.py` lists absolute references into address ranges across
 the 16 original banks.
+
+### Step 3a: the dialogue canvas, kanji still on the band (2026-11-10)
+
+A text window whose rows reach the band (screen rows 18-27, metarows 9-13
+below the camera's top) in map mode is drawn into the other vertical half
+(address EOR `$0800`: the same in-half rows), and a split shows it from
+line 144.  The visible half keeps the map: nothing writes it while the
+canvas is up, so the window closes without any tile recovery.  Kanji stay
+on the old band page (R0, switched by the canvas's first IRQ); step 3b
+moves them into the canvas page (R1).
+
+**What decides "canvas"**: a `text_init` window row at the band's top
+metarow in map mode (`input_buttons` bit 7 clear: player-relative
+windows; the title, battle and scenes place windows at fixed positions)
+turns the redirect on; from then on every band-row address `cursor_to_ppu`
+computes (window rows, text cells, prompts, the line scroll, side menus
+opened beside the message) goes to the canvas.  The command menu at rows
+2-13 stays in the visible half.  `redraw_start` (the redraw that closes
+every dialogue) turns the redirect off; each map row it redraws in the
+band ends the canvas above that row, so the window still vanishes
+bottom-up as in the original.
+
+**Each new canvas metarow** (in place of `scroll_map`) is queued whole:
+two 32-cell rows (the window's cells from the row buffer, the map beside
+it from the game's own metatile lookup `draw_map_area`) and the screen
+row's attribute bytes.  The window's palette bits go to the canvas half's
+attribute shadow (index EOR `$80`); the visible half's pair of quadrants
+for that metarow is mirrored into the canvas half first, the other pair
+kept (the canvas metarow next to it can be a live buffer row).  Pace: the
+window opens one metarow per frame, as the original.
+
+**The split** (`cv_irq`): stage 0 (line 0) reloads the counter for line
+142; stage 1 (line 143) writes `$2006` = the canvas's row 18 (fine Y 0)
+in hblank (dots 257-320) and reloads for the canvas's end; stage 2 writes
+`$2006` = the map row below it.  Stage 0 also computes the two addresses
+when the canvas's height changed.  The height (`CV_ROWS`) follows the
+main thread's `CV_PEND` in the NMI: growing once the queue is empty,
+shrinking once the flush passed the closing redraw's row.
+
+**Arm timing.**  The window frames carry 76-90 queued bytes (55 in the
+original); the hack's NMI then ran past vblank and the stages landed 1-2
+lines off.  The PPU-address force (v = `$1000`) and, in long frames (over
+27 bytes or a CHR-animation step: no hack unit follows), the canvas's arm
+now come in `cv_nmi`, called first thing in the normal-frame NMI path
+(`ef08_gate`, after the game's `nmi_mode` branch, so the title's own
+raster splits keep their timing); light frames arm after the hack's own
+PPU work, as the band did.  Over 103 bytes no force (it would end past
+the pre-render line's dot 256); the counter reload still comes first.
+The replay of CHR entries the game flushed while the band page was
+selected now skips tiles `$80-$FF` (R1 is always the scene page), which
+removes the town's 16-frame tile replay from band and canvas frames.
+
+**Code**: the canvas code runs from battery RAM at `$7900` (the third
+save record's, 1,148 bytes; `canvas_ram.asm`, stored in PRG bank 27 at
+`$A000`, copied by `hack_init` from the reset vector before
+`reset_init`'s PPU warm-up, which absorbs the copy).  It must stay mapped
+while it calls `draw_map_area`, which maps banks 9/12/13 over
+`$8000-$BFFF`.  State in internal RAM `$0780-$07FF` (the old attribute
+shadow).  Fixed-bank patches: `$CA59` (`jsr cv_ti`), `$CB1B`/`$CB80`
+(`jsr cv_sm`), `cursor_to_ppu`'s end (`jmp cv_ctp`), `irq_handler`
+(`jmp cv_irq`), `ef08_gate` (`jsr cv_nmi`), `redraw_start` (`lsr
+CV_REDIR`), the reset vector's `jmp` (`early_reset`); `irq_stage0`
+(`$C489-$C49D`) is free.  The build now rejects fixed-bank blocks that
+overlap (a 3-byte `jmp` in `cursor_to_ppu` once ran one byte into
+`set_scroll_from_cursor`).
+
+**Results** (`tools/lua/canvas_check.lua`: per canvas frame, the stages'
+second `$2006` write line and dot, and every canvas cell with a map tile
+against the visible half's cell, tile and palette):
+
+| Path | Canvas frames | Splits off | Map cells | Unlike the map |
+|---|---|---|---|---|
+| town, battery save, two dialogues | 215 | 0 | 24,360 | 0 |
+| village (`u_rom_kanji_1`) | 106 | 0 | 12,000 | 0 |
+| overworld (`u_rom_kanji_11`) | 152 | 0 | 16,704 | 0 |
+| `r16b` | 76 | 0 | 8,352 | 0 |
+| shop (`shop_k`, n1) | 493 | 0 | 23,112 | 0 |
+| standard gate path (6,000 frames) | 2,423 | 0 | 284,736 | 0 |
+
+No window tile shows in the visible half's band rows on any path; every
+`cv_nmi` force ends by pre-render dot 236 and every canvas counter
+reload comes before the pre-render clock.
+
+**Gates** (kanji ROM `e545608b...`; original still `40f19e17...`; states
+`out/user/m5/`):
+
+| Gate | Result |
+|---|---|
+| `canvas_check` (above) | 0 off, 0 missing, 0 flank mismatches |
+| A/B against step 2b, battery save | boot and dialogue pixel-identical; the close 1 frame later |
+| `band_check` (non-canvas band frames) | +1: 1,246, +2: 8; 0 page-2 mismatches; 0 kana over kanji |
+| `garble_run` (6 offsets) | 0 episodes |
+| `garble_state` bb, bt, nb, lv, sv | 0 frames |
+| `garble_state` partner shop n1, p1-p4 | 42 / 85 / 44 / 90 / 123: the state's opening episode, as step 2b (42 / 85 / 43 / 90 / 123) |
+| `vblank_deadline` standard, bt, nb, bb | 0 |
+| `taint_check` bb, bt, nb | 0 / 0, min SP `$0F` / `$12` / `$0F` |
+| `ram_gate` | 0 / 0 / 0, min SP `$14` (the RAM code is hack code; `$7800-$7FFF` and `$0780-$07FF` are hack RAM) |
+| `zp_check`, `mask_restore`, `palette_check` | 0, 0, 0 wrong |
+
+A/B against step 2b from the battery save (town walk, a dialogue, more
+walking): the boot and the whole dialogue are pixel-identical; the
+closing redraw shows the same pictures 1-2 frames later (its rows end 2
+lines before vblank in the original, and the splits cost ~4 lines of CPU
+per frame), and everything after is shifted by those frames.
+
+States for this build: `python -I tools/mss_canvas.py <m4 state> <out>`
+installs the build's RAM code and clears the canvas state (`out/user/m5/`;
+redo after every build: the RAM code moves).

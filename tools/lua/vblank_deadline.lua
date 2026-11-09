@@ -5,14 +5,14 @@
 -- end before dot 257 of the pre-render line.  Standard path + town.
 -- Unit entry addresses come from decomp/build/kanji/hack.lst (@ADDR@ lines
 -- are rewritten by tools/garble_run.py --lua ... or edited by hand).
-local A_ENTRY  = 0x800C  -- @nmi_ef08@
-local A_PROBE  = 0x82D9  -- @probe_window@
-local A_UPLOAD = 0x8482  -- @upload_go@
+local A_ENTRY  = 0x800F  -- @nmi_ef08@
+local A_PROBE  = 0x82E3  -- @probe_window@
+local A_UPLOAD = 0x848C  -- @upload_go@
 local A_POOLCHK = 0xBB74  -- @pool_check_go@
-local A_RESTORE= 0x85B6  -- @restore_tile@
-local A_FORCE  = 0x89E0  -- @arm_force@
-local A_FORCE_END = 0x89FC  -- @arm_force_end@
-local A_REPLAY = 0x8212  -- @replay_entry@
+local A_RESTORE= 0x85C0  -- @restore_tile@
+local A_FORCE  = 0x8A04  -- @arm_force@
+local A_FORCE_END = 0x8A20  -- @arm_force_end@
+local A_REPLAY = 0x821C  -- @replay_entry@
 local LAST = tonumber(os.getenv("DL_FRAMES") or "6000")
 -- DL_STATE: run from a save state instead of power-on, with DL_PATH steps
 -- (one every 40 frames from load+30, "w" = wait) as in garble_state.lua.

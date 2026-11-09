@@ -18,9 +18,10 @@ local function rd(a) return emu.read(a, emu.memType.nesMemory) end
 -- code.  $E6B3-$E6C3 is the original damage table again (revision 16c).
 local A_MAIN_PRG = 0xC5BA  -- @main_prg@
 local fixed_ranges = {{A_MAIN_PRG,0xC6D1},{0xC460,0xC47D},{0xC489,0xC49D},{0xC4AD,0xC4CA},{0xD291,0xD2B6},{0xF004,0xF039},{0xFFE0,0xFFEF}}
-local A_BATTLE_SHAKE = 0xC6B5  -- @battle_shake@
-local A_BATTLE_SHAKE_END = 0xC6C9  -- @battle_shake_end@
+local A_BATTLE_SHAKE = 0xC6BB  -- @battle_shake@
+local A_BATTLE_SHAKE_END = 0xC6CF  -- @battle_shake_end@
 local A_LTG_MASK = 0xB943  -- @ltg_mask@
+local A_REDRAW_START = 0xDB67  -- @redraw_start@
 local A_LTG_MASK_END = 0xB96E  -- @ltg_mask_end@
 local function hack_pc(pc)
   -- load_text_graphics' palette mask, moved to the hack bank (map-canvas
@@ -30,13 +31,20 @@ local function hack_pc(pc)
   if pc >= 0x8000 and pc < 0x8C00 and rd(0x8000) == 0x4C and rd(0x8003) == 0x4C and rd(0x8006) == 0x4C then return true end
   if pc >= 0xB900 and pc < 0xBF00 and rd(0x8000) == 0x4C and rd(0x8003) == 0x4C and rd(0x8006) == 0x4C then return true end
   if pc >= 0xB800 and pc < 0xC000 and rd(0xB800) == 0x8E then return true end
+  if pc >= 0x7900 and pc < 0x7E00 then return true end      -- canvas RAM code (map-canvas step 3)
+  if pc > A_REDRAW_START and pc <= A_REDRAW_START + 3 then return true end  -- its "lsr CV_REDIR" (write callbacks see the next pc)
   if pc >= 0xBF00 and pc < 0xBF30 then return true end
   for _, r in ipairs(fixed_ranges) do if pc >= r[1] and pc <= r[2] then return true end end
   return false
 end
 -- engine variables the overlay drives on purpose (text pointer/column/line,
 -- window x, bank-switch lock)
-local protocol = {[0x51]=true, [0x52]=true, [0x53]=true, [0x56]=true, [0x46]=true, [0xEB]=true}
+local protocol = {[0x51]=true, [0x52]=true, [0x53]=true, [0x56]=true, [0x46]=true, [0xEB]=true,
+  -- the canvas RAM code (map-canvas step 3): cv_ctp's address, the queue
+  -- entries and their index, the flank lookups' pointer, the attribute run
+  [0x68]=true, [0x69]=true, [0x40]=true, [0x14]=true, [0x15]=true, [0x6A]=true, [0x6C]=true, [0x42]=true}
+for a = 0x0400, 0x04FF do protocol[a] = true end
+for a = 0x7800, 0x78FF do protocol[a] = true end   -- the canvas half's attribute shadow
 local game_val, hack_dirty = {}, {}
 local reads, nread, gw, ngw = {}, 0, {}, 0
 local minsp, deep = 0xFF, 0
@@ -53,7 +61,7 @@ emu.addMemoryCallback(function(addr, value)
     if not protocol[addr] then hack_dirty[addr] = true end
   else
     game_val[addr] = value; hack_dirty[addr] = nil
-    if (addr >= 0x0131 and addr <= 0x017F) or (addr >= 0x0102 and addr <= 0x0103) then
+    if (addr >= 0x0131 and addr <= 0x017F) or (addr >= 0x0102 and addr <= 0x0103) or (addr >= 0x0780 and addr <= 0x07FF) then
       local sp = emu.getCpuState().sp
       if addr <= 0x0100 + sp then            -- not a stack push
         ngw = ngw + 1
@@ -65,7 +73,9 @@ emu.addMemoryCallback(function(addr, value)
 end, emu.callbackType.write, 0x0000, 0x07FF, emu.memType.nesMemory, emu.cpuType.nes)
 emu.addMemoryCallback(function(addr, value)
   if not lf then return end
-  if hack_pc(emu.getCpuState().pc) then hack_dirty[addr] = true else game_val[addr] = value; hack_dirty[addr] = nil end
+  if hack_pc(emu.getCpuState().pc) then
+    if not protocol[addr] then hack_dirty[addr] = true end
+  else game_val[addr] = value; hack_dirty[addr] = nil end
 end, emu.callbackType.write, 0x6000, 0x7FFF, emu.memType.nesMemory, emu.cpuType.nes)
 emu.addMemoryCallback(function(addr, value)
   if not lf or not hack_dirty[addr] then return end
@@ -93,7 +103,7 @@ emu.addMemoryCallback(function()
   if not lf then return end
   local sp = emu.getCpuState().sp
   if sp < minsp then minsp = sp end
-end, emu.callbackType.exec, 0x8000, 0xFFFF, emu.memType.nesMemory, emu.cpuType.nes)
+end, emu.callbackType.exec, 0x7900, 0xFFFF, emu.memType.nesMemory, emu.cpuType.nes)
 emu.addEventCallback(function()
   if not lf then emu.setInput({}, 0); return end
   local f = frame - lf - 30

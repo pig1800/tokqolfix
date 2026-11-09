@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LSTS = [ROOT / "decomp" / "build" / "kanji" / n
-        for n in ("hack.lst", "kanji_overlay.lst", "mmc3_b15.lst")]
+        for n in ("hack.lst", "kanji_overlay.lst", "mmc3_b15.lst", "canvas_ram.lst")]
 
 
 def labels() -> dict[str, int]:
