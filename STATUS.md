@@ -9,7 +9,7 @@ tests; see CHANGELOG for what each revision fixed.
 - Original 256 KiB ROM: byte-identical,
   `40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367`.
 - Kanji 512 KiB MMC3 ROM (mapper 4, NES 2.0, 16 KiB CHR RAM, CHR mode 1;
-  revision 21; text revision 22): `f53c1973c15d0f3b22dad75c080d1275754d63a1fd1ba2187936644b384e9036`.
+  revision 21; text revision 22b): `3610a067ddc0d01aff830c1f7ac56ccca7059f1e23d486c674c17089376f61fc`.
 - Fixed-bank hooks in audited regions plus the rewritten reset setup
   (`$F004-$F039`), the dead MMC1 routines (`$C460-$C47D`, `$C489-$C49D`,
   `$C4AD-$C4B9`) and the IRQ vector.  The largest region is `$C5A6-$C6D1`: the game's

@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-11-09 — revision 22b: battle reward message, speaker indent
+
+Play-test report: 「金000と／ 兵糧000を手に／入れた」, with a half-width
+space before 兵糧.  The line break was the revision-21 layout (revision 22
+had it as 「兵糧000を／手に入れた」); the space is the `<PAGE>` code, which
+indents the next line by one cell (`$5F`, as `<NL>` does for dialogue).
+The original never puts `<PAGE>` in narration; the revision-14 layout did
+in four messages.
+
+- b10_msg_061 is three lines again, as in the original:
+  「経験値XXと／金XXと／兵糧XXを手に入れた」.  The compiler counted each
+  reward number as 8 cells and would have rewrapped the third line inside
+  入れた; `NUMBER_CALLS` in `kanji_text.py` counts the three reward
+  printers (`$99DC`, `$9A3C`, `$9A65`; zero-suppressed) as 6 digits.  The
+  original line left room for 7, the kanji line for 6.
+- b11_msg_101-103: the first speaker label gets the original's leading
+  full-width space back, so it lines up with the later labels (indented
+  by `<PAGE>`).
+- Checked: the compiler's own rewrap (`reflow`) changes no message;
+  automatic page splits 6, width issues 0.
+- Still indented: b10_msg_026, 027, 033 (item transfer, 4 lines with a
+  `<PAGE>`; no 3-line layout fits the 8-cell name count).
+
 ## 2026-11-09 — revision 22: line-break pass over the whole text
 
 Play-test report: 「張宝と張梁には　張角と／いう兄がいるそうです」 splits

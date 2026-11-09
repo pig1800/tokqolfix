@@ -332,6 +332,13 @@ def tokenize(text: str) -> list[str]:
     return out
 
 
+# Battle-reward numbers (bank 14: $99DC experience, $9A3C gold, $9A65
+# food): a 24-bit sum printed by $D6F3 without leading zeros.  Counted as
+# 6 digits; the original's third line (「兵ろう　XXを　てにいれた」) left
+# room for 7, the kanji one (「兵糧XXを手に入れた」) one cell less.
+NUMBER_CALLS = {0x99DC: 6, 0x9A3C: 6, 0x9A65: 6}
+
+
 def token_width(tok: str) -> int | None:
     """Visible width of one token, or None for a line-ending control."""
     if tok in LINE_CTRL:
@@ -352,6 +359,8 @@ def token_width(tok: str) -> int | None:
             return 1
         s = textdata.encode_record(data)
         return sum(2 if KANJI_RE.match(c) else 1 for c in re.sub(r"<[^>]*>", "", s))
+    if key.startswith("CALL:") and int(key[5:9], 16) in NUMBER_CALLS:
+        return NUMBER_CALLS[int(key[5:9], 16)]
     if key.startswith("NAME") or key.startswith("CALL:"):
         # Runtime names are 2-4 kana; CALL helpers print short names/numbers.
         return 8
@@ -1045,7 +1054,8 @@ def line_width_issues(rec: "Record", data: bytes) -> list[str]:
             i += 1
             continue
         if b in (0xF8, 0xF9):
-            width += 8 if b == 0xF8 else 0
+            ptr = data[i + 1] | (data[i + 2] << 8) if i + 2 < len(data) else 0
+            width += NUMBER_CALLS.get(ptr, 8) if b == 0xF8 else 0
             i += 3
             continue
         if b >= 0xFA:

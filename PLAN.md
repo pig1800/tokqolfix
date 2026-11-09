@@ -138,7 +138,7 @@ Rules that every change must keep:
 
 ## 3. What remains for the user
 
-- Play-test the current build `f53c1973...` (`decomp/build/rom_kanji.nes`):
+- Play-test the current build `3610a067...` (`decomp/build/rom_kanji.nes`):
   history select and name entry, the opening logo, the oath and the first
   town.  Save a Mesen state at any glitch into `out/user/`.
 - Outside battle, a message that continues an open window starts on a
