@@ -58,8 +58,20 @@ overlay_entry:
     ; message then starts on the top line of a clean window.  The line the engine was building is dropped
     ; with its text_clear_line frame (so the scroll runs at the engine's
     ; usual stack depth) and the line loop restarts.
+    ; Battle pool (revision 20): when the lines above are pool kanji or
+    ; kana and this message's first page fits in pool slots none of them
+    ; shows, the window scrolls on as in the original.
     lda text_line
     beq @fresh
+    lda KANJI_BAND
+    bne @clear                  ; the lines above are on the band page
+    jsr pool_decide
+    bcc @clear
+    lda #META_PAGES
+    jsr record_n
+    jsr pool_choose
+    bcc @fresh
+@clear:
     pla
     pla
     jsr WINDOW_CLEAR            ; blank window, top line (fixed bank)
@@ -128,6 +140,12 @@ message_setup:
     lda #0
     sta KANJI_UPLOADED
     sta KANJI_UPLOADED+1
+    bit KANJI_PAGES_LEFT
+    bvc @done
+    jsr record_n                ; pool: the first page's slots (A = 0: the
+    jsr pool_choose             ; record at KANJI_PAGE_PTR) beside the
+    sta KANJI_UPLOADED+1        ; lines still on screen
+@done:
     rts
 
 ; ----------------------------------------------------------------------
@@ -293,7 +311,7 @@ clean_kana:
 ; Battle pool or band page for this message: C set for the pool.  Pool
 ; when the battle graphics set is loaded, the pool tiles were read back
 ; blank (checked here if pal_copy could not post the check), and no page
-; of the message has more than POOL_SLOTS kanji.  KANJI_PAGE_PTR = the
+; of the message has more than POOL_PAGE_MAX kanji.  KANJI_PAGE_PTR = the
 ; message's metadata.
 ; ----------------------------------------------------------------------
 pool_decide:
@@ -355,7 +373,7 @@ pool_decide:
     beq @fits
     jsr entries_offset          ; Y = offset of the entry count
     lda ($10),y
-    cmp #POOL_SLOTS+1
+    cmp #POOL_PAGE_MAX+1
     bcs @band
     sty KANJI_M2                ; next record = $10 + Y + 1 + 6 * entries
     asl a
@@ -458,7 +476,7 @@ page_start:
 @clean:
     iny                         ; Y = nclean offset
     bit KANJI_PAGES_LEFT
-    bvs @done                   ; pool: nothing on the band page to clean
+    bvs @pool_end               ; pool: nothing on the band page to clean
     lda ($10),y
     beq @done
     sta KANJI_M1
@@ -511,6 +529,16 @@ page_start:
     pla
     sta $10
     rts
+@pool_end:
+    jsr entries_offset          ; pool: this page's slots beside the lines
+    lda ($10),y                 ; still on screen (after a clear: from 0)
+    jsr pool_choose
+    sta KANJI_M0
+    lda KANJI_UPLOADED+1
+    and #$F0
+    ora KANJI_M0
+    sta KANJI_UPLOADED+1
+    jmp @done
 
 ; ----------------------------------------------------------------------
 ; Extended dispatcher for $EC-$F7 (replaces the original $D28E path).
@@ -663,13 +691,21 @@ KANJI_EC:
     lda $11
     pha
     jsr page_find
-    bcs @blank_r
-
+    bcc @found
+    jmp @blank_r
+@found:
     bit KANJI_PAGES_LEFT
     bvc @record
-    lda KANJI_M2                ; pool: entry k -> tiles $A4+4k..+3
+    lda KANJI_UPLOADED+1        ; pool: entry k -> slot (first + k) mod 15,
+    and #$0F                    ; tiles $A4+4*slot..+3
+    clc
+    adc KANJI_M2
+    cmp #POOL_SLOTS
+    bcc @slot
+    sbc #POOL_SLOTS
+@slot:
     asl a
-    asl a                       ; C clear (entries < 64)
+    asl a                       ; C clear (slot < 64)
     adc #POOL_FIRST
     ldx #0
 @pool4:
@@ -794,7 +830,9 @@ page_find:
 ctrl_store:
     sta $0300,x
     cmp #$FC
-    bne @done
+    beq @page
+    rts
+@page:
     lda KANJI_PAGES_LEFT
     and #<~(PAGE_FLAG|PAGE_POOL)
     cmp #2
@@ -834,6 +872,22 @@ ctrl_store:
     sta $10
     pla
     tax
+    bit KANJI_PAGES_LEFT
+    bvc @flag                   ; band: the next page starts on a clear window
+    txa                         ; pool: when the next page fits beside the
+    pha                         ; lines on screen, set it up here and let
+    lda #0                      ; the engine scroll on (no page flip)
+    jsr record_n
+    jsr pool_choose
+    tay
+    pla
+    tax
+    bcs @flag
+    lda #0
+    sta KANJI_UPLOADED
+    sty KANJI_UPLOADED+1        ; the page's first slot
+    rts
+@flag:
     lda KANJI_PAGES_LEFT
     ora #PAGE_FLAG
     sta KANJI_PAGES_LEFT
@@ -855,6 +909,123 @@ ctrl_store:
 
 empty_record:
     .db 0, 0, 0
+
+; ----------------------------------------------------------------------
+; A = entry count of the page record at KANJI_PAGE_PTR + A (the game's
+; $10/$11 kept; X, Y clobbered).
+; ----------------------------------------------------------------------
+record_n:
+    clc
+    adc KANJI_PAGE_PTR
+    tax
+    lda KANJI_PAGE_PTR+1
+    adc #0
+    tay
+    lda $10                     ; the game's $10/$11 (math temps)
+    pha
+    lda $11
+    pha
+    stx $10
+    sty $11
+    jsr entries_offset
+    lda ($10),y
+    tax
+    pla                         ; give the game its $10/$11 back
+    sta $11
+    pla
+    sta $10
+    txa
+    rts
+
+; ----------------------------------------------------------------------
+; Battle pool slots for a page of A entries (revision 20).  The window
+; scrolls on, so the page's slots must avoid every pool tile still in the
+; text lines of this window ($0300 + $30 per line, lines 0 to text_line:
+; the lines below hold rows of earlier windows; at text_line 0 all four,
+; the last window may still be on screen).  The page takes slots
+; first .. first+n-1 (mod 15), the lowest first with all of them free.
+; C clear: A = first.  C set: none fits (A = 0).
+; KANJI_M0/M1 = on-screen slots (bit per slot), KANJI_M2 = n, Y = first.
+; ----------------------------------------------------------------------
+pool_choose:
+    sta KANJI_M2                ; n
+    lda #0
+    sta KANJI_M0
+    sta KANJI_M1
+    ldx text_line
+    cpx #4
+    bcc @lines
+    ldx #3
+@lines:
+    lda scan_len,x
+    tax
+@scan:
+    lda $02FF,x
+    sec
+    sbc #POOL_FIRST
+    cmp #POOL_SLOTS*4
+    bcs @next
+    lsr a
+    lsr a                       ; slot 0-14
+    cmp #8
+    and #7
+    tay
+    lda bitmask,y
+    bcs @hi
+    ora KANJI_M0
+    sta KANJI_M0
+    bcc @next
+@hi:
+    ora KANJI_M1
+    sta KANJI_M1
+@next:
+    dex
+    bne @scan
+    ldy #0                      ; first
+@first:
+    tya
+    tax                         ; X = slot
+    lda KANJI_M2                ; slots still to check
+@slot:
+    beq @fits
+    pha
+    lda slot_lo,x
+    and KANJI_M0
+    bne @taken
+    lda slot_hi,x
+    and KANJI_M1
+    bne @taken
+    inx
+    cpx #POOL_SLOTS
+    bcc @nowrap
+    ldx #0
+@nowrap:
+    pla
+    sec
+    sbc #1
+    jmp @slot
+@taken:
+    pla
+    iny
+    cpy #POOL_SLOTS
+    bne @first
+    lda #0
+    sec
+    rts
+@fits:
+    tya
+    clc
+    rts
+
+; Slot bit in KANJI_M0 (slots 0-7) and KANJI_M1 (slots 8-14).
+slot_lo:
+    .db $80, $40, $20, $10, $08, $04, $02, $01, 0, 0, 0, 0, 0, 0, 0
+slot_hi:
+    .db 0, 0, 0, 0, 0, 0, 0, 0, $80, $40, $20, $10, $08, $04, $02
+
+scan_len:                       ; text_line 0: a new window, whose rows still
+    .db $C0, $60, $90, $C0      ; hold the last window's lines (maybe shown)
+
 
 bitmask:
     .db $80, $40, $20, $10, $08, $04, $02, $01

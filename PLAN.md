@@ -83,7 +83,9 @@ Rules that every change must keep:
     unused before use and guarded against every game write path; a game
     path the hack cannot see (direct `$2007` loops) must be followed by a
     graphics-set load, which re-checks.  The engine's row buffer marks its
-    end codes with bit 7: any tile at `$80` or above needs `render_ctl`.
+    end codes with bit 7: any tile at `$80` or above needs `render_ctl`,
+    and the scroll copy (`$D416`) keeps cells below `$FA`.  Pool slots are
+    chosen from what the window's rows show, never from remembered state.
     Check: `pool_outside` / `pool_*` in the garble gates from battle states.
 13. Text that game code prints itself (`lda #imm / jsr text_put_tile`)
     is invisible to the compiler.  The scan of banks 0-15 finds two such
@@ -133,11 +135,11 @@ Rules that every change must keep:
 
 ## 3. What remains for the user
 
-- Play-test the current build `59bf7b5a...` (`decomp/build/rom_kanji.nes`):
+- Play-test the current build `e37d75f8...` (`decomp/build/rom_kanji.nes`):
   history select and name entry, the opening logo, the oath and the first
   town.  Save a Mesen state at any glitch into `out/user/`.
-- A message that continues an open window now scrolls the old lines away
-  before printing; say if that presentation is not acceptable.
+- Outside battle, a message that continues an open window starts on a
+  cleared window; in battle the window scrolls as in the original.
 - Do not distribute builds yet.
 
 ---

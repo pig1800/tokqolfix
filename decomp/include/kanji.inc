@@ -90,6 +90,8 @@ SPR0_STALE        = $FE     ; KANJI_SPR0: window moved, place sprite 0 again
 POOL_FIRST        = $A4
 POOL_LAST         = $DF
 POOL_SLOTS        = 15
+POOL_PAGE_MAX     = 12      ; kanji per pool page: KANJI_UPLOADED bits 0-3
+                            ; of byte 1 hold the page's first slot
 POOL_SET          = 8       ; text_graphics_index of the battle graphics
 WINCOL_POOL_OK    = $40     ; read back blank, no game write into them since
 WINCOL_CHECKED    = $80     ; checked since the last graphics-set load

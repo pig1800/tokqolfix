@@ -22,7 +22,7 @@ PATCHES = [
     (0xC469, 0xC469),   # mmc1_init control: 4K CHR mode
     (0xC4B7, 0xC4B9),   # jmp SUROM switcher
     (0xC48C, 0xC48E),   # set_bank_lock: jsr SUROM switcher
-    (0xC44F, 0xC44F),   # clear_oam_shadow: ldx #$04 (slot 0 is the NMI's)
+    (0xC44F, 0xC450),   # clear_oam_shadow: ldx #$04 / bne (slot 0 is the NMI's)
     (0xC5A6, 0xC6D1),   # load_text_graphics (tables moved), switcher, call_hack, block hook
     (0xC4BA, 0xC4CA),   # NMI EF08 hook (dead write_prg_bank body)
     (0xC343, 0xC345),   # jmp c343_hook
@@ -31,6 +31,7 @@ PATCHES = [
     (0xD2C7, 0xD2C9),   # jsr ctrl_store
     (0xD1C8, 0xD1CA),   # jsr page_flip (kanji page flip after the <PAGE> wait)
     (0xDBED, 0xDBEE),   # text_render_cell: jmp render_ctl (battle pool tiles)
+    (0xD416, 0xD426),   # text_redraw_lines: keep cells below $FA (battle pool scroll)
     (0xEF0B, 0xEF0F),   # jmp ef08_gate + nop nop
     (0xEF31, 0xEF33),   # jmp ef31_gate
     (0xF00C, 0xF039),   # reset CHR registers + hack RAM clear (rewritten)

@@ -325,7 +325,15 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", type=Path, default=REC / "layout_report.txt")
     ap.add_argument("--suffix", default="r14")
+    ap.add_argument("--force", action="store_true",
+                    help="overwrite existing dtx files (they are hand-edited sources)")
     args = ap.parse_args()
+    targets = [PLAN / f"bank{bank}_messages_kanji_{args.suffix}.dtx" for bank in (10, 11)]
+    existing = [t for t in targets if t.exists()]
+    if existing and not args.force:
+        print("refusing to overwrite hand-edited text: " + ", ".join(str(t) for t in existing)
+              + " (use --force, or another --suffix)")
+        return 2
     orig = {}
     for bank in (10, 11):
         for rec in kt.parse_dtx(ROOT / "decomp" / "text" / f"bank{bank}_messages.dtx"):

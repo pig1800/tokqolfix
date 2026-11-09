@@ -61,8 +61,9 @@ PATCH_SITES = {
     0xEF0B: bytes((0xA9, 0x08, 0x20, 0xAA, 0xC4)),  # lda #8 / jsr restore_bank_after_nmi
     0xEF31: bytes((0x68, 0xA8, 0x68)),       # NMI epilogue start (pla/tay/pla)
     0xD1C8: bytes((0x20, 0x56, 0xD4)),       # <PAGE> wait: jsr text_draw_char
-    0xC44F: bytes((0x00,)),                  # clear_oam_shadow: ldx #$00
+    0xC44F: bytes((0x00, 0xF0)),             # clear_oam_shadow: ldx #$00 / beq
     0xDBED: bytes((0x7C, 0xDC)),             # text_render_cell: jmp loc_DC7C
+    0xD416: bytes.fromhex("a5f4c907d004a90ad007bd19031002a90a"),  # text_redraw_lines cell copy
 }
 
 
@@ -281,10 +282,21 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     # slot 0 every frame (band sprite or hidden).  The screen fades call
     # the clear every step; with slot 0 hidden the band could not switch
     # and the kanji showed from the scene page for the whole fade.
-    apply_patch(bank, 0xC44F, bytes((0x04,)))
+    # The original's beq after ldx #$00 relies on Z; with ldx #$04 it must
+    # be bne, or the clear falls into hide_sprites ($C452, from sprite $A1)
+    # and the field sprites stayed on the officer screen (revision 20).
+    apply_patch(bank, 0xC44F, bytes((0x04, 0xD0)))
 
     # text_render_cell draws the battle pool's kanji tiles ($A4-$DF), which
     # have bit 7 set like the row buffer's end codes (revision 18).
+    # text_redraw_lines (the window scroll) blanks every cell with bit 7
+    # set, so the battle pool's kanji vanished from scrolled lines.  Only
+    # the line-end codes ($FA-$FF) are blanked now; the original rows hold
+    # nothing else at $80 and up (revision 20).  Same 17 bytes:
+    #   lda $F4 / cmp #7 / lda #$0A / bcs store / lda $0319,x / cmp #$FA /
+    #   bcc store / lda #$0A
+    apply_patch(bank, 0xD416, bytes.fromhex("a5f4c907a90ab009bd1903c9fa9002a90a"))
+
     apply_patch(bank, 0xDBED, bytes((labels["render_ctl"] & 0xFF,
                                      labels["render_ctl"] >> 8)))
 

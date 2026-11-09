@@ -91,6 +91,12 @@ local function pool_cell(a, t, x, ytop, pg_top, pg_bot, isin, bad)
     counts.pool_on_band = counts.pool_on_band + 1; bad[#bad+1] = string.format("pool_on_band (%d,%d) t=%02X pg=%d/%d", x, ytop, t, pg_top, pg_bot)
   end
   if not nz then
+    -- a glyph quadrant can be blank (上's top left): not uploaded only when
+    -- the whole 4-tile slot is blank
+    local base = 0xA4 + ((t - 0xA4) & 0xFC)
+    for i = 0, 63 do if emu.read(0x1000 + base * 16 + i, emu.memType.nesChrRam) ~= 0 then nz = true; break end end
+  end
+  if not nz then
     counts.pool_not_uploaded = counts.pool_not_uploaded + 1; bad[#bad+1] = string.format("pool_not_uploaded (%d,%d) t=%02X", x, ytop, t)
   end
 end
@@ -100,9 +106,17 @@ local in_ep = false
 local shots = 0
 local marks = {}       -- nt address -> kanji tile shown there
 local sigs = {}        -- nt address -> page-2 pattern first shown there
+-- Optional RAM pokes after the state loads (revision 20: weaken the enemy
+-- army, add experience): SHOP_POKE = "addr=val,...", SHOP_POKE_AT = frame.
+local POKES = {}
+for pa, pv in string.gmatch(os.getenv("SHOP_POKE") or "", "(%x+)=(%x+)") do POKES[#POKES + 1] = {tonumber(pa, 16), tonumber(pv, 16)} end
+local POKE_AT = tonumber(os.getenv("SHOP_POKE_AT") or "-1")
 local function onFrame()
   frame = frame + 1
   if loaded and not lf then lf = frame end
+  if lf and frame - lf == POKE_AT then
+    for _, pk in ipairs(POKES) do emu.write(pk[1], pk[2], emu.memType.nesMemory) end
+  end
   if lf and (frame - lf) % 20 == 0 and (frame - lf) <= 40 * #steps + 60 then
     local sf = assert(io.open(string.format("%s/p_%s_f%04d.png", outdir, tag, frame - lf), "wb")); sf:write(emu.takeScreenshot()); sf:close()
   end

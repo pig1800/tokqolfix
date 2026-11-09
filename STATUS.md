@@ -1,6 +1,6 @@
 # Current implementation status
 
-Revision 19, 2026-11-09 (branch `rev10-wip`, uncommitted working tree).
+Revision 20, 2026-11-09 (branch `rev10-wip`, uncommitted working tree).
 Implemented by the planner after the revision-10 and revision-11 play
 tests; see CHANGELOG for what each revision fixed.
 
@@ -9,7 +9,7 @@ tests; see CHANGELOG for what each revision fixed.
 - Original 256 KiB ROM: byte-identical,
   `40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367`.
 - Kanji 512 KiB SUROM ROM (16 KiB CHR RAM, 4 KiB CHR mode):
-  `59bf7b5ac8bedd55112cde5a8c6cca79db38588b23fcd44d8453157ace50843a`.
+  `e37d75f82ff965d03fd10b3c4461a62ca9346d2a1e6f8732d07484a46355e2a0`.
 - Fixed-bank hooks in five audited regions plus the rewritten reset setup
   (`$F00C-$F039`).  The largest region is `$C5A6-$C6D1`: the game's
   `load_text_graphics` rewritten in place, its palette tables moved to hack
@@ -62,6 +62,11 @@ tests; see CHANGELOG for what each revision fixed.
   `$A4+4k..+3`, plane 0, scene page): no band, no sprite 0, no NMI wait.
   The engine's row renderer draws `$A4-$DF` as tiles (`render_ctl`).
   Everywhere else, and for a page over 15 kanji, the band page as below.
+  Revision 20: the battle window scrolls as in the original.  A page takes
+  the lowest run of slots no pool tile in the window's lines shows (the
+  first slot in `KANJI_UPLOADED+1` bits 0-3, at most 12 kanji a page); a
+  page that does not fit clears the window first.  The engine's scroll
+  copy keeps cells below `$FA` (`$D416`).
 - **Sprite 0 follows the drawn frame (revision 17).**  The hook tail places
   sprite 0 for the next DMA and records the vertical scroll it used in
   `KANJI_SPR0`; the overlay marks it `SPR0_STALE` when it moves the window.
@@ -106,7 +111,7 @@ tests; see CHANGELOG for what each revision fixed.
 | `bank15_lint` | 16 ranges, bank 31 == bank 15; build fails if hook code leaves its gaps |
 | Opening logo (raster split) | frames 2-294 pixel-identical to the original (6-frame boot offset) |
 | Visible garble (`garble_check.lua`, 6 input timings) | 0 frames (revision 11: 16-460 frames per run) |
-| Partner shop from the play-test state (`garble_state.lua`, 5 paths) | only the state's own garbled menu until each path redraws it (45-129 frames, same as revision 16c; revision 15b: 206-329 per path) |
+| Partner shop from the play-test state (`garble_state.lua`, 5 paths) | only the state's own garbled menu until each path redraws it (49-130 frames; revision 19: 45-129; revision 15b: 206-329 per path) |
 | Save at the record office, fade out/in (`garble_state.lua`) | 0 frames (revision 16: 40) |
 | Hack VRAM/OAM access vs vblank end (`vblank_deadline.lua`, standard path and three battle states) | 0 after the pre-render line; costliest unit 776 cycles from entry (16c: 777); pool check 533; `spr0fix` ends by 252.2 |
 | CHR-animation NMIs (`anim_timing.lua`) | game's scroll/mask restore at scanline 260 (original 259; revision 11: 268) |
@@ -118,8 +123,8 @@ tests; see CHANGELOG for what each revision fixed.
 | Stack at battle entry (`taint_check.lua`, normal and boss) | min SP `$0D` (revision 17: `$0B`, revision 18 before the fix `$09`; original `$1C`) |
 | `mask_restore` | 0 |
 | Message timeline | messages start at 607/888/1593/2367/3302 (original 607/888/1589/2359/3290) |
-| `zp_check.lua` | `$10/$11` unchanged at every overlay exit (1,000 checks; the town's RNG differs by build) |
-| Battles from three states (`garble_state.lua`: play-test, before a normal and a boss battle) | 0 frames, window closes and shake steps included (revision 17: 15 frames in 7 closes) |
+| `zp_check.lua` | `$10/$11` unchanged at every overlay exit (1,001 checks; the town's RNG differs by build) |
+| Battles from three states (`garble_state.lua`: play-test, before a normal and a boss battle) and a forced level-up (`SHOP_POKE`) | 0 frames, window closes, shake steps and scrolling included (revision 17: 15 frames in 7 closes) |
 | Sprite-0 hits from save states (`band_timing.lua`) | 0 misses: partner shop 600, save fade 2,200 (battles use the pool) |
 | Battles from three states (`taint_check.lua`) | 0 game reads of hack-changed RAM, 0 game writes to hack state |
 | Battle round from the play-test state (`taint_check.lua`, revision 16c) | 0 game reads of hack-changed RAM, 0 game writes to hack state; damage 26/22/4/9/3/7 (revision 16b: every hit killed) |
@@ -135,15 +140,15 @@ tests; see CHANGELOG for what each revision fixed.
 - While the band is on, the NMI waits for the sprite-0 hit each frame, so
   the main thread gets about 95 scanlines per frame instead of about 200.
   No slowdown is visible on the tested paths.
-- Each wait inside a kanji message flips to a fresh window (the original
-  scrolls line by line); a message that continues a window also starts on
-  a cleared window.
-- Battle pool limits: a battle page with more than 15 kanji uses the band
+- Outside battle, each wait inside a kanji message flips to a fresh window
+  (the original scrolls line by line); a message that continues a window
+  also starts on a cleared window.  In battle the window scrolls; it is
+  cleared only when the next page's kanji do not fit beside the ones on
+  screen (not seen on the tested paths).
+- Battle pool limits: a battle page with more than 12 kanji uses the band
   page, whose window closes can garble 1-3 frames (none such page exists
-  yet).  The engine's line scroll blanks pool tiles; kanji messages clear
-  the window instead of scrolling, so it is not reached.  The pool is
-  verified on three battles only; a battle that shows tiles `$A4-$DF`
-  would be reported by `pool_outside`.
+  yet).  The pool is verified on four battle runs only; a battle that
+  shows tiles `$A4-$DF` would be reported by `pool_outside`.
 - The band page is not told about CHR the game writes with direct `$2007`
   loops (the battle-entry dissolve); such tiles are not shown on the band
   page in the tested scenes.
@@ -194,8 +199,12 @@ refreshes the hack addresses the gates hook).
 
 ## Source of truth
 
-- `decomp/text/kanji_r14/batch_00.txt` .. `batch_07.txt` (with `STYLE.md` and
-  `glossary.tsv`); `tools/kanji_layout.py` generates the compiler's
-  `bank1X_messages_kanji_r14.dtx` from them.  The older `*_kanji_fixed.dtx`
-  drafts are used only when the r14 files are absent.
+- Text: `decomp/text/kanji_plan/bank10_messages_kanji_r14.dtx` and
+  `bank11_messages_kanji_r14.dtx`.  Edit them and run
+  `python decomp\build.py --target kanji` (about 10 seconds; the build
+  reports lines over the window width and forced page splits).  They were
+  generated once by `tools/kanji_layout.py` from
+  `decomp/text/kanji_r14/batch_*.txt`, which now refuses to overwrite them
+  without `--force`.  The older `*_kanji_fixed.dtx` drafts are used only
+  when the r14 files are absent.
 - `JF-Dot-Shinonome16.ttf` (fallbacks: `DotGothic16-Regular.ttf`, MS Gothic)

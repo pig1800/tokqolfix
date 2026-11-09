@@ -1,5 +1,48 @@
 # Changelog
 
+## 2026-11-09 — revision 20: battle text scrolls again; officer screen sprites; text source
+
+Play-test report: (1) a line-break improvement for 「強い武将は前…」;
+(2) the 武将 (officer) screen showed the field sprites, NPCs included;
+(3) at the end of a battle, 「(names)は〜の計を覚えた」 was hard to read:
+each message cleared the window, so the officer names printed just before
+「は〜の計を覚えた」 vanished at once.  Proposal: scroll in battle as the
+original does, and check whether the 15 pool kanji are enough.
+
+- **Text source**: the revision-14 dtx files are the editable source now
+  (`decomp/text/kanji_plan/bank1X_messages_kanji_r14.dtx`; edit, then
+  `python decomp\build.py --target kanji`, about 10 seconds).
+  `kanji_layout.py` refuses to overwrite them without `--force`.
+  b10_msg_148 is 「強い武将は前／弱い武将は後ろ／これが隊列の基本です」.
+- **Officer screen** (older than revision 17, from revision 16b):
+  `clear_oam_shadow` started with `ldx #$00 / beq`; the patch to
+  `ldx #$04` left the `beq` untaken, so the clear fell into `hide_sprites`
+  (`$C452`), which hides only from sprite `$A1` up.  Now `ldx #$04 / bne`
+  (`$C44F-$C450`).  The officer screen is pixel-identical to the original.
+- **Measured first**: in battle messages a 4-line window of one message
+  holds at most 8 distinct kanji, a line at most 7; the level-up block
+  (four messages scrolling) at most 11.  15 slots are enough.
+- **Battle scroll**: the engine's window scroll (`text_redraw_lines`)
+  blanked every row cell with bit 7 set, the pool's kanji included; it now
+  blanks only the line-end codes (`$FA-$FF`, same 17 bytes at `$D416`).
+  Pool pages no longer start on a cleared window.  A page takes the lowest
+  run of free slots (mod 15) not shown by any pool tile in the window's
+  lines (scanned from `$0300` at the page start: lines 0 to `text_line`;
+  in a new window all four, which may still be on screen).  The first slot
+  is kept in `KANJI_UPLOADED+1` bits 0-3 (pool pages hold at most 12
+  kanji, `POOL_PAGE_MAX`).  A message continuing a window, or a `<PAGE>`,
+  scrolls on when its page fits, and clears the window as before when it
+  does not.  Band (field) messages are unchanged.
+- The tiles `$EF-$FF` the play-test found unused at battle end are not
+  needed for this.
+- Gates: `garble_state.lua` accepts `SHOP_POKE` / `SHOP_POKE_AT` (RAM pokes
+  after the state loads; the level-up run sets the enemy armies to 1 and
+  experience to 8,192).  The pool `not_uploaded` check now looks at the
+  whole 4-tile slot: 上's top-left quadrant is blank by design (the
+  revision-19 run of the same level-up reported 305 such frames).
+- Results: battles (play-test, normal, boss, forced level-up) 0 garbled
+  frames; standard path 0; save fade 0; deadline 0 late; taint 0 / 0.
+
 ## 2026-11-09 — revision 19: kana tails printed by game code
 
 Play-test report: after our attack the battle result read

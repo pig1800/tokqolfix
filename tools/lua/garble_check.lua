@@ -84,6 +84,12 @@ local function pool_cell(a, t, x, ytop, pg_top, pg_bot, isin, bad)
     counts.pool_on_band = counts.pool_on_band + 1; bad[#bad+1] = string.format("pool_on_band (%d,%d) t=%02X pg=%d/%d", x, ytop, t, pg_top, pg_bot)
   end
   if not nz then
+    -- a glyph quadrant can be blank (上's top left): not uploaded only when
+    -- the whole 4-tile slot is blank
+    local base = 0xA4 + ((t - 0xA4) & 0xFC)
+    for i = 0, 63 do if emu.read(0x1000 + base * 16 + i, emu.memType.nesChrRam) ~= 0 then nz = true; break end end
+  end
+  if not nz then
     counts.pool_not_uploaded = counts.pool_not_uploaded + 1; bad[#bad+1] = string.format("pool_not_uploaded (%d,%d) t=%02X", x, ytop, t)
   end
 end
