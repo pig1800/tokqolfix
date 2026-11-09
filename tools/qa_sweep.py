@@ -77,11 +77,16 @@ def message_locations(index: int, base: bytes) -> tuple[int, int, int, list[int]
     data_addr = base[so + 4] | (base[so + 5] << 8)
     meta = base[so + 6] | (base[so + 7] << 8)
     mo = 16 + text_bank * 0x4000 + (meta - 0x8000)
-    count = base[mo + 1]
+    # Revision-11 metadata: page count, 16-byte kana bitmap, then per page
+    # nkeep, keep tiles, nclean, clean tiles, entries, entries * 6 bytes.
+    po = mo + 17
+    po += 1 + base[po]          # keep list
+    po += 1 + base[po]          # clean list
+    count = base[po]
     tiles: list[int] = []
     if count <= 16:
         for i in range(count):
-            eo = mo + 2 + i * 6
+            eo = po + 1 + i * 6
             tiles.extend(base[eo + 2:eo + 6])
     return (text_bank, data_addr, meta, tiles)
 

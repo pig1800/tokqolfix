@@ -18,6 +18,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 MESEN = Path(r"D:\EMU\NES\Mesen.exe")
 RUN_DIR = ROOT / "out" / "test"
+SAVES = MESEN.parent / "Saves"
+# Battery saves that belong to the user's own play: never used or deleted.
+PROTECTED = {"tenchi o kurau (japan) (rev 1)", "rom_kanji", "rom"}
+
+
+def fresh_battery(name: str) -> None:
+    """Start a test run from a clean battery save (Mesen keys it on the ROM
+    file name, so a reused test name would load the previous run's game)."""
+    if name.lower() in PROTECTED:
+        raise SystemExit(f"--name {name!r} is the user's own save; pick another")
+    sav = SAVES / f"{name}.sav"
+    if sav.exists():
+        sav.unlink()
 
 
 def main() -> int:
@@ -30,6 +43,7 @@ def main() -> int:
 
     RUN_DIR.mkdir(parents=True, exist_ok=True)
     name = args.name or args.rom.stem
+    fresh_battery(name)
     rom_copy = RUN_DIR / f"{name}.nes"
     shutil.copyfile(args.rom, rom_copy)
     lua = args.lua.resolve()

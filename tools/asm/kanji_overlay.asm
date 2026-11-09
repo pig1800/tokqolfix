@@ -1,55 +1,48 @@
 ; ======================================================================
-; Kanji-target text-engine overlay (revision 10, ROM-resident)
+; Kanji-target text-engine overlay (revision 11, ROM-resident)
 ;
 ; Assembled for $B800 and included identically in text banks 18-22.
-; At message open the overlay copies CHR page 1 to page 2 and uploads
-; every glyph the message uses, all with NMI disabled.  The NMI then
-; only switches to page 2 at the window border.  No hack-bank code runs
-; on the task stack, which is only a few bytes deep.
+; The overlay never touches the PPU or a mapper register.  It posts
+; requests (KANJI_REQ) that the NMI serves in vblank, or that the hack
+; bank serves directly when rendering is off, and waits frame by frame
+; through the fixed-bank WAIT_TEXT helper, which maps this bank again.
 ;
-; Page records in the text bank:
-;   count byte, count * (code_lo, code_hi, tile0, tile1, tile2, tile3)
-; The first byte at the metadata pointer is the number of pages.
+; Message metadata in the text bank:
+;   page count, 16-byte bitmap of every lower tile the message shows as
+;   kana/frame, then count * page record:
+;     nkeep, keep tiles      kanji tiles of earlier lines still on screen
+;     nclean, clean tiles    kana tiles an earlier page used as kanji
+;     entries, entries * (code_lo, code_hi, tile0, tile1, tile2, tile3)
+;
+; KANJI_TEXT_ADDR is free after entry: it is the main-thread scratch
+; KANJI_M0/M1.  The page-start flag is bit 7 of KANJI_PAGES_LEFT.
 ; ======================================================================
 .include "../../decomp/include/hardware.inc"
 .include "../../decomp/include/ram.inc"
 .include "../../decomp/include/kanji.inc"
+.include "../../decomp/build/kanji/fixed_hooks.inc"
+
+TEXT_MSG_LOOP = $D160       ; text_show_message line loop (sets the line address)
+META_KANA  = 1              ; offset of the kana bitmap in the metadata
+META_PAGES = 17             ; offset of the first page record
+PAGE_FLAG = $80                 ; in KANJI_PAGES_LEFT: page start pending
+                                ; (bit 6: PAGE_POOL, kanji.inc)
 
 .base $B800
 .org $B800
 
 ; ----------------------------------------------------------------------
-; Message entry.  The trampoline has put the text bank in
-; KANJI_TEXT_BANK, the text address in KANJI_TEXT_ADDR and the metadata
-; address in KANJI_PAGE_PTR, and mapped this bank.
+; Message entry.  The trampoline has stored the text bank, the text
+; address and the metadata address, and mapped this bank.  The stack
+; holds the F8 handler's TEXT_RETURN above text_clear_line's return.
 ; ----------------------------------------------------------------------
 overlay_entry:
     stx KANJI_BUFX
-
-    ; The text engine runs on a small task stack.  Do the CHR work on the
-    ; main stack: while a task runs, the scheduler's stack frames are dead.
-    lda #0
-    sta KANJI_SAVED_SP
-    tsx
-    cpx #$31
-    bcs @nostack
-    stx KANJI_SAVED_SP
-    ldx #$FF
-    txs
-@nostack:
-
-    lda #0
-    ldx #15
-@clear_a:
-    sta KANJI_A_BITS,x
-    dex
-    bpl @clear_a
-
-    jsr full_sync
-
-    lda #1
-    sta KANJI_MSG_OPEN
-
+    ; Drop the F8 handler's TEXT_RETURN now: the overlay leaves through
+    ; TEXT_LINE_LOOP or TEXT_MSG_LOOP, and every wait below then runs two
+    ; bytes shallower on the text task's small stack.
+    pla
+    pla
     lda KANJI_TEXT_ADDR
     sta text_ptr_lo
     lda KANJI_TEXT_ADDR+1
@@ -57,7 +50,52 @@ overlay_entry:
     lda #0
     sta text_col
 
-    ; Read the page count and point at the first page record.
+    jsr window_geometry
+
+    ; A message that continues a window (text_line > 0) would share the
+    ; band page with the previous message's lines, whose tiles the compiler
+    ; cannot know.  Clear the window first (as after a page flip); the
+    ; message then starts on the top line of a clean window.  The line the engine was building is dropped
+    ; with its text_clear_line frame (so the scroll runs at the engine's
+    ; usual stack depth) and the line loop restarts.
+    lda text_line
+    beq @fresh
+    pla
+    pla
+    jsr WINDOW_CLEAR            ; blank window, top line (fixed bank)
+    jsr message_setup
+    jmp TEXT_MSG_LOOP
+@fresh:
+    jsr message_setup
+    ldx KANJI_BUFX
+    jmp TEXT_LINE_LOOP
+
+; Release the previous kanji, enable the band, read the metadata and clean
+; this message's kana tiles on the band page.  No request is pending here,
+; so the overlay owns KANJI_A.
+message_setup:
+    jsr pool_decide             ; C set: the battle pool
+    bcc @band
+    jsr release_all
+    lda #0                      ; no band page, no sprite 0
+    sta KANJI_BAND
+    beq @meta
+@band:
+    ; While no band was shown the NMI only recorded stale tiles: bring
+    ; page 2 up to date first.  The previous message's kanji are still
+    ; active here, so they are left for clean_kana and the band's own
+    ; restores, exactly as before.
+    lda #REQ_SYNC
+    jsr post_wait
+    jsr release_all
+    lda #1                      ; (the page count stored below clears PAGE_FLAG)
+    sta KANJI_BAND
+@meta:
+
+    lda $10                     ; the game's $10/$11 (math temps)
+    pha
+    lda $11
+    pha
     lda KANJI_PAGE_PTR
     sta $10
     lda KANJI_PAGE_PTR+1
@@ -65,385 +103,437 @@ overlay_entry:
     ldy #0
     lda ($10),y
     sta KANJI_PAGES_LEFT
-    inc $10
-    bne @nohi
-    inc $11
-@nohi:
-    lda $10
+    pla                         ; give the game its $10/$11 back
+    sta $11
+    pla
+    sta $10
+
+    lda KANJI_BAND
+    bne @clean_band
+    lda KANJI_PAGES_LEFT        ; pool: flag the message, no band page to clean
+    ora #PAGE_POOL
+    sta KANJI_PAGES_LEFT
+    bne @cleaned
+@clean_band:
+    jsr clean_kana
+@cleaned:
+
+    lda KANJI_PAGE_PTR
+    clc
+    adc #META_PAGES
     sta KANJI_PAGE_PTR
-    lda $11
-    sta KANJI_PAGE_PTR+1
-
-    jsr preupload
-
-    ldx KANJI_SAVED_SP
-    beq @norestore
-    txs
-@norestore:
-    ldx KANJI_BUFX
-    pla
-    pla
-    jmp TEXT_LINE_LOOP
-
-; ----------------------------------------------------------------------
-; Copy all 128 page-1 tiles to page 2 (NMI off, CHR reg 1 = page 2),
-; write the sprite-0 pattern, then restore page 1 and NMI.
-; ----------------------------------------------------------------------
-full_sync:
-    jsr PPU_NMI_OFF
+    bcc @nohi
+    inc KANJI_PAGE_PTR+1
+@nohi:
     lda #0
-    sta KANJI_BAND_ON
-    lda #0
-    sta KANJI_SHADOW_CUR
-@loop:
-    ; Read the tile from page 1.
-    lda #1
-    jsr write_reg1_locked
-    lda KANJI_SHADOW_CUR
-    asl a
-    asl a
-    asl a
-    asl a
-    sta KANJI_OVL0
-    lda KANJI_SHADOW_CUR
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    ora #$10
-    sta KANJI_OVL1
-    sta PPUADDR
-    lda KANJI_OVL0
-    sta PPUADDR
-    lda PPUDATA
-    ldx #0
-@read:
-    lda PPUDATA
-    sta KANJI_GLYPH_BUF,x
-    inx
-    cpx #16
-    bne @read
-
-    ; Write it to page 2.
-    lda #2
-    jsr write_reg1_locked
-    lda KANJI_OVL1
-    sta PPUADDR
-    lda KANJI_OVL0
-    sta PPUADDR
-    ldx #0
-@write:
-    lda KANJI_GLYPH_BUF,x
-    sta PPUDATA
-    inx
-    cpx #16
-    bne @write
-    inc KANJI_SHADOW_CUR
-    lda KANJI_SHADOW_CUR
-    cmp #128
-    bne @loop
-
-    ; Sprite-0 pattern: page-0 tile $FF, opaque rows 1-2.
-    lda #$0F
-    sta PPUADDR
-    lda #$F0
-    sta PPUADDR
-    lda #0
-    sta PPUDATA
-    lda #$FF
-    sta PPUDATA
-    sta PPUDATA
-    lda #0
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    ldx #8
-@zero:
-    sta PPUDATA
-    dex
-    bne @zero
-
-    lda #1
-    jsr write_reg1_locked
-    lda #1
-    sta KANJI_BAND_ON
-    jsr PPU_NMI_ON
+    sta KANJI_UPLOADED
+    sta KANJI_UPLOADED+1
     rts
 
 ; ----------------------------------------------------------------------
-; Upload every page-record glyph to CHR page 2 with NMI disabled.
-; Sets the active-kanji bitmap for every assigned tile.
+; Window geometry from the engine's current line cell address
+; (ppu_addr shadow = corner + $21 + text_line * $40, rows wrap at 30).
 ; ----------------------------------------------------------------------
-preupload:
-    jsr PPU_NMI_OFF
-    lda #2
-    jsr write_reg1_locked
-    lda KANJI_PAGES_LEFT
-    sta KANJI_OVL2
+window_geometry:
+    lda ppu_addr_hi_shadow
+    and #$03
+    asl a
+    asl a
+    asl a
+    sta KANJI_M0
+    lda ppu_addr_lo_shadow
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora KANJI_M0                ; cell row 0-29
+    sec
+    sbc #1
+    sec
+    sbc text_line
+    sec
+    sbc text_line
+    bpl @row_ok
+    clc
+    adc #30
+@row_ok:
+    sta KANJI_WIN_ROW
+    lda ppu_addr_hi_shadow
+    and #$04
+    asl a
+    asl a
+    asl a                       ; $20 for nametable 1
+    sta KANJI_M0
+    lda ppu_addr_lo_shadow
+    and #$1F
+    sec
+    sbc #1
+    bpl @col_ok
+    and #$1F
+    tay
+    lda KANJI_M0
+    eor #$20
+    sta KANJI_M0
+    tya
+@col_ok:
+    ora KANJI_M0
+    sta KANJI_M0
+    lda KANJI_WIN_COL
+    and #WINCOL_POOL_OK|WINCOL_CHECKED
+    ora KANJI_M0
+    sta KANJI_WIN_COL
+    ; sprite 0 follows the window in the next vblank (SPR0_DIRTY wins: the
+    ; tile goes first and the tail places the sprite after it)
+    lda KANJI_SPR0
+    cmp #SPR0_DIRTY
+    beq @spr_kept
+    lda #SPR0_STALE
+    sta KANJI_SPR0
+@spr_kept:
+    rts
+
+; ----------------------------------------------------------------------
+; Post request A and wait until it is served.  The NMI serves requests in
+; vblank; with rendering off (busy mode or NMI disabled) the hack bank
+; serves them at once.  Gives up after 120 frames.  Clobbers A, X, Y.
+; ----------------------------------------------------------------------
+post_wait:
+    sta KANJI_REQ
+    ldy #0
+@wait:
+    lda KANJI_REQ
+    beq @done
+    lda nmi_busy
+    bne @direct
+    lda ppu_ctrl_shadow
+    bmi @yield
+@direct:
+    tya
+    pha
+    lda #FN_SERVICE
+    jsr CALL_HACK
+    pla
+    tay
+    jmp @wait
+@yield:
+    jsr WAIT_TEXT
+    iny
+    cpy #120
+    bcc @wait
+    lda #0
+    sta KANJI_REQ
+@done:
+    rts
+
+; ----------------------------------------------------------------------
+; Restore every band-page tile this message shows as kana/frame and that
+; still holds an old kanji.  The bitmap is at metadata + 1.
+; ----------------------------------------------------------------------
+clean_kana:
+    lda #48                     ; at most 48 restores
+    pha
+@scan:
+    lda $10                     ; the game's $10/$11 (math temps)
+    pha
+    lda $11
+    pha
     lda KANJI_PAGE_PTR
     sta $10
     lda KANJI_PAGE_PTR+1
     sta $11
-@page:
-    ldy #0
-    lda ($10),y
-    sta KANJI_OVL3
-    inc $10
-    bne @p2
-    inc $11
-@p2:
-    lda KANJI_OVL3
-    beq @next_page
-@entry:
-    ldy #0
-    lda ($10),y
-    sta KANJI_CODE_LO
-    iny
-    lda ($10),y
-    sta KANJI_CODE_HI
-    iny
+    ldy #META_KANA
     ldx #0
-@tiles:
-    lda ($10),y
-    sta KANJI_TILES,x
+@byte:
+    lda KANJI_A,x
+    eor #$FF
+    and KANJI_STALE,x
+    and ($10),y
+    bne @found
     iny
     inx
-    cpx #4
-    bne @tiles
+    cpx #16
+    bne @byte
+    pla                         ; give the game its $10/$11 back
+    sta $11
+    pla
+    sta $10
+    pla
+    rts
+@found:
+    ldy #0
+@bit:
+    asl a
+    bcs @got
+    iny
+    bne @bit
+@got:
+    sty KANJI_M0
+    txa
+    asl a
+    asl a
+    asl a
+    ora KANJI_M0
+    sta KANJI_TILES
+    pla                         ; give the game its $10/$11 back
+    sta $11
+    pla
+    sta $10
+    lda #REQ_RESTORE
+    jsr post_wait
+    pla
+    sec
+    sbc #1
+    pha
+    bne @scan
+    pla
+    rts
+
+; ----------------------------------------------------------------------
+; Battle pool or band page for this message: C set for the pool.  Pool
+; when the battle graphics set is loaded, the pool tiles were read back
+; blank (checked here if pal_copy could not post the check), and no page
+; of the message has more than POOL_SLOTS kanji.  KANJI_PAGE_PTR = the
+; message's metadata.
+; ----------------------------------------------------------------------
+pool_decide:
+    lda text_graphics_index
+    cmp #POOL_SET
+    beq @set8
+    clc
+    rts
+@set8:
+    lda KANJI_WIN_COL
+    bmi @checked
+    ldy #120                    ; let a pending request (pal_copy's check) end
+@idle:
+    lda KANJI_REQ
+    beq @start
+    tya
+    pha
+    jsr WAIT_TEXT
+    pla
+    tay
+    dey
+    bne @idle
+    clc                         ; still busy: band page
+    rts
+@start:
+    lda KANJI_WIN_COL
+    bmi @checked                ; pal_copy's check ended meanwhile
+    lda #POOL_FIRST
+    sta KANJI_TILES
+    lda #0
+    sta KANJI_TILES+1
+    lda #POOL_CHECK_CODE
+    sta KANJI_CODE_HI
+    lda #REQ_UPLOAD
+    jsr post_wait
+@checked:
+    lda KANJI_WIN_COL
+    and #WINCOL_POOL_OK
+    beq @no
+    lda $10                     ; the game's $10/$11 (math temps)
+    pha
+    lda $11
+    pha
+    lda KANJI_PAGE_PTR
+    sta $10
+    lda KANJI_PAGE_PTR+1
+    sta $11
+    ldy #0
+    lda ($10),y                 ; page count
+    sta KANJI_M0
     lda $10
     clc
-    adc #6
+    adc #META_PAGES
     sta $10
-    bcc @adv
+    bcc @page
     inc $11
-@adv:
-    lda #0
-    sta KANJI_OVL1
-@abits:
-    ldy KANJI_OVL1
-    lda KANJI_TILES,y
-    sta KANJI_OVL0
-    lsr a
-    lsr a
-    lsr a
-    tay
-    lda KANJI_OVL0
-    and #7
-    tax
-    lda bitmask,x
-    ora KANJI_A_BITS,y
-    sta KANJI_A_BITS,y
-    inc KANJI_OVL1
-    lda KANJI_OVL1
-    cmp #4
-    bne @abits
-
-    jsr load_and_upload
-    dec KANJI_OVL3
-    bne @entry
-@next_page:
-    dec KANJI_OVL2
-    bne @page
-    lda #1
-    jsr write_reg1_locked
-    jsr PPU_NMI_ON
+@page:
+    lda KANJI_M0
+    beq @fits
+    jsr entries_offset          ; Y = offset of the entry count
+    lda ($10),y
+    cmp #POOL_SLOTS+1
+    bcs @band
+    sty KANJI_M2                ; next record = $10 + Y + 1 + 6 * entries
+    asl a
+    sta KANJI_M1
+    asl a
+    clc
+    adc KANJI_M1
+    sec
+    adc KANJI_M2
+    clc
+    adc $10
+    sta $10
+    bcc @nohi
+    inc $11
+@nohi:
+    dec KANJI_M0
+    jmp @page
+@fits:
+    pla                         ; give the game its $10/$11 back
+    sta $11
+    pla
+    sta $10
+    sec
+    rts
+@band:
+    pla                         ; give the game its $10/$11 back
+    sta $11
+    pla
+    sta $10
+@no:
+    clc
     rts
 
-; ----------------------------------------------------------------------
-; Load the glyph named by KANJI_CODE_LO/HI from bank 23/24 and upload
-; the four tiles in KANJI_TILES to CHR page 2.  Inline bank mapping keeps
-; the task-stack depth at four bytes.
-; ----------------------------------------------------------------------
-load_and_upload:
-    lda KANJI_CODE_HI
-    cmp #1
-    bcc @bank23
-    bne @bank24
-    lda KANJI_CODE_LO
-    cmp #$67
-    bcs @bank24
-@bank23:
-    lda #23
-    sta KANJI_OVL0
-    lda KANJI_CODE_LO
-    sta KANJI_OVL1
-    lda KANJI_CODE_HI
-    sta KANJI_OVL2
-    jmp @map
-@bank24:
-    lda #24
-    sta KANJI_OVL0
-    lda KANJI_CODE_LO
-    sec
-    sbc #$67
-    sta KANJI_OVL1
-    lda KANJI_CODE_HI
-    sbc #1
-    sta KANJI_OVL2
-@map:
-    lda #1
-    sta bank_switch_lock
-@retry_map:
-    lda KANJI_OVL0
-    and #$10
-    ldx #5
-@c0:
-    sta MMC1_CHR_BANK0
-    lsr a
-    dex
-    bne @c0
-    lda KANJI_OVL0
-    and #$0F
-    ldx #5
-@p0:
-    sta MMC1_PRG_BANK
-    lsr a
-    dex
-    bne @p0
-    lda bank_switch_lock
-    beq @retry_map
+release_all:
     lda #0
-    sta bank_switch_lock
+    ldx #15
+@l:
+    sta KANJI_A,x
+    dex
+    bpl @l
+    rts
 
-    lda KANJI_OVL1
-    sta $12
-    lda KANJI_OVL2
-    sta $13
-    asl $12
-    rol $13
-    asl $12
-    rol $13
-    asl $12
-    rol $13
-    asl $12
-    rol $13
-    asl $12
-    rol $13
-    lda $13
-    clc
-    adc #$88
-    sta $13
+; $10/$11 = page record -> Y = offset of its entry count.
+entries_offset:
     ldy #0
-@copy:
-    lda ($12),y
-    sta KANJI_GLYPH_BUF,y
-    iny
-    cpy #32
-    bne @copy
-
-    ; Map the text bank back.
-    lda #1
-    sta bank_switch_lock
-@retry_back:
-    lda KANJI_TEXT_BANK
-    and #$10
-    ldx #5
-@c1:
-    sta MMC1_CHR_BANK0
-    lsr a
-    dex
-    bne @c1
-    lda KANJI_TEXT_BANK
-    and #$0F
-    ldx #5
-@p1:
-    sta MMC1_PRG_BANK
-    lsr a
-    dex
-    bne @p1
-    lda bank_switch_lock
-    beq @retry_back
-    lda #0
-    sta bank_switch_lock
-
-    ; Upload the four tiles from KANJI_GLYPH_BUF.
-    lda #0
-    sta KANJI_OVL0
-@tile:
-    ldy KANJI_OVL0
-    lda KANJI_TILES,y
-    asl a
-    asl a
-    asl a
-    asl a
-    sta KANJI_OVL1
-    lda KANJI_TILES,y
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    ora #$10
-    sta PPUADDR
-    lda KANJI_OVL1
-    sta PPUADDR
-
-    lda KANJI_OVL0
-    and #2
-    asl a
-    asl a
-    asl a
-    sta KANJI_OVL2
-    lda KANJI_OVL0
-    and #1
-    ora KANJI_OVL2
-    sta KANJI_OVL2
-    ldy KANJI_OVL2
-    ldx #8
-@plane:
-    lda KANJI_GLYPH_BUF,y
-    sta PPUDATA
+    lda ($10),y                 ; nkeep
+    sec
+    adc #0                      ; skip nkeep byte + keep tiles
+    tay
+    lda ($10),y                 ; nclean
+    sec
+    adc #0
+    sta KANJI_M1
     tya
     clc
-    adc #2
+    adc KANJI_M1
     tay
-    dex
-    bne @plane
-    lda #0
-    ldx #8
-@z:
-    sta PPUDATA
-    dex
-    bne @z
-    inc KANJI_OVL0
-    lda KANJI_OVL0
-    cmp #4
-    bne @tile
     rts
 
 ; ----------------------------------------------------------------------
-; A = 1 or 2; write MMC1 CHR register 1 under the bank-switch lock.
+; First character of a new page: keep only the kanji still on screen,
+; then restore this page's kana tiles that an earlier page used.
 ; ----------------------------------------------------------------------
-write_reg1_locked:
-    sta KANJI_REG1_TMP
-@retry:
-    lda #1
-    sta bank_switch_lock
-    lda KANJI_REG1_TMP
-    ldx #5
-@w:
-    sta MMC1_CHR_BANK1
+page_start:
+    lda KANJI_PAGES_LEFT
+    and #<~PAGE_FLAG
+    sta KANJI_PAGES_LEFT
+    jsr release_all
+    lda $10                     ; the game's $10/$11 (math temps)
+    pha
+    lda $11
+    pha
+    lda KANJI_PAGE_PTR
+    sta $10
+    lda KANJI_PAGE_PTR+1
+    sta $11
+    ldy #0
+    lda ($10),y
+    beq @clean
+    sta KANJI_M1
+@keep:
+    iny
+    lda ($10),y
+    and #$7F
+    pha
     lsr a
-    dex
-    bne @w
-    lda bank_switch_lock
-    beq @retry
-    lda #0
-    sta bank_switch_lock
+    lsr a
+    lsr a
+    tax
+    pla
+    and #7
+    sty KANJI_M2
+    tay
+    lda bitmask,y
+    ldy KANJI_M2
+    ora KANJI_A,x
+    sta KANJI_A,x
+    dec KANJI_M1
+    bne @keep
+@clean:
+    iny                         ; Y = nclean offset
+    bit KANJI_PAGES_LEFT
+    bvs @done                   ; pool: nothing on the band page to clean
+    lda ($10),y
+    beq @done
+    sta KANJI_M1
+@next:
+    iny
+    lda ($10),y
+    sty KANJI_M2
+    and #$7F
+    sta KANJI_TILES
+    pha
+    lsr a
+    lsr a
+    lsr a
+    tax
+    pla
+    and #7
+    tay
+    lda bitmask,y
+    and KANJI_STALE,x
+    beq @skip
+    pla                         ; give the game its $10/$11 back
+    sta $11
+    pla
+    sta $10
+    lda KANJI_M1
+    pha
+    lda KANJI_M2
+    pha
+    lda #REQ_RESTORE
+    jsr post_wait
+    pla
+    sta KANJI_M2
+    pla
+    sta KANJI_M1
+    lda $10                     ; the game's $10/$11 (math temps)
+    pha
+    lda $11
+    pha
+    lda KANJI_PAGE_PTR          ; reload: other tasks may have run
+    sta $10
+    lda KANJI_PAGE_PTR+1
+    sta $11
+@skip:
+    ldy KANJI_M2
+    dec KANJI_M1
+    bne @next
+@done:
+    pla                         ; give the game its $10/$11 back
+    sta $11
+    pla
+    sta $10
     rts
 
 ; ----------------------------------------------------------------------
 ; Extended dispatcher for $EC-$F7 (replaces the original $D28E path).
+; Every character except $F8 passes here, so the page-start work runs
+; before the first character of a new page is buffered.
 ; ----------------------------------------------------------------------
 text_dispatch:
-    cmp #$EF
-    bcc @low
+    bit KANJI_PAGES_LEFT        ; N = PAGE_FLAG (A, X, Y kept)
+    bpl @go
+    stx KANJI_BUFX
+    jsr page_start
+    ldx KANJI_BUFX
+    ldy text_col
+    lda ($51),y
+@go:
+    cmp #$EC
+    bcc @normal
     cmp #$F8
     bcs @normal
     sec
-    sbc #$EF
+    sbc #$EC
     tay
+    sty KANJI_CODE_HI
     inc text_col
     lda #>TEXT_RETURN
     pha
@@ -455,22 +545,110 @@ text_dispatch:
     asl a
     tay
     lda dispatch_table,y
-    sta KANJI_OVL0
+    sta KANJI_M0
     lda dispatch_table+1,y
-    sta KANJI_OVL1
-    jmp (KANJI_OVL0)
-@low:
-    cmp #$EC
-    bcs KANJI_EC
+    sta KANJI_M1
+    jmp (KANJI_M0)
 @normal:
     jmp TEXT_NORMAL_CHAR
 
 dispatch_table:
+    .dw KANJI_EC, KANJI_EC, KANJI_EE
     .dw $D334, $D30A, $D2FE, $D2F3, $D2ED, $D2E7, $D2E1, $D2DB, $D2CF
 
 ; ----------------------------------------------------------------------
-; One kanji escape: find the code in the current page record and write
-; the four tile numbers into the text buffers.
+; Three-byte kanji escape $EE hi lo (codes 512 and up): the high byte
+; follows the escape; then as KANJI_EC.
+; ----------------------------------------------------------------------
+KANJI_EE:
+    ldy text_col
+    lda ($51),y
+    inc text_col
+    cmp #$FC
+    bcs kanji_ctl
+    sta KANJI_CODE_HI
+    jmp KANJI_EC
+
+; ----------------------------------------------------------------------
+; Kanji-pick controls (revision 15; code high bytes are 0-15, so $FC-$FF
+; are free):
+;   $EE $FF id lenA   the bank-13 name helpers $A1D0/$A1D4 as text: if
+;                     the talked-to actor ($0580,[$72]) is officer id, the
+;                     lenA bytes that follow are shown (they end with the
+;                     skip below), else the variant after them
+;   $EE $FD lenA      troop pick (revision 19): the tail of $D549 as
+;                     text.  The message calls the name helper $D49A,
+;                     then this: if the target unit ($60A8,[$4B]) is 8 or
+;                     up, the lenA bytes that follow are shown (they end
+;                     with the skip below), else they are skipped
+;   $EE $FE n         skip n bytes
+;   $EE $FC n         back n cells (revision 19): follows a call whose
+;                     fixed kana tail ($D565: のけい) has a kanji form of
+;                     the same width; the kanji after it overwrite the
+;                     tail's last n cells
+; Both variants are plain kanji escapes, drawn by the normal path; this
+; draws nothing.  $F1 and $AA are set as the original helper sets them.
+; ----------------------------------------------------------------------
+kanji_ctl:
+    iny                         ; Y = first operand
+    sta KANJI_M0                ; control byte
+    pla
+    tax                         ; buffer position (pushed by text_dispatch)
+    lda KANJI_M0
+    cmp #$FE
+    beq @skip
+    bcc @low                    ; $FC, $FD
+    stx KANJI_BUFX
+    lda ($51),y                 ; officer id
+    sta $F1
+    iny                         ; Y = lenA
+    ldx $72
+    lda $0580,x
+    ldx #0
+    stx $AA
+    cmp $F1
+    beq @take_a
+    lda ($51),y                 ; skip variant A
+    jmp @advance
+@low:
+    lsr a                       ; C = 1: $FD troop, C = 0: $FC back
+    bcc @back
+    stx KANJI_BUFX
+    ldx $4B                     ; as $D549: ldy $4B / lda $60A8,y / cmp #8
+    lda $60A8,x
+    cmp #8
+    bcs @take_a
+    lda ($51),y                 ; skip variant A
+    jmp @advance
+@take_a:
+    lda #0
+@advance:
+    sty KANJI_M0
+    sec
+    adc KANJI_M0                ; text_col = Y + 1 + A
+    sta text_col
+    ldx KANJI_BUFX
+    rts
+@skip:
+    lda ($51),y                 ; n
+    sty KANJI_M0
+    sec
+    adc KANJI_M0
+    sta text_col
+    rts
+@back:
+    txa
+    sec
+    sbc ($51),y                 ; X - n
+    tax
+    iny
+    sty text_col
+    rts
+
+; ----------------------------------------------------------------------
+; One kanji escape: find the code in the current page record, have the
+; glyph uploaded once per page, and write the four tiles into the text
+; buffers.
 ; ----------------------------------------------------------------------
 KANJI_EC:
     pla
@@ -480,9 +658,29 @@ KANJI_EC:
     lda ($51),y
     inc text_col
     sta KANJI_CODE_LO
+    lda $10                     ; the game's $10/$11 (math temps)
+    pha
+    lda $11
+    pha
     jsr page_find
-    bcs @blank
+    bcs @blank_r
 
+    bit KANJI_PAGES_LEFT
+    bvc @record
+    lda KANJI_M2                ; pool: entry k -> tiles $A4+4k..+3
+    asl a
+    asl a                       ; C clear (entries < 64)
+    adc #POOL_FIRST
+    ldx #0
+@pool4:
+    sta KANJI_TILES,x
+    clc
+    adc #1
+    inx
+    cpx #4
+    bne @pool4
+    beq @tiles_done
+@record:
     iny
     iny
     ldx #0
@@ -493,7 +691,32 @@ KANJI_EC:
     inx
     cpx #4
     bne @copy_tiles
+@tiles_done:
+    pla                         ; give the game its $10/$11 back
+    sta $11
+    pla
+    sta $10
 
+    lda KANJI_M2                ; entry index
+    and #7
+    tax
+    lda bitmask,x
+    sta KANJI_M0
+    lda KANJI_M2
+    lsr a
+    lsr a
+    lsr a
+    tax
+    lda KANJI_M0
+    and KANJI_UPLOADED,x
+    bne @write_tiles
+    lda KANJI_M0
+    ora KANJI_UPLOADED,x
+    sta KANJI_UPLOADED,x
+    lda #REQ_UPLOAD
+    jsr post_wait
+
+@write_tiles:
     ldx KANJI_BUFX
     lda KANJI_TILES
     sta $0300,x
@@ -507,7 +730,12 @@ KANJI_EC:
     inx
     rts
 
-@blank:
+@blank_r:
+    pla                         ; give the game its $10/$11 back
+    sta $11
+    pla
+    sta $10
+    ldx KANJI_BUFX
     lda #$0A
     sta $0300,x
     sta $0318,x
@@ -518,21 +746,22 @@ KANJI_EC:
     rts
 
 ; ----------------------------------------------------------------------
-; Search the current page record for KANJI_CODE_LO/HI.
-; Carry set when absent; otherwise Y = entry offset and KANJI_ENTRY = index.
+; Search the current page record for KANJI_CODE_LO/HI.  Carry set when
+; absent; otherwise Y = entry offset (code_lo), KANJI_M2 = entry index,
+; $10/$11 = page record.
 ; ----------------------------------------------------------------------
 page_find:
     lda KANJI_PAGE_PTR
     sta $10
     lda KANJI_PAGE_PTR+1
     sta $11
-    ldy #0
+    jsr entries_offset
     lda ($10),y
-    sta KANJI_OVL0
+    sta KANJI_M1
     beq @notfound
     lda #0
-    sta KANJI_ENTRY
-    ldy #1
+    sta KANJI_M2
+    iny
 @loop:
     lda ($10),y
     cmp KANJI_CODE_LO
@@ -547,8 +776,8 @@ page_find:
     clc
     adc #6
     tay
-    inc KANJI_ENTRY
-    dec KANJI_OVL0
+    inc KANJI_M2
+    dec KANJI_M1
     bne @loop
 @notfound:
     sec
@@ -559,62 +788,73 @@ page_find:
     rts
 
 ; ----------------------------------------------------------------------
-; Control store (replaces STA $0300,X).  $FC advances to the next page.
+; Control store (replaces STA $0300,X at $D2C7).  $FC advances to the next
+; page record.
 ; ----------------------------------------------------------------------
 ctrl_store:
     sta $0300,x
     cmp #$FC
     bne @done
     lda KANJI_PAGES_LEFT
+    and #<~(PAGE_FLAG|PAGE_POOL)
     cmp #2
     bcc @no_next
-    dec KANJI_PAGES_LEFT
-
+    lda KANJI_PAGES_LEFT
+    sbc #1                      ; C set: pages left - 1, bits 6-7 kept
+    sta KANJI_PAGES_LEFT
+    txa
+    pha
+    lda $10                     ; the game's $10/$11 (math temps)
+    pha
+    lda $11
+    pha
     lda KANJI_PAGE_PTR
     sta $10
     lda KANJI_PAGE_PTR+1
     sta $11
-    ldy #0
+    jsr entries_offset
+    sty KANJI_M2
     lda ($10),y
     asl a
-    sta KANJI_OVL0
+    sta KANJI_M1
     asl a
     clc
-    adc KANJI_OVL0
-    clc
-    adc #1
+    adc KANJI_M1                ; 6 * entries
+    sec
+    adc KANJI_M2                ; + entries offset + 1
     clc
     adc KANJI_PAGE_PTR
     sta KANJI_PAGE_PTR
     lda KANJI_PAGE_PTR+1
     adc #0
     sta KANJI_PAGE_PTR+1
-    rts
-@no_next:
-    lda #0
+    pla                         ; give the game its $10/$11 back
+    sta $11
+    pla
+    sta $10
+    pla
+    tax
+    lda KANJI_PAGES_LEFT
+    ora #PAGE_FLAG
     sta KANJI_PAGES_LEFT
+    jmp @clear
+@no_next:
+    lda KANJI_PAGES_LEFT        ; count 0, the pending and pool flags as they were
+    and #PAGE_FLAG|PAGE_POOL
+    sta KANJI_PAGES_LEFT
+    lda #<empty_record
+    sta KANJI_PAGE_PTR
+    lda #>empty_record
+    sta KANJI_PAGE_PTR+1
+@clear:
+    lda #0
+    sta KANJI_UPLOADED
+    sta KANJI_UPLOADED+1
 @done:
     rts
 
-; ----------------------------------------------------------------------
-; Text-engine exits: the message stream is closed but the window stays
-; on screen, so the band and the kanji set survive until the screen is
-; redrawn.
-; ----------------------------------------------------------------------
-exit_clear:
-    lda #0
-    sta KANJI_MSG_OPEN
-    jmp SET_BANK_CURRENT
-
-jump_exit_13:
-    lda #0
-    sta KANJI_MSG_OPEN
-    jmp SET_BANK_13
-
-jump_exit_14:
-    lda #0
-    sta KANJI_MSG_OPEN
-    jmp SET_BANK_14
+empty_record:
+    .db 0, 0, 0
 
 bitmask:
     .db $80, $40, $20, $10, $08, $04, $02, $01

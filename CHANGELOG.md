@@ -1,5 +1,525 @@
 # Changelog
 
+## 2026-11-09 — revision 19: kana tails printed by game code
+
+Play-test report: after our attack the battle result read
+「テイエンシのへいを　2人倒した」; the enemy's attack read 「…の兵が…」.
+
+- **Cause**: `b10_msg_055` prints the target through the game routine
+  `$D549`, which draws the name (`$D49A`) and then writes the tiles の/へ/い
+  itself (`lda #imm / jsr text_put_tile`) when the target unit
+  (`$60A8,[$4B]`) is 8 or up.  Those tiles are code, not message text, so
+  the compiler never saw them.  A scan of all 16 original banks for
+  `lda #imm` followed by `text_put_tile` finds one other such tail:
+  `$D565` (strategy name, then の/け/い unconditionally; three messages:
+  覚えた, 使った, 解き放った).  The battle menu draws strategy names
+  through `$D567` from its own code; menus stay kana.
+- **Troop pick** (`$EE $FD lenA`, `kanji_ctl`): the compiler writes
+  `<CALL:D549>` as `<CALL:D49A>` (the name alone) and a pick on the same
+  test, variant A 「の兵」, variant B empty (`KANJI_TROOP_CALLS`).
+- **Back over a tail** (`$EE $FC n`): the compiler writes `<CALL:D565>` as
+  the call, then `$EE $FC 2` (the buffer position goes back two cells,
+  over けい) and 計 (`KANJI_SUFFIX_CALLS`).  の計 is as wide as のけい.
+- The inventory counts only the kanji of a pick's text (`KANJI_RE`), so
+  の stays kana.  兵 and 計 count once more, which reorders the kanji codes;
+  `kanji_layout.py` gives the troop call its real width and leaves the
+  generated text unchanged.
+- Checked in battle: the boss battle shows 「テイエンシの兵を　2人倒した」,
+  the normal battle 「ヘイシを　9人倒した」 (unit below 8, as the original).
+  The strategy messages, opened in place of the result message with
+  `$4D` set: 「ごうかの計を使った」, 「はげきじゅうの計を覚えた」,
+  「じょうないの計を使った」 (no party in the saved states has a strategist).
+- Gates unchanged from revision 18; `zp_check` counts 1,000 checks
+  (revision 18: 1,043): the first town's RNG drifts from frame ~5,700 with
+  the reordered kanji codes, so other townspeople speak by frame 9,000.
+
+## 2026-11-09 — revision 18: battle kanji in the scene page's free tiles
+
+Play-test proposal: in battle, tiles `$A4-$DF` of the background page are
+blank and never shown, so the kanji can go straight into the page the PPU
+shows, with no band, no sprite 0 and no NMI wait.
+
+- **Facts measured first** (three battles: the play-test state, and new
+  states just before a normal and a boss battle, `out/user/r17/`): tiles
+  `$A4-$DF` are never shown and never written by the game after the battle
+  set is loaded; the only CHR the battle writes is the portrait tiles
+  `$80-$A3`.  The battle loads graphics set 8 (`text_graphics_index`) in
+  `battle_intro_screen` and the area's own set when it ends.  The pool
+  tiles are cleared at battle entry by the screen dissolve (`$9942`, direct
+  `$2007` writes, not the block writer).  The history-select screen also
+  loads set 8 but keeps graphics in those tiles.
+- **Pool**: when set 8 is loaded the hack reads the 60 tiles back (posted
+  by `pal_copy`; at battle entry rendering is still off, so it finishes in
+  one NMI; otherwise 4 tiles per light frame, 533 cycles at most).  All
+  blank: the pool is armed (`KANJI_WIN_COL` bit 6; bit 7 = checked since
+  the last set load, so a failed check is not repeated).  Any game write
+  into the tiles (block writer, queue, CHR animation) disarms it.  A
+  message printed while set 8 is loaded and the pool is armed, with no
+  page over 15 kanji, is a pool message (`KANJI_PAGES_LEFT` bit 6): entry
+  k of a page uses tiles `$A4+4k..+3`, uploaded to the scene page (plane 0;
+  plane 1 stays blank), and the band, sprite 0 and the NMI wait stay off.
+  Pages start on a cleared window (`FRESH_PAGES`), so slots are reused only
+  after a clear.  Other messages, and a page over 15 kanji, use the band.
+- **Engine**: `text_render_cell` treated every row-buffer byte with bit 7
+  set as the line's end code (its font is all below `$80`), so the first
+  pool kanji ended the line and the rest printed on the next line.  Its
+  `jmp loc_DC7C` (`$DBED`) now goes to `render_ctl` (`$F02B`, the dead tail
+  of the rewritten reset code; no code in banks 0-15 references
+  `$F02B-$F039`), which draws `$A4-$DF` as tiles and sends every other
+  byte down the original path.  The engine's line scroll still blanks such
+  bytes; kanji messages clear the window instead of scrolling.
+- **Stack at battle entry** (found by the taint gate, older than this
+  revision): the block copy to the band page ran `restore_tile` ->
+  `set_page` -> `wr_reg1_main` under the game's bank-switch lock, and an NMI
+  in that window takes the game's lock path (`mmc1_reset`) on top: minimum
+  SP `$09` (revision 17: `$0B`; game scratch starts at `$010A`; the
+  original reaches `$1C` there).  The block writer now uses
+  `restore_tile_main` with the CHR-register writes inline (only its return
+  address on the stack in the lock window), and `wr_reg1_main` writes the
+  register inline: minimum SP `$0D` in both battle entries.
+- Gates: `garble_check.lua`/`garble_state.lua` check pool kanji
+  (`pool_not_uploaded`, `pool_on_band`, `pool_glyph_changed`, and
+  `pool_outside` for a pool tile the game itself shows while the pool is
+  armed).  `vblank_deadline.lua` tags `poolchk`.  `taint_check.lua` counts
+  the rewritten `load_text_graphics` (`$C5A6-$C5E1`, the original routine's
+  writes to `$3D`/`$A5`) as game code and drops the restored `$E6B3-$E6C3`.
+- Battle results: 0 garbled frames in all three battles, window closes and
+  shake steps included (revision 17: 15 frames in 7 closes); 0 accesses after
+  the pre-render line; taint 0 / 0.
+
+## 2026-11-09 — revision 17: sprite 0 follows the frame it is drawn in
+
+Play-test follow-up to revision 16c (one garbled frame per screen-shake
+step while 「…の攻撃」 is shown; the frame when a battle window closes).
+
+- **Cause (shake)**: sprite 0, the band's line sensor, goes to the PPU with
+  the OAM DMA at the start of each NMI, but its position was computed in
+  the previous NMI from that frame's scroll.  The battle shake moves the
+  screen 3 px vertically (`scroll_y` 0 <-> 237) from the main thread
+  between the two NMIs, so on every step sprite 0 sat 3 lines off the
+  border line, the hit never came and the window's kanji showed page 1
+  (8 frames on the play-test battle).  Horizontal steps never missed (the
+  border line is 19 tiles wide).
+- **Fix**: the rule is now that sprite 0 must match the frame being drawn.
+  `KANJI_SPRITE_DIRTY` became `KANJI_SPR0`: the vertical scroll sprite 0
+  was placed for (0-239), `SPR0_STALE` ($FE, set by the overlay when it
+  moves the window) or `SPR0_DIRTY` ($FF, page-0 tile `$FF` overwritten, as
+  before).  In every light frame with the band on, `light_unit` compares
+  `scroll_y` with it; on a difference `spr0_fix` places sprite 0 again
+  (`spr0_place`, the old hook tail, now in the second code segment) and
+  writes the four bytes to `OAMDATA` in the same vblank.  The game's NMI
+  sets `OAMADDR` to 0 before its DMA and nothing touches OAM after it, so
+  the writes land on sprite 0.  That frame uploads one glyph tile instead
+  of two.  Light uploads write CHR register 1 directly
+  (`upload_unit_nmi`: `KANJI_MAINCHR` is never set in a live NMI), which
+  pays for the check: the costliest unit (double upload) is 8 cycles
+  shorter than in 16c.
+- Battle (`out/user/r16c` state, 2,450 frames, new gate
+  `tools/lua/band_timing.lua`): 0 sprite-0 misses (16c: 8),
+  15 corrections (shake steps and window moves), each ending by scanline
+  252.2.
+- **Gates**: `garble_check.lua` and `garble_state.lua` also flag
+  `kanji_left`: a cell that showed a kanji still shows it on page 1 after
+  the window's corner is gone.  Until now a window erased from the top was
+  invisible to them (they find the window by its corner), which hid the
+  battle-close frames below.  `vblank_deadline.lua` counts `OAMDATA` writes
+  as PPU accesses, tags `spr0fix` units, buckets CHR-animation NMIs
+  (`anim`, no units) apart from idle-queue ones, and can run from a save
+  state (`DL_STATE`, `DL_PATH`, `DL_FRAMES`, `DL_OUT`).  In the battle the
+  only NMIs entered after the pre-render line are CHR-animation steps
+  (up to scanline 263.3), which run no unit.
+- **Not fixed (known)**: every battle message close garbles 1-3 frames
+  (7 closes, 15 frames on the play-test battle; revision 16c reported
+  only the last 「…が現れた」).  The game erases the window two rows per
+  frame from the top; once the border row is gone the remaining kanji
+  rows are drawn from page 1.  Sprite 0 cannot follow there: the erase is
+  flushed in a vblank that ends at scanline 260, too late to move it.
+  Map windows do not close this way (standard path: 0).
+
+## 2026-11-09 — revision 16c: every hit kills (battle damage table)
+
+Play-test report: every hit to an enemy is a one-hit kill.  Save state
+(`out/user/r16c/rom_kanji_1.mss`, battle start) reproduces it: every attack,
+ours and the enemies', removed the target's whole troop count.
+
+- **Cause**: the damage formula (bank 14 `$983F`/`$9844`) multiplies by a
+  per-unit-type factor read from two fixed-bank tables, low bytes at
+  `$E6A9,y` and high bytes at `$E6BD,y` (20 entries each).  The kanji build
+  had put `chr1_scene` (17 bytes of hook code) at `$E6B3-$E6C3`, taken for
+  "zero padding, never read" by a runtime read survey of the history
+  prompts (`tools/fixed_survey.py`), which never runs a battle.  Those
+  zeros are the tail of the low table and the head of the high table, so
+  the factors became `$EB0C`, `$4C54`, ... instead of `$000C`, `$0054`:
+  damage 6,214 instead of 10.  PLAN rule 8 warned that read coverage is no
+  proof; the bank-14 code that reads the tables is undecoded data in the
+  decomp, so the audit missed the indexed reads.
+- **Fix**: `$E6B3-$E6C3` is the original again (both copies, banks 15 and
+  31; the lint now checks it).  `chr1_scene` moved into the `$C5A6` hook
+  region, made room by moving load_text_graphics' table copy into the hack
+  bank (`pal_copy` at `$8009`, jumped to and back so the text task's
+  stack is no deeper; the same `$F3/$F4`, `$03E0` and Y effects).  A static scan of banks 12-15 for jumps and indexed reads into
+  every other reused fixed-bank range found no real reference.
+- Damage after the fix (same state, first round): 26, 22, 4, 9, 3, 7
+  soldiers (the original ROM on this state: 10, 6, 10, ...).
+- **Also fixed: `$0100/$0101`**.  The overlay's scratch `KANJI_M0/M1`
+  (and its dispatcher's jump vector, written for every kanji and control
+  code) lived at `$0100/$0101`, which bank-14 item code uses: when the
+  inventory is full and a chest item is given up, it stores a flag and the
+  chest index there (`$81A7`, `$81DF`), prints 「…は…を諦めた。」 and then
+  clears that chest's opened flag (`$80CB-$80D5`).  The scratch now lives in
+  `$0132/$0133` (the text address, consumed at message entry); the
+  page-start flag moved to bit 7 of `KANJI_PAGES_LEFT`.  `ram_gate.lua`
+  flags any hack write to `$0100/$0101`.
+- **Gate**: `tools/lua/taint_check.lua` runs from a save state with a
+  scripted input path and reports game reads of RAM (`$0000-$07FF`,
+  `$6000-$7FFF`) that the hack changed since the game last wrote it, game
+  writes to the hack state, and the minimum stack pointer.  Battle round:
+  0 / 0, min SP `$14`.
+- **Not fixed (known)**: one garbled frame when the last 「…が現れた」 leaves
+  at a battle start, and one frame per screen-shake step while 「…の攻撃」 is
+  shown.  Both are frames without a sprite-0 hit while the window's kanji
+  are still on screen: the battle erases the window from the top (the
+  corner goes one flush before the text row, in an NMI that ends past the
+  pre-render line), and the hit shake moves the scroll after sprite 0 was
+  placed.  Showing the band page for the whole frame was tried and dropped:
+  the battle tile set keeps the officer names in bitplane 1 of the same
+  lower tiles that carry the kana in bitplane 0, so any kanji slot is a
+  piece of a name above the window (7 frames of garbled names instead).
+
+## 2026-11-09 — revision 16b: kanji garbled during screen fades
+
+Play-test report: saving at the record office (この度の戦の成果を 歴史書に記録しても
+宜しいでしょうか？ → はい), the kanji were garbled while the screen faded to
+black and back.  Also reported: one garbled frame when 「…が現れた」 leaves
+the screen at the start of a battle (not reproduced yet; see below).
+
+- **Cause**: the palette fades (`$C51A` fade-in, `$C522` fade-out) call
+  `clear_oam_shadow` (`$C44E`) and `update_oam` on every step.  The clear
+  hides all 64 sprites, including slot 0, which carries the band's sprite-0
+  marker; the game's own sprites start at slot 1 (`update_oam`), so only
+  the marker was lost.  Without the sprite-0 hit the NMI epilogue never
+  switched to the band page, and the window's kanji showed the scene
+  page's kana tiles for the whole fade (20 frames each way here).
+- **Fix**: `clear_oam_shadow` starts at slot 1 (`ldx #$04` at `$C44F`, a
+  registered fixed-bank patch site).  The NMI already owns slot 0: every
+  normal frame it writes the band marker or hides it, and split frames
+  hide it.
+- **Test**: from the play-test state (`out/user/r16b/rom_kanji_1.mss`),
+  the save conversation and its fade: 40 garbled frames before, 0 after
+  (`tools/lua/garble_state.lua`).
+- The battle intro fades in with the same loop before printing 「…が現れた」.
+  The reported single frame at the message's end has not been reproduced
+  (no field state yet).
+
+## 2026-11-09 — revision 16: partner-shop menu garbled under kanji messages
+
+Play-test report (save state at the 徐州城 partner shop): the menu
+のうりょく / くわえる / はずす / かいこ showed とうりょく / くわえる / はFF / †いこ.
+
+- **Cause**: kanji borrow kana tiles on the band page (CHR page 2), which
+  covers the text window and everything below its top border.  The
+  compiler kept a message's kanji off menu kana only for messages ending in
+  `?`, `<WAIT>` or `<END_NOWAIT>`.  「<NAME_F6>様、ご用件をお申し付けください」
+  (b10_msg_086) ends in `<JUMP:92BE>`, whose bank-14 code opens the menu
+  ($1F) beside the window, so 様用件申付 sat on か, す, の.  The replies
+  that the menu code prints while the menu stays up (誰も登録されていませんよ,
+  …殿は隊列から外せないようですが, …) did the same with their own kanji.
+- **Menu context** (`tools/kanji_text.py`): the original banks 13-15 are
+  scanned for `jsr text_print_inline` + message index (279 sites; most
+  menu code is undecoded data in the decomp) and for menu opens (`ldx
+  #menu` + `jsr` text_init/its wait variants, `jsr $C99F` yes/no).
+  - Printed by bank-14/15 code: the fixed kana of every menu opened in the
+    $300 bytes before the call and since the menu routine's JUMP entry.
+  - A JUMP into bank 14 or the fixed bank: the menu the target opens first.
+  - No menu found: the union of all submenus.
+  - Bank-13 event code: はい/いいえ and きろく/よぶ only.
+  - `?`/`<WAIT>`/`<END_NOWAIT>` prompts reserve the submenu union without
+    the name-entry kana grid (menu $26, only on the history screen).
+  The build fails if any kanji lands on its own message's menu kana
+  (report `menu_context_conflicts`).
+- **Tile order**: kanji take the least exposed free tiles first: tiles no
+  menu or name uses, then name-entry-grid kana, then submenu kana, then
+  officer/item-name kana (lists drawn by menu code).  Previously tiles were
+  taken in ascending order, i.e. the common hiragana first.
+- The menu cursor ▶ (`$70`, a background tile) is reserved like ▼.
+- `PAGE_TILE_MARGIN` 4 → 0 (a leftover slack; the runtime needs no spare
+  tile).  Forced page splits for tile space: 29 → 11.
+- **Top-of-screen flicker** found while testing: after a large VRAM flush
+  (a window drawn or cleared) the NMI put the scene page back only after
+  its queue scan, at scanline 19-33 of the next frame, so the top lines
+  showed band-page tiles for 2 frames (コマンド's ド here; the same happened
+  before with other kana).  The no-unit and CHR-animation paths now select
+  page 1 before the scan when the flush is large (at scanline 260 here;
+  1 when the game's own NMI already runs to scanline 0), and `nt_rescan`
+  no longer repeats the nametable checks that `queue_scan` already ran
+  (about 1,900 cycles on such frames).  Small flushes keep the replay
+  timing (scroll restore max scanline 260.328).
+- **Test**: `tools/lua/garble_state.lua` runs the visible-garble detector
+  from a save state with a scripted input path (`SHOP_STATE`, `SHOP_PATH`,
+  `SHOP_OUT`).  From the reported state (`out/user/shop_k/`): greeting,
+  cancel, のうりょく, くわえる, はずす (劉備, 関羽), かいこ: 0 garbled frames after
+  the first 45 (the state's own CHR, saved on the old build).
+
+## 2026-11-09 — revision 15b: inns refuse to let you stay
+
+Play-test report: at the 徐州城 inn, with 200 gold from 張世平, the innkeeper
+said 金が足りないようでは お泊めすることはできません.
+
+- **Cause**: the inn's price helper (`<CALL:91B5>`, bank 14) multiplies the
+  town's base price by the party size into the math temps `$10-$12`; after
+  the message, the Yes handler (`<JUMP:9159>`, `jsr $FA3E`) compares the
+  gold with `$10-$12`.  The original text engine never touches `$10/$11`
+  while a message prints.  The kanji overlay used `$10/$11` as its
+  page-record pointer (page_find, page_start, clean_kana, ctrl_store,
+  message_setup), so any kanji after the price (泊 in お泊まりになりますか,
+  since revision 14) turned the price into an address ($9xxx-$Axxx, about
+  40,000 gold).  Any script that keeps a value in `$10/$11` across a
+  message (shops, other prices) was exposed the same way.
+- **Fix**: every overlay use of `$10/$11` saves the game's bytes on the
+  stack and puts them back before control returns to the engine and
+  before every frame wait (so no wait runs deeper on the text task's
+  stack).
+- **Gate**: `tools/lua/zp_check.lua` snapshots `$10/$11` at every entry
+  from the engine into the overlay and after every frame wait, and
+  compares at every exit: 0 changes in 932 checks; the previous overlay
+  fails it (47 changes in 1,141 checks).  `tools/lua_addrs.py` now also
+  reads the overlay and fixed-bank listings.
+- Play test also reports the one-frame line artifact right after file
+  selection (before the three heroes appear) is gone since revision 15.
+
+## 2026-11-08 — revision 15: iteration mark 々, text fixes, NMI/bank-switch overhead
+
+Play-test request: add the 々 glyph and use it in the text.
+
+- **Glyph**: 々 (U+3005) is treated as a 16x16 glyph like any kanji
+  (`KANJI_RE` in `kanji_common.py`/`kanji_text.py`, width in
+  `kanji_layout.py` and `reconv_check.py`).  The compiler no longer
+  expands 々 into a repeat of the previous kanji.  JF-Dot-Shinonome16 has
+  the glyph, so no fallback font is involved.
+- **Text** (`decomp/text/kanji_r14/`): every place adult text uses 々
+  was changed: われわれ → 我々 (b10_msg_208, b11_msg_202, b11_msg_329),
+  かずかず → 数々 (b11_msg_102), 日日 → 日々 (b11_msg_324), そうそうに →
+  早々に (b11_msg_077), もともと → 元々 (b11_msg_189), ますます → 益々
+  (b10_msg_433, 老いて益々盛ん).  Kept in kana as newspapers do: なかなか,
+  まだまだ, くれぐれも, みすみす and onomatopoeia.  All replacements keep
+  the cell width, so line breaks and waits are unchanged.
+- **Checker**: 々 is allowed; the same kanji twice in one phrase is an
+  error (write 々).  `STYLE.md` documents the rule.
+- 830 glyphs (々 at code $00E5).
+- **Text fixes** (play test): いくばくかの → 幾ばくかの (b10_msg_130).  ソウジン/ソウユウ
+  (b10_msg_141) are printed by the bank-13 helpers $A1D0/$A1D4, which pick
+  officer $0A or $0B from the runtime name table so the talked-to brother
+  names himself first.  The compiler now emits a kanji pick for those two
+  CALLs (`KANJI_CALLS` in `kanji_common.py`): `$EE $FF id lenA`, 宋仁,
+  `$EE $FE lenB`, 宋勇; the overlay's `kanji_ctl` makes the helper's test
+  (`$0580,[$72]` = id) and skips to one variant, drawn by the normal kanji
+  path.  Checked on screen with a test build: $0A → 私は宋仁 隣が宋勇,
+  $0B → 私は宋勇 隣が宋仁.
+- **Lag with many moving characters** (play test: slowdown with 5+
+  characters walking, also with no message).  Measured in the first town
+  (`out/test/r15/lag_probe.lua`): the hack added ~1,350 NMI cycles per
+  frame and ~40 cycles per bank switch (NPC-update frames make ~40), so
+  the tightest frames lost all of their idle time.  Fixes:
+  - `surom_write_prg_bank` writes the outer-half register only when the
+    half changes, read from the hardware: `$BFFF` has bit 7 set in every
+    game bank and clear in banks 16-30 (`bank15_lint.py` checks it);
+    `set_bank_lock` calls it directly.  A game-bank switch now costs ~7
+    cycles more than the original instead of ~40.
+  - `ef08_gate` / `ef31_gate`: with no band, no request, no VRAM queue
+    traffic and no CHR-animation step the NMI skips the hack bank (82%
+    of walking frames); the epilogue runs only while a band is shown or
+    in split mode.
+  - Dormant mode: with no band and no request the NMI only records stale
+    band-page tiles (no restore, no pick, no page rewrite); a message
+    start syncs them first (`REQ_SYNC`, before the previous kanji are
+    released, so it restores what the continuous restore used to).
+  - `queue_scan` drops the band in the frame the game's VRAM queue
+    overwrites the window's top-left corner (`nt_check`), instead of
+    waiting for the probe; the epilogue's sprite-0 wait no longer runs
+    on after a window closes.
+    It runs only after the scroll restore (`nt_rescan` for the no-unit
+    path, whose scan may replay a CHR entry before the deadline); a first
+    version that checked inside that scan pushed 39 scroll restores past
+    the pre-render line and garbled ~38 frames per run (caught by
+    `vblank_deadline.lua` and `garble_run.py`).
+  - Hack banks gain a second code segment at $B900-$BEFF (after the glyph
+    tables), identical in every hack bank.
+  Result (no message shown): NMI ~3,370 cycles/frame vs the original's
+  ~3,110 (was ~4,450); idle time per frame within a few percent of the
+  original in every load class.  While a message is shown the band's
+  sprite-0 wait still takes ~15,000-19,000 cycles per frame (the split
+  needs the CPU at the window border; MMC1 has no IRQ).
+
+## 2026-11-08 — revision 14: adult kanji re-conversion, rule-based layout, page flips
+
+Play-test request: the DeepSeek conversion was too childish and had awkward
+waits; re-convert with Opus subagents for adult readers, wrap by program
+(18 cells, indent-aware), use spaces only for 、, move DotGothic16 glyphs
+down one pixel and list the fallback glyphs.
+
+- **Re-conversion** (`out/reconv/`): `tools/reconv_prep.py` exports the
+  original kana with dictionary words, places, items and fixed officer
+  names expanded (so ゲントク becomes 玄徳; only runtime names `<NAME_F3>`..
+  `<NAME_F7>` stay kana).  One Opus agent wrote the proper-noun glossary
+  (`decomp/text/kanji_r14/glossary.tsv`, 293 entries, sourced; e.g. トウケン = 陶謙, not 鄧賢);
+  eight Opus agents converted 765 messages following `STYLE.md`, each
+  checked by `tools/reconv_check.py` (tokens, font charset, no spaces,
+  waits at sentence ends, phrase marks).
+- **Layout by program** (`tools/kanji_layout.py` → `bank1X_messages_kanji_r14.dtx`):
+  wraps at the agents' phrase marks, 18 cells, 17 after an indenting
+  break (dialogue uses <NL> so lines align after 「); 、 and a mid-line 。
+  become one space; waits stay at sentence ends, and one is added only
+  when more than three lines would pass (61 of 444 waits fall inside a
+  sentence, at a clause where possible).  Records that fell through into
+  the next record in the original are joined (8).  Line widths checked
+  again by the compiler (0 issues).
+- **Page flip** (`page_flip` at `$D1C8`, fixed bank): after a kanji page's
+  wait the window is cleared and the next page starts on the top line,
+  in about one scroll's time; continued windows use the same clear.  A
+  page therefore never shares CHR tiles with the previous page: forced
+  page splits for tile shortage fell from 281 to 29, relaxed messages
+  from 8 to 0.
+- **Capacity**: kanji codes are `bank*512 + local`; 2-byte escapes for codes
+  below 512, 3-byte `$EE hi lo` above.  Glyph banks grow from 23 (up to
+  30, 2,872 glyphs); text banks grow from 18-22 into 30, 29, ...  This
+  text: 828 glyphs (banks 23-25), text in banks 18-22, 29, 30.
+- **Font**: DotGothic16 glyphs move down one pixel; every fallback glyph is
+  listed in `assets/fonts/kanji_fallback.tsv` (preview
+  `assets/fonts/kanji_fallback_preview.png`): DotGothic16 汜 釭; MS Gothic
+  鄱 龐 涪 雒 詡 瓚 邢.
+- **Palette gate** made timing-independent (`tools/palette_check.py`,
+  `tools/lua/palette_loads.lua`): every palette load must equal what the
+  original routine makes from the original tables (8 loads, 0 wrong; the
+  revision-12 build fails 3 of 10).
+- Kanji ROM `30918659c14d6cdf07a35cfb5dc506c77e2ddf0b38499c93c6b453d3a3f1d8d2`; original byte-identical; all gates pass.
+
+## 2026-11-08 — revision 13: town palettes restored (fixed-bank gap was live data)
+
+Play-test report on revision 12: outside the first town the grass and trees
+turned white ("like snow").  Root cause, present since the hook gap was
+first used: `$C611-$C676`, the largest fixed-bank "gap", is the game's
+palette table for areas 1-6 (`data_C5EF`, read only by `load_text_graphics`
+through the pointer tables `data_C6B2`/`data_C6C2`).  The gap audit was
+read-coverage on the scripted path, which never loaded those palettes.  With
+hook code there, `load_text_graphics` read a byte >= $80 first, stopped, and
+the area kept the default palette (first town room: brown/green instead of
+yellow/blue; town exterior: grey/white instead of green).
+
+- The three palette tables (227 bytes) moved to hack banks 23/24 at `$BF00`
+  (pointers relocated by `kanji_build.py`); `load_text_graphics` is
+  rewritten in place at `$C5A6` to map bank 23 around the copy (game lock
+  protocol, X/Y and outputs as the original).  The routine-plus-table range
+  `$C5A6-$C6D1` is now the hook gap; the build checks its original bytes by
+  hash.
+- Other borrowed regions re-audited against every code reference in the
+  decomp sources (not read coverage): `$C4BA-$C4CA`, `$D291-$D2B6`,
+  `$E6B3-$E6C3`, `$FFE0-$FFEF`, `$F00C-$F039` have no references; the only
+  indexed table around `$E6B3` (`data_E668`) is indexed by `game_mode*2`.
+- New gate `tools/palette_check.py`: the order of every stable palette the
+  game loads on the standard path plus a walk out of the first town's
+  building must equal the original's (37 states).  It fails on the
+  revision-12 build at the first town room.
+- Test harness: `mesen_run.py` and `garble_run.py` delete the test name's
+  battery save before each run (a reused name loaded the previous run's game
+  and changed the scripted path); the user's own save names are refused.
+- Kanji ROM `76dbd865163e122d02be296c2af972b9d9f144042565fbd8f9216befab478e41`; original byte-identical; all revision-12 gates re-run
+  and passing.
+
+## 2026-11-08 — revision 12: band goes live before any kanji is shown; vblank budget re-measured
+
+Play-test report on revision 11: the "どの歴史書…" prompt is garbled, and the
+oath is garbled until its first line has printed.  Reproduced, root-caused
+and fixed; two further timing defects found by the new gates and fixed.
+
+- **Garbled prompt/oath (reported).**  The text engine queues 4-8 VRAM bytes
+  almost every frame while it prints or a cursor blinks, and the NMI only
+  allowed glyph uploads in such frames, never the sprite-0 tile.  After a
+  scene load (sprite tile invalidated) the band could not switch on until
+  the queue went idle, typically at the end of the first line, so the
+  window showed the scene page with kana in the kanji slots.  Measured on
+  the old build: 16-460 garbled frames per run depending on input timing.
+  Now every light frame (no CHR animation, <= 8 queued bytes) may run any
+  unit, the sprite tile first, so the band is live before the first glyph
+  upload completes.  The band is no longer dropped when rendering is off
+  (the window probe decides).  Gate: `garble_check.lua` over 18 input
+  timings, 0 garbled frames (it flags kanji drawn from the scene page,
+  glyphs not uploaded, band/scene mismatches, released or changed glyphs).
+- **Vblank budget.**  Work units re-measured from the hook entry: the queue
+  scan, DMA flag, upload marks and the scene-page select moved after the
+  frame's last PPU access; glyph uploads are one tile per unit when bytes
+  are queued, two when the queue is idle; bank 24 is mapped with a direct
+  PRG write in the NMI.  Gate: `vblank_deadline.lua`, last hack VRAM access
+  at most scanline 259.6 (pre-render line 261), scroll restore in time.
+- **CHR animation overran vblank (pre-existing since revision 11).**  The
+  block-writer hook took ~750 cycles (two hack-bank round trips) inside the
+  NMI's CHR-animation upload, pushing the game's own scroll/mask restore to
+  scanline 268: one frame rendered from a stale VRAM address each animation
+  step in town.  The NMI path now only selects the scene page (new
+  `chr1_scene`, game lock protocol, ~60 cycles); the tiles are marked stale
+  by the NMI hook from the animation pointer.  Gate: `anim_timing.lua`,
+  restore at scanline 260 (original 259).  Space came from rewriting the
+  reset code's CHR/RAM setup (`$F00C-$F039`), which now clears the hack
+  state inline; the old reset hook gap holds `chr1_scene`.
+- **Queued CHR writes after a band frame** (the ▾ prompt blink, tile `$FF`)
+  landed on the band page only and were then "restored" away.  The NMI now
+  replays such an entry on the scene page from the queue ring.
+- Stack: NMI marking chain uses scratch instead of pushes; minimum SP `$0F`.
+- Text speed: the first history prompt finishes printing at frame 639
+  (original 626, revision 11 about 640).
+- Kanji ROM `1f3bb530e1c114ab0d8e33472c2f84ea8b39628beb227c1b8cae135465cd7c56`;
+  original byte-identical.
+- New tools: `tools/garble_run.py` (parallel input-offset runs of
+  `garble_check.lua`), `tools/lua_addrs.py` (refresh hack addresses in Lua
+  gates from the listing), gates `garble_check.lua`, `vblank_deadline.lua`,
+  `anim_timing.lua`.
+
+## 2026-11-08 — revision 11 (implemented by the planner): band page fixed end to end
+
+Play-test reports on revision 10: the opening logo had line artifacts, the
+history-select screen garbled as soon as it opened.  Both reproduced and
+root-caused, plus four more defects found on the way.
+
+- **Opening artifact.**  The revision-10 hook on the OAM DMA (`$EE93`) added
+  22 cycles before the game's own raster-split loops, pushing a `$2006`
+  write out of hblank.  All NMI hooks now sit after the `nmi_mode` branch
+  (`$EF0B`, jumped to) or in the epilogue (`$EF31`).  Split-write dot
+  timing and the logo frames are identical to the original.
+- **History-select garble.**  The overlay copied CHR and uploaded glyphs
+  with NMI off but rendering on, writing VRAM mid-frame.  The overlay now
+  never touches the PPU; all VRAM work runs in the NMI's vblank, one unit
+  per light frame (measured: >= 7 scanlines left when the game queued
+  <= 8 bytes and no CHR animation ran), or in bulk while rendering is off.
+  Cycle-measured: glyph uploads split in two halves, restore candidates
+  picked in the epilogue.  Gate: 0 hack PPU accesses while rendering.
+- **Band page stays in sync with the scene page**: block writes mirrored
+  right after the game's write (`loc_C343` hook, read-back copy), queue
+  CHR writes scanned and restored, released kanji slots restored.  Gate:
+  0 mismatching shown tiles over 3,324 band frames.
+- **Sprite-0 band switch**: sprite 0 on the window's top-border line,
+  page 2 selected at the hit; window position computed per message.  All
+  switches land on border-row line 1.
+- **Continued windows** (a message starting on line 3 after a `<JUMP>`, e.g.
+  `b10_msg_129` -> `b10_msg_130`): previous lines scroll out with the
+  engine's own scroll before the new message prints.
+- **Carry rule.**  The compiler now keeps each page's kanji clear of every
+  kana of the next page(s) that start while those lines are on screen, and
+  emits per-page keep/clean lists plus a per-message kana bitmap.  Gate:
+  0 kana written over an active kanji tile (6 on the old rule: the oath's
+  last page read "コ しどこマに").
+- **Dispatcher** restored to the revision-8 version (revision 10 jumped to
+  the kanji handler without pushing X or setting the code's high byte).
+- **Stack**: one-push SUROM switcher, jump-based EF08 hook; deepest stack
+  `$0110` (original `$0113`, game scratch at `$0104-$010A`).
+- **Font**: 鄧 and 瓚 are missing from JF-Dot-Shinonome16; drawn from
+  DotGothic16 and MS Gothic, reported by the font builder.
+- Build: `kanji_build.py` fails if fixed-bank hook code leaves its gaps.
+- Kanji ROM `8d8ea65eedb6aa00716e6811d341a484b4e5a6e3ab3679143d51a8c7e32cfe7d`;
+  original byte-identical; 760 messages, 1,192 pages.
+- New gates in `tools/lua/`: `band_check.lua`, `r11_diag.lua`,
+  `ram_gate.lua`; surveys `nmi_timing.lua`, `nmi_light.lua`,
+  `chr_write_ctx.lua`, `task_stacks.lua`, `window_pos_survey.lua`.
+
+
 ## 2026-11-08 — planning iteration 10: play-test bugs reproduced; shadow page, sprite-0 switch, no RAM code
 
 - Reproduced all three play-test reports on the harness (`tools/lua/rev9_*.lua`,

@@ -13,7 +13,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from kanji_common import FONT_TTF, INDEX_TSV, glyph_bytes, write_index
+from kanji_common import (FALLBACK_USED, FONT_TTF, INDEX_TSV, MAX_GLYPHS,
+                          code_of, glyph_bytes, write_index)
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "decomp" / "build" / "kanji"
@@ -22,8 +23,8 @@ SHEET = ROOT / "assets" / "fonts" / "kanji_16x16_ext.png"
 
 def build() -> int:
     inv = write_index()
-    if len(inv) > 768:
-        raise SystemExit(f"inventory too large: {len(inv)} > 768")
+    if len(inv) > MAX_GLYPHS:
+        raise SystemExit(f"inventory too large: {len(inv)} > {MAX_GLYPHS}")
     OUT.mkdir(parents=True, exist_ok=True)
     data = bytearray()
     for i, (ch, _) in enumerate(inv):
@@ -50,6 +51,16 @@ def build() -> int:
     SHEET.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(SHEET)
     print(f"kanji inventory: {len(inv)} glyphs -> {OUT / 'kanji_font.bin'}")
+    fb = ["# glyphs drawn from a fallback font (JF-Dot-Shinonome16 lacks them)",
+          "# code\tchar\tU+\tfont\tcount"]
+    counts = dict(inv)
+    order = {ch: i for i, (ch, _) in enumerate(inv)}
+    for ch, name in sorted(FALLBACK_USED.items(), key=lambda kv: order.get(kv[0], 0)):
+        print(f"  fallback font for U+{ord(ch):04X}: {name}")
+        fb.append("\t".join((f"{code_of(order[ch]):04X}", ch, f"U+{ord(ch):04X}", name, str(counts.get(ch, 0)))))
+    (ROOT / "assets" / "fonts" / "kanji_fallback.tsv").write_text(chr(10).join(fb) + chr(10), encoding="utf-8")
+    if any(name == "none" for name in FALLBACK_USED.values()):
+        raise SystemExit("a kanji is missing from every configured font")
     print(f"contact sheet:   {SHEET}")
     return 0
 

@@ -1,0 +1,304 @@
+# glossary.tsv - proper-noun glossary for the 天地を喰らう kanji re-conversion
+# Columns (tab-separated): kind <TAB> kana <TAB> kanji <TAB> note
+# kind: PERSON, PLACE, ITEM, TITLE, TERM, KEEP. KEEP = katakana/loanword that stays as is (kanji column = kana).
+# A kana string listed twice is AMBIGUOUS: use the row whose note lists your @label.
+# Compounds not listed are built from the parts: name + さま 様, どの 殿, しょうぐん 将軍, ぐん 軍, じょう 城, のとりで の砦.
+# Input defect: reconv_prep.py strips <D5:ド> from table entries, so WORD 22 shows as ミカ (really ミカド = 帝)
+#   and NAME C5 shows as ケイウエイ (really ケイドウエイ = 邢道栄). Use the kanji below in both cases.
+# Inside tokens, <CALL:21D0=ソウジン> and <CALL:21D4=ソウユウ> are copied byte for byte, never converted; the compiler prints them as 宋仁/宋勇 (kanji pick, tools/kanji_common.py KANJI_CALLS).
+# Not a name, but noted: b10_msg_239 おプたそうです is probably a ROM typo for おえた (生涯を終えた); left to the batch owner.
+# Characters missing from JF-Dot-Shinonome16 that the build takes from fallback fonts: 汜 釭 (DotGothic16), 龐 瓚 詡 邢 涪 雒 鄱 (MS Gothic).
+#kind	kana	kanji	note
+PERSON	リュウビ	劉備	Hero lord. Compounds: リュウビぐん 劉備軍, リュウビさま 劉備様, リュウビどの 劉備殿.
+PERSON	ゲントク	玄徳	劉備's courtesy name (his mother and the Lady use it; b10_msg_129-133).
+PERSON	カンウ	関羽	
+PERSON	チョウヒ	張飛	
+PERSON	コウメイ	孔明	諸葛亮's courtesy name; the game's officer name. Keep 孔明 wherever the kana says コウメイ.
+PERSON	ショカツリョウ	諸葛亮	b11_msg_178/179.
+PERSON	ショカツリョウさま	諸葛亮様	WORD D2.
+PERSON	ショカツキン	諸葛瑾	孔明's elder brother, holds 呉城 (b11_msg_069).
+PERSON	キン	均	諸葛均, 孔明's younger brother (b10_msg_446 おとうとの キン; b11_msg_139 キンとなのる しょうねん). Given name only, as in the kana.
+PERSON	フクリュウ	伏龍	Sobriquet of 孔明 (b10_msg_335/336/392). 龍 (not 竜) to match 青龍刀 / 子龍.
+PERSON	ホウスウ	鳳雛	Sobriquet of 龐統 (b10_msg_435).
+PERSON	ホウトウ	龐統	龐 is not in JF-Dot-Shinonome16 or DotGothic16; the build draws it from the MS Gothic fallback.
+PERSON	スイキョウ	水鏡	Sobriquet of 司馬徽. スイキョウせんせい = 水鏡先生.
+PERSON	スイキョウせんせい	水鏡先生	
+PERSON	モウコウイ	孟公威	孔明's friend (孟建) who writes the letter of introduction (b10_msg_333/335). WORD 0C.
+PERSON	サイシュウへイ	崔州平	孔明's friend; hermitage at 楼桑村 (b10_msg_138, b10_msg_437). Source spelling: katakana サイシュウ + hiragana へ + katakana イ.
+PERSON	サイシュウ	崔州	Never stands alone: tokenizer fragment of サイシュウへイ (崔州平), split at the hiragana へ.
+PERSON	ジョショ	徐庶	
+PERSON	タンフク	単福	徐庶's alias (b10_msg_371 ジョショ すなわちタンフクじゃ).
+PERSON	チョウウン	趙雲	
+PERSON	チョウウンシリュウ	趙雲子龍	b10_msg_328 (name + courtesy name).
+PERSON	ソウソウ	曹操	Compounds: ソウソウさま 曹操様, ソウソウぐん 曹操軍.
+PERSON	ソウソウさま	曹操様	WORD 34.
+PERSON	ソウヒ	曹丕	
+PERSON	ソウショウ	曹彰	The game calls him 曹操's じなん (b11_msg_189).
+PERSON	ソウ	曹	Surname only: ソウいちぞく (b11_msg_118).
+PERSON	ソウいちぞく	曹一族	b11_msg_118.
+PERSON	シバイ	司馬懿	In b11_msg_230 (このゲームも おシバイだ) the second おシバイ is a pun on お芝居: keep おシバイ in katakana there; the first シバイ is 司馬懿.
+PERSON	ーシバイ	ー司馬懿	Tokenizer fragment of おーシバイ (b11_msg_192): おー + 司馬懿.
+PERSON	シバショウ	司馬昭	
+PERSON	シバシ	司馬師	
+PERSON	ソンケン	孫権	
+PERSON	グフッソンケン	グフッ孫権	Tokenizer fragment across <WAIT> in b11_msg_098 (めいどで--グフッ<WAIT>ソンケンは): keep グフッ, ソンケン = 孫権.
+PERSON	ソンサク	孫策	
+PERSON	シュウユ	周瑜	
+PERSON	リクソン	陸遜	
+PERSON	リョモウ	呂蒙	
+PERSON	タイシジ	太史慈	
+PERSON	トウタク	董卓	Compounds: トウタクぐん 董卓軍, トウタクしょうこく 董卓相国, トウタクとうばつぐん 董卓討伐軍.
+PERSON	トウタクしょうこく	董卓相国	b10_msg_291/298.
+PERSON	リョフ	呂布	NAME BC/C0/C4 are all 呂布.
+PERSON	カユウ	華雄	
+PERSON	カク	賈詡	b10_msg_261 カクのさくりゃく. NAME 1A, the 董卓-faction strategist (read カク), next to 李傕/郭汜 in the name table. Not 郭嘉 (that is カクカ, NAME 97). 詡 comes from the MS Gothic fallback.
+PERSON	テイゲン	丁原	呂布's adoptive father (ようふ, b10_msg_242).
+PERSON	オウイン	王允	Owner of the 七星刀 (b10_msg_231).
+PERSON	エンジュツ	袁術	
+PERSON	エンショウ	袁紹	NAME 26.
+PERSON	キレイ	紀霊	
+PERSON	ガンリョウ	顔良	
+PERSON	ブンシュウ	文醜	
+PERSON	コウソンサン	公孫瓚	瓚 comes from the MS Gothic fallback (already in the build).
+PERSON	チョウカク	張角	Yellow Turban leader.
+PERSON	チョウホウ	張宝	AMBIGUOUS (1 of 2). Yellow Turban, 張角's brother (NAME 0D). Use in @b10_msg_168 @b10_msg_172 @b10_msg_173 @b10_msg_186 @b10_msg_214.
+PERSON	チョウホウ	張苞	AMBIGUOUS (2 of 2). 張飛's son (NAME AD), joins in the 呉 chapter. Use in @b11_msg_078 @b11_msg_081 @b11_msg_086.
+PERSON	チョウリョウ	張梁	Yellow Turban, 張角's brother (NAME 0E; b10_msg_150/186/214). Not 張遼, who is never named in the dialogue.
+PERSON	バゲンギ	馬元義	Yellow Turban (b10_msg_167).
+PERSON	カンチュウ	韓忠	AMBIGUOUS (1 of 2). Yellow Turban officer (NAME 38) who knows the secret of the back path to 青州城. Use in @b10_msg_483 @b11_msg_104 @b11_msg_107. For the place 漢中 see the PLACE row.
+PERSON	トウケン	陶謙	Lord of 徐州城 (b10_msg_144 ジョシュウじょう トウケンさまの おしろです). He is bedridden (びょうしょう) and offers his castle to 劉備 (b10_msg_153/155), the novel's 三譲徐州. The reading matches 陶謙 exactly, and walkthroughs write 陶謙 too. Rejected 鄒靖/劉焉 (wrong readings) and 鄧賢 (the old draft's choice): 鄧賢 is the 蜀 officer in name-table slot D8 トウケン, which no message uses.
+PERSON	トウケンさま	陶謙様	WORD 2E.
+PERSON	チントウ	陳登	Son of a 徐州 gentleman (陳珪) who offers him as a recruit (b10_msg_179). NAME 3B.
+PERSON	チョウセイへイ	張世平	Merchant who funds 劉備 (b10_msg_139). Source spelling: katakana チョウセイ + hiragana へ + katakana イ.
+PERSON	チョウセイ	張世	Never stands alone: tokenizer fragment of チョウセイへイ (張世平).
+PERSON	ヨウキン	揚謹	Pirate who joins near 汜水関 (b10_msg_278). An original character from 本宮ひろ志's manga (海賊の周超・王貴・揚謹); fan FC officer lists write 楊謹. The original line reads ヨウキンとというものです (stray と).
+PERSON	リュウショウ	劉璋	Lord of 蜀.
+PERSON	チョウショウ	張松	蜀 official, 劉備's informant (b10_msg_448, b11_msg_287). NAME 51. Not 張昭 of 呉 (NAME 67, not used in messages).
+PERSON	ゴイ	呉懿	蜀 general at 雒城 (b11_msg_005).
+PERSON	バリョウ	馬良	
+PERSON	バショク	馬謖	
+PERSON	リョウ	良	馬良. In b10_msg_398 馬謖 says あに リョウが なんとうのいおりで まっております, and in b10_msg_399 the man says わたしが バリョウです. Not 諸葛亮 (the old draft's choice).
+PERSON	チョウハン	趙範	太守 of 桂陽 (b10_msg_410).
+PERSON	ケイウエイ	邢道栄	零陵's champion (b10_msg_422). The game's NAME C5 is ケイドウエイ: reconv_prep.py strips the <D5:ド> token, so the input shows ケイウエイ. 邢 comes from the MS Gothic fallback.
+PERSON	カンコウ	関興	関羽's son (b11_msg_143).
+PERSON	カンサク	関索	関羽's son (b11_msg_204).
+PERSON	そんし	孫子	In b11_msg_207 そんしのしょ = 孫子の書.
+PERSON	わん	わん	A girl's pet tiger (b10_msg_408/409/436 わんというなまえなの), a joke on a dog's bark. Keep in hiragana.
+PERSON	リュウビさま	劉備様	WORD 0E.
+PERSON	リュウビどの	劉備殿	WORD 31.
+PERSON	あしがるカンウ	足軽関羽	袁術's sneer at 関羽 (b10_msg_343/344). WORD 0A.
+PLACE	カン	漢	The dynasty (b10_msg_240 カンのみやこ, b11_msg_101 カンのミカのちをひく, b11_msg_239).
+PLACE	かん	漢	Hiragana in b10_msg_237 (かんのれきし = 漢の歴史).
+PLACE	ショク	蜀	Compounds: ショクぐん 蜀軍, ショクのくに 蜀の国.
+PLACE	ショクぐん	蜀軍	
+PLACE	ショクカン	蜀漢	b11_msg_185.
+PLACE	ギ	魏	Single katakana (not in the KATA list). Compounds: ギのくに 魏の国, ギずいいち 魏随一.
+PLACE	ゴ	呉	Single katakana (not in the KATA list). Compounds: ゴのぐん 呉の軍, ゴぐん 呉軍, ゴじょう 呉城.
+PLACE	ゴのぐん	呉の軍	WORD 9D.
+PLACE	ゴぐん	呉軍	b10_msg_457.
+PLACE	タイギ	大魏	b11_msg_046 タイギのコウテイ (曹丕 proclaims himself emperor of Great Wei). The hiragana たいぎ in b11_msg_077 is a different word (大義).
+PLACE	ケイシュウ	荊州	WORD 78.
+PLACE	けいしゅう	荊州	Hiragana in b10_msg_429.
+PLACE	ケイシュウ４ぐん	荊州四郡	b10_msg_401: ４ぐん here means the four commanderies (郡), not armies. b10_msg_421 ４つの ぐん = 四つの郡 too.
+PLACE	ジョシュウ	徐州	
+PLACE	ジョシュウじょう	徐州城	陶謙's castle.
+PLACE	セイシュウ	青州	Yellow Turban-held, north of 徐州 (b10_msg_150).
+PLACE	セイシュウじょう	青州城	
+PLACE	タイコウザン	太行山	Yellow Turban base (張宝). The real 太行山, read たいこうざん. A walkthrough (xneo.jp) writes 大興山.
+PLACE	テツモンキョウ	鉄門峡	Game-specific Yellow Turban fortress, a natural stronghold surrounded by mountains on three sides (b10_msg_185), so 峡 (gorge). The xneo.jp walkthrough writes 鉄門境.
+PLACE	ロウソウソン	楼桑村	劉備's home village (b11_msg_185 ロウソウソンで むしろをうっていた). The game also puts 崔州平's hermitage there (b10_msg_437).
+PLACE	ラクヨウ	洛陽	PLACE 51/71.
+PLACE	ラクヨウじょう	洛陽城	Not in the current text; listed for consistency if needed.
+PLACE	チョウアン	長安	
+PLACE	シスイカン	汜水関	汜 (not 氾). 汜 comes from the DotGothic16 fallback.
+PLACE	コロウカン	虎牢関	
+PLACE	ヨウシュウ	雍州	The province of 長安: the castle overlooks 洛陽 and 長安 (b10_msg_256). Not 揚州 (呉). Name-table ヨウシュウ (楊修) is not used.
+PLACE	ヨウシュウじょう	雍州城	
+PLACE	ボッカイ	渤海	袁紹 was 渤海太守. WORD 68.
+PLACE	ボッカイじょう	渤海城	
+PLACE	エン	宛	宛 (えん), 袁術's castle in 南陽郡 (b10_msg_303). xneo.jp writes 苑城; 宛 is the historical name.
+PLACE	エンじょう	宛城	
+PLACE	ワイナン	淮南	袁術's territory.
+PLACE	ワイナンじょう	淮南城	
+PLACE	ナンヨウ	南陽	
+PLACE	ナンヨウじょう	南陽城	
+PLACE	なんよう	南陽	Hiragana WORD 69 (b10_msg_289 なんようのたいしゅ, b10_msg_349 なんようにも).
+PLACE	チンソウ	陳倉	Hermit's place near 南陽 (b10_msg_324). The reading matches the famous 陳倉, though the game's geography is its own. xneo.jp also uses 陳倉.
+PLACE	ホクへイ	北平	ホクへいのトラ (b10_msg_315) = 趙雲, who came from 公孫瓚's 北平. Source spelling: katakana ホク + hiragana へ + katakana イ.
+PLACE	ホク	北	Never stands alone: fragment of ホクへイ (北平).
+PLACE	キシュウ	冀州	袁紹's seat (b10_msg_353, b11_msg_165).
+PLACE	キシュウじょう	冀州城	
+PLACE	コウソウ	広宗	Castle in 袁紹's lands where 趙雲 serves (b10_msg_377, b11_msg_168). 広宗 (こうそう) in 冀州 matches the reading; the game's placement is its own.
+PLACE	コウソウじょう	広宗城	
+PLACE	チョウサ	長沙	
+PLACE	チョウサじょう	長沙城	
+PLACE	ケイヨウ	桂陽	One of the four 荊州 commanderies (太守 趙範).
+PLACE	ケイヨウじょう	桂陽城	
+PLACE	レイリョウ	零陵	
+PLACE	レイリョウじょう	零陵城	
+PLACE	ブリョウ	武陵	
+PLACE	ブリョウじょう	武陵城	
+PLACE	カンチュウ	漢中	AMBIGUOUS (2 of 2). The state threatening 蜀 from outside (張魯's 漢中). Always followed by ぐん: カンチュウぐん = 漢中軍. Use in @b10_msg_448 @b11_msg_007 @b11_msg_017. For the person 韓忠 see the PERSON row.
+PLACE	カンチュウぐん	漢中軍	@b10_msg_448 @b11_msg_007 @b11_msg_017.
+PLACE	フスイ	涪水	涪水 (the Fu River; the novel's 涪水関). Castle in 蜀 where 劉璋 is held (b11_msg_002). 涪 comes from the MS Gothic fallback.
+PLACE	フスイじょう	涪水城	
+PLACE	ラク	雒	雒城 in 蜀 (b11_msg_005/011). 雒 comes from the MS Gothic fallback.
+PLACE	ラクじょう	雒城	
+PLACE	ゴウテツザン	剛鉄山	Game-specific iron mountain in 蜀 (b11_msg_006/012/019). 剛鉄 = hard iron; xneo.jp also uses 剛鉄山.
+PLACE	メンチクカン	綿竹関	
+PLACE	セイト	成都	
+PLACE	セイトじょう	成都城	
+PLACE	ケンアン	建安	建安郡 in 呉.
+PLACE	ケンアンじょう	建安城	
+PLACE	ハンヨウ	鄱陽	呉 region: ハンヨウ fort (b11_msg_072/073/079), ハンヨウざん (the mountain blasted to dam the water, b11_msg_055) and ハンヨウコ (the lake that flooded, b11_msg_050). 鄱陽 (the Han-era spelling is 番陽, read はんよう). Alternative 番陽 uses only common characters. 鄱 comes from the MS Gothic fallback.
+PLACE	ハンヨウざん	鄱陽山	b11_msg_055.
+PLACE	ハンヨウコ	鄱陽湖	b11_msg_050.
+PLACE	カイケイ	会稽	カイケイのとりで = 会稽の砦.
+PLACE	ゴじょう	呉城	孫権's castle, held by 諸葛瑾 (b11_msg_069).
+PLACE	シント	新都	呉 commandery (新都郡); xneo.jp also uses 新都城.
+PLACE	シントじょう	新都城	
+PLACE	ケンギョウ	建業	
+PLACE	コウリョウ	広陵	魏-held, north-east of 建業 (b11_msg_117).
+PLACE	コウリョウじょう	広陵城	
+PLACE	ガッヒ	合肥	Usually read がっぴ; the game writes ガッヒ. ガッヒのとりで = 合肥の砦.
+PLACE	ジョナン	汝南	
+PLACE	ジョナンじょう	汝南城	
+PLACE	チン	陳	Castle in 魏 nearest 洛陽 (b11_msg_213/224); xneo.jp uses 陳城.
+PLACE	チンじょう	陳城	
+PLACE	チンリュウ	陳留	チンリュウのとりで = 陳留の砦.
+TITLE	ミカ	帝	Read みかど. The game's WORD 22 is ミカド: reconv_prep.py strips the <D5:ド> token, so every ミカ in source_all.txt (21x) is really ミカド. Always 帝. b10_msg_259 ミカをみたど！ = 帝を見たど！
+TITLE	みかど	帝	Hiragana in b10_msg_129 (みかどのちをひくみ).
+TITLE	コウテイ	皇帝	
+TITLE	ぎてい	偽帝	b10_msg_338 ぎてい エンジュツ. WORD 25.
+TITLE	しょうぐん	将軍	WORD 12.
+TITLE	たいしゅ	太守	WORD 15.
+TITLE	じょうしょう	丞相	Not in the current text; listed for consistency.
+TITLE	しょうこく	相国	トウタクしょうこく = 董卓相国.
+TITLE	ぐんし	軍師	WORD 66. てんさいぐんし = 天才軍師 (b11_msg_226).
+TITLE	そうだいしょう	総大将	b10_msg_228/246.
+TITLE	しょくりょうちょうかん	食糧長官	袁術's post in the anti-董卓 alliance (b10_msg_228/268/301/302). Game-specific title, after the kana しょくりょう.
+TITLE	すいぐんていとく	水軍提督	周瑜 (b11_msg_060).
+TITLE	ふくしょう	副将	
+TITLE	もうしょう	猛将	
+TITLE	しゅりょう	首領	b10_msg_187 こうきんぞくの しゅりょう.
+TITLE	てきしょう	敵将	
+TITLE	きでん	貴殿	WORD 55. Formal "you" used by officers.
+TERM	カンオウチョウ	漢王朝	WORD 2C.
+TERM	かんおうちょう	漢王朝	Hiragana in b11_msg_144.
+TERM	カンチョウ	漢朝	カンチョウのミカ = 漢朝の帝; カンチョウの ふっこう = 漢朝の復興.
+TERM	かんちょう	漢朝	Hiragana in b10_msg_212.
+TERM	こうきんぞく	黄巾賊	WORD 30.
+TERM	ぎゆうぐん	義勇軍	WORD 3C.
+TERM	かんぐん	官軍	The government army (b10_msg_183, a Yellow Turban jeer; b10_msg_228). b11_msg_228 (１００まんのかんぐん, said in 魏) is kept as 官軍 for consistency; 漢軍 is possible there.
+TERM	ぎゃくぞく	逆賊	WORD 3D.
+TERM	とうばつ	討伐	WORD 46. とうばつぐん = 討伐軍.
+TERM	トウタクとうばつぐん	董卓討伐軍	b10_msg_208.
+TERM	リュウビぐん	劉備軍	WORD 0F.
+TERM	ソウソウぐん	曹操軍	
+TERM	エンショウぐん	袁紹軍	
+TERM	トウタクぐん	董卓軍	
+TERM	はんらんぐん	反乱軍	
+TERM	ぶしょう	武将	WORD 49.
+TERM	かいぞく	海賊	WORD B3. 揚謹 is a pirate; the 青龍刀 comes from pirates.
+TERM	ぎょくじ	玉璽	WORD 16.
+TERM	トラ	虎	The five tigers (b10_msg_169 トラとよばれる５にんのぶしょう; b10_msg_244/315/433, b11_msg_007). In b10_msg_348 (トラのいもうとが/トラわれた) the second トラ is a drunk pun on 捕らわれた: keep トラわれた in katakana and convert only the first トラ.
+TERM	とら	虎	Hiragana for the real pet tiger (b10_msg_436).
+TERM	ラクライ	落雷	司馬懿's sorcery (b11_msg_201/202/210).
+TERM	ラクライのけい	落雷の計	WORD D3. The xneo.jp walkthrough uses the same.
+TERM	ようじゅつ	妖術	WORD D6.
+TERM	じゅもん	呪文	WORD E3.
+TERM	アンサツ	暗殺	Katakana in b11_msg_039; also a stratagem name.
+TERM	あんさつ	暗殺	Hiragana in b11_msg_052/098.
+TERM	カギ	鍵	Common noun the game writes in katakana. ぎんのカギ = 銀の鍵.
+TERM	カギあな	鍵穴	b11_msg_268.
+TERM	トビラ	扉	Katakana in b11_msg_167.
+TERM	とびら	扉	Hiragana in b11_msg_009.
+TERM	ナゾ	謎	Katakana in b11_msg_204.
+TERM	なぞ	謎	Hiragana in b10_msg_483.
+TERM	さくりゃく	策略	WORD 62.
+TERM	さくりゃくポイント	策略ポイント	b10_msg_125, b10_msg_470.
+TERM	けいけんち	経験値	WORD 63.
+TERM	たいれつ	隊列	WORD 67.
+TERM	兵ろう	兵糧	The source already has the kanji 兵 (b10_msg_061/062/139).
+TERM	ひょうろう	兵糧	
+TERM	ひょうろうや	兵糧屋	b10_msg_069.
+TERM	しょくりょう	食糧	WORD 33. Kept apart from 兵糧 because the kana differs.
+TERM	れきししょ	歴史書	The save record (b10_msg_114, b11_msg_145-152).
+TERM	かけい	火計	
+TERM	すいけい	水計	
+TERM	ふくへい	伏兵	
+TERM	ぎしんあんき	疑心暗鬼	
+TERM	りかん	離間	
+TERM	さくめんのけい	策免の計	Stratagem name (strategy guides: 策免の計).
+TERM	げきめんのけい	撃免の計	Stratagem name (strategy guides: 撃免の計).
+TERM	とりで	砦	WORD 28.
+TERM	いおり	庵	WORD 29.
+TERM	ようさい	要塞	WORD 47.
+TERM	さんどう	山道	The back mountain path to 青州城 (b10_msg_481/483) and the path to 鄱陽 (b11_msg_073/075/076). 桟道 is possible.
+TERM	てんさい	天才	AMBIGUOUS (1 of 2). Genius: b11_msg_064, b11_msg_219 (てんさいじ 天才児), b11_msg_226 (てんさいぐんし 天才軍師).
+TERM	てんさい	天災	AMBIGUOUS (2 of 2). Natural disaster: b11_msg_220 (ありとあらゆる てんさいが つづき).
+TERM	きりんじ	麒麟児	b11_msg_219.
+TERM	とうげんきょう	桃源郷	b10_msg_273.
+TERM	えんまだいおう	閻魔大王	The oath (b10_msg_126).
+TERM	えんま	閻魔	b11_msg_135.
+TERM	ふかしんじょうやく	不可侵条約	b11_msg_096.
+TERM	ぎきょうだい	義兄弟	b11_msg_330.
+TERM	けんあん	建安	Era name: けんあん ２６ねん = 建安２６年 (b11_msg_103).
+TERM	だいれいだい	大礼台	The platform built for 劉備's enthronement (b11_msg_103). No fixed term; 大礼台 is the most natural reading.
+TERM	ぶんぶかん	文武官	b11_msg_103.
+TERM	そびょう	祖廟	b11_msg_101.
+TERM	かたなかじ	刀鍛冶	b10_msg_389.
+TERM	めいかたなかじ	名刀鍛冶	b11_msg_014.
+TERM	めいかたなし	名刀師	b11_msg_112 ショクの めいかたなしにあったか？ Likely a shortened めいかたなかじ; 名刀師 keeps the kana.
+TERM	ていけん	ていけん	b10_msg_227 ここは コロウカン ていけんの ようさいです. Unclear: possibly a misprint for てんけん (天険, natural stronghold). Keep in kana unless the batch owner decides otherwise.
+ITEM	ぎんのカギ	銀の鍵	ITEM 18.
+ITEM	しちせいとう	七星刀	ITEM 19. 王允's heirloom that 呂布 wants. めいけん = 名剣.
+ITEM	しょうかいじょう	紹介状	ITEM 1A.
+ITEM	かやく	火薬	ITEM 1B.
+ITEM	てつ	鉄	ITEM 1D.
+ITEM	せきとば	赤兎馬	ITEM 21.
+ITEM	てがみ	手紙	ITEM 22.
+ITEM	めいば	名馬	ITEM 2C / WORD 56.
+ITEM	けん	剣	ITEM 46.
+ITEM	めいけん	名剣	b10_msg_243/245.
+ITEM	かんしょうのけん	干将の剣	ITEM 4D.
+ITEM	ばくやのけん	莫耶の剣	ITEM 4E. Do not confuse with ばくやく (爆薬).
+ITEM	せいこうのけん	青釭の剣	ITEM 4F. 青釭 is the novel's sword of 曹操; xneo.jp writes 青紅. 釭 comes from the DotGothic16 fallback.
+ITEM	どりゅうのけん	屠龍の剣	ITEM 50. 屠龍 = dragon-slaying. xneo.jp writes 土龍, but 土竜 means "mole" in Japanese, so it was rejected.
+ITEM	せいりゅうとう	青龍刀	ITEM 51. The game's word is せいりゅうとう, so 青龍刀 (not 青龍偃月刀).
+ITEM	ろうぼくのえだ	老木の枝	WORD A8; quest item.
+ITEM	しょうせき	硝石	WORD AF.
+ITEM	いおう	硫黄	b11_msg_055.
+ITEM	ばくやく	爆薬	WORD B1.
+KEEP	キラリ	キラリ	Mimetic word (sparkle).
+KEEP	ポイント	ポイント	Loanword (さくりゃくポイント).
+KEEP	クーデター	クーデター	Loanword.
+KEEP	ランク	ランク	Loanword (しろのランク).
+KEEP	ヒヒーン	ヒヒーン	Horse neigh.
+KEEP	ビール	ビール	Loanword (joke line).
+KEEP	ーエッチ	ーエッチ	Tokenizer fragment of きゃーエッチ！ (b10_msg_276): keep as is.
+KEEP	ヒック	ヒック	Hiccup.
+KEEP	クイズ	クイズ	Loanword.
+KEEP	ヒマラヤ	ヒマラヤ	Foreign place name in the quiz joke (b10_msg_425): keep in katakana.
+KEEP	グーグーグー	グーグーグー	Snoring.
+KEEP	ドッドーーーン	ドッドーーーン	Explosion.
+KEEP	ーーー	ーーー	Long-vowel dash run (b11_msg_074): keep.
+KEEP	ーーーー	ーーーー	Long-vowel dash run (b11_msg_078): keep.
+KEEP	グフッ	グフッ	Death gasp (b11_msg_098).
+KEEP	カクカク	カクカク	Part of カクカク シカジカ (= かくかくしかじか); keep in katakana. Not 賈詡.
+KEEP	シカジカ	シカジカ	See カクカク.
+KEEP	エッ	エッ	Interjection.
+KEEP	クッ	クッ	Interjection.
+KEEP	ダッダッダッダッ	ダッダッダッダッ	Running footsteps.
+KEEP	バシュッ	バシュッ	Sound effect (WORD E1).
+KEEP	グオー	グオー	Scream.
+KEEP	ウッ	ウッ	Interjection.
+KEEP	フン	フン	Interjection.
+KEEP	カッワイー	カッワイー	Exclamation (b11_msg_221).
+KEEP	ゲーム	ゲーム	Loanword (b11_msg_230 pun line).
+KEEP	パート	パート	Loanword (パート２).
+KEEP	レべル	レべル	Loanword. The source uses hiragana べ because the font has no katakana ベ; copy it exactly.
+KEEP	ネ	ネ	Katakana sentence-final particle in b11_msg_166 (のですネ); keep.
+KEEP	ソ	ソ	Stammer in b11_msg_238 (ソ---ソウソウさま → ソ---曹操様).
+KEEP	ぷれいやあ	ぷれいやあ	Hiragana loanword in b11_msg_025; keep as written.
+KEEP	こぴー	こぴー	Hiragana loanword in the save menu (b11_msg_151/152); keep as written.

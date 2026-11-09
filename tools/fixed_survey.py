@@ -21,6 +21,8 @@ ROMS = OUT / "roms"
 LUA = OUT / "lua"
 RUNS = OUT / "runs"
 PATCH_SITES = (0x8B58, 0x8BDA, 0x8C38)
+# Revision 16c: a read survey is no proof.  $E6B3-$E6C3 passed this survey
+# and is part of the battle damage tables ($E6A9,y / $E6BD,y in bank 14).
 RANGES = ((0xC4BA, 0xC4CA), (0xE6B3, 0xE6C3), (0xFFE0, 0xFFEF))
 
 SCRIPT = '''local outdir = "{outdir}"

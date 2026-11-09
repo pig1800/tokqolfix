@@ -25,7 +25,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from kanji_common import code_map, inventory
+from kanji_common import KANJI_CALLS, KANJI_SUFFIX_CALLS, KANJI_TROOP_CALLS, code_map, inventory
 import textdata
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -41,8 +41,11 @@ DATA_START = {10: 0x03E8, 11: 0x0380}
 TRAMPOLINE_ADDR = 0xBF00     # F8 body, identical in banks 10/11
 MAX_PAGES = 32
 MAX_PAGE_ENTRIES = 16
-PAGE_TILE_MARGIN = 4       # small slack on the private band page
-TEXT_BANKS = [18, 19, 20, 21, 22]
+# Free tiles a page must leave unassigned.  Revision 16: 0 (was 4, a slack
+# from the shared-CHR design; the runtime never needs a spare tile).
+PAGE_TILE_MARGIN = 0
+TEXT_BANKS = [18, 19, 20, 21, 22]          # grown into 30, 29, ... as needed
+TEXT_BANKS_EXTRA = [30, 29, 28, 27, 26, 25]   # never the glyph banks (23 + n)
 TEXT_BANK_LIMIT = 0x3800     # overlay occupies $B800-$BFFF
 OVERLAY_SIZE = 0x800
 SCENE_BORROW = set(range(0x42, 0x5C))  # measured oath-scene overwrite range
@@ -106,19 +109,29 @@ LIST_TAG_OVERRIDES = {
 # Tiles that must survive while a message page owns the CHR cache.
 #   digits 0-9, blank, cursor arrow, dakuten/handakuten marks, frame pieces
 FRAME_TILES = set(textdata.FRAME_BYTE_TO_TOKEN)
-CURSOR_TILES = {0x0A, 0x71, 0x72, 0x73}
+# $70 is the menu cursor (a background tile in every menu window).
+CURSOR_TILES = {0x0A, 0x70, 0x71, 0x72, 0x73}
 DIGIT_TILES = set(range(0x0A))
 
-# Inline bank-15 menu scripts.  They are redrawn after the message closes and
-# the restore-at-exit hook puts the kana font back, so they are not part of the
-# per-page reservation.  Kept for reporting and later conversion work.
-MENU_REGIONS = ((0x2948, 0x2C00), (0x2C00, 0x2DA1))
+# Inline bank-15 menu scripts ($E948-$EDA0; text_init's menu table is at
+# $EDA1/$EDD1).  The game draws a menu window beside or below the text window
+# and keeps it there while it prints further messages, so menu kana share the
+# band page with those messages' kanji (revision 16: the partner shop's
+# のうりょく/くわえる/はずす/かいこ under 「...様、ご用件を...」).  The
+# name-entry kana grid (menu $26) is drawn only on the history name-entry
+# screen; its prompts reserve SAVENAME_TILES instead.
+MENU_REGIONS = ((0x2948, 0x2C66), (0x2C66, 0x2D43), (0x2D43, 0x2DA1))
+NAME_GRID_REGION = (0x2C66, 0x2D43)
+# Menus that bank-13 event code opens next to a message: はい/いいえ (menus
+# $02 and $25) and きろく/よぶ ($24).  Its other menus are the name entry
+# ($26) and windows without kana.
+EVENT_MENU_REGIONS = ((0x2974, 0x297F), (0x2C50, 0x2C66))
 
 
-def menu_stream_tiles() -> set[int]:
+def menu_stream_tiles(regions=MENU_REGIONS) -> set[int]:
     b = textdata.bank_bytes(15)
     used: set[int] = set()
-    for start, end in MENU_REGIONS:
+    for start, end in regions:
         data = b[start:end]
         i = 0
         while i < len(data):
@@ -143,6 +156,9 @@ def menu_stream_tiles() -> set[int]:
 
 
 MENU_TILES = menu_stream_tiles()
+NAME_GRID_TILES = menu_stream_tiles((NAME_GRID_REGION,))
+SUBMENU_TILES = menu_stream_tiles(tuple(r for r in MENU_REGIONS if r != NAME_GRID_REGION))
+EVENT_MENU_TILES = menu_stream_tiles(EVENT_MENU_REGIONS)
 # $6C (金) and $7F (兵) are used as field-map icons; never borrow them.
 RESERVED_TILES = FRAME_TILES | CURSOR_TILES | DIGIT_TILES | {0x6C, 0x7F}
 
@@ -159,20 +175,6 @@ FIELD_SCENE_TILES = {
     0x76, 0x77, 0x7D, 0x7E,
 }
 SCENE_FALLBACK = set(FIELD_SCENE_TILES) | set(SCENE_BORROW)
-
-
-def extra_reserved(text: str) -> set[int]:
-    """Tiles that stay on screen while this message is open.
-
-    Question prompts leave the window up while the yes/no or choice menu is
-    drawn, so the menu kana must not be stolen by kanji slots.
-    """
-    visible = re.sub(r"<[^>]*>", "", text).rstrip()
-    if text.rstrip().endswith(("<END_NOWAIT>", "<WAIT>")):
-        return set(MENU_TILES)
-    if visible.endswith(("?", "？")):
-        return set(MENU_TILES)
-    return set()
 
 
 def tiles_for_string(s: str) -> set[int]:
@@ -236,7 +238,8 @@ def party_name_tiles() -> set[int]:
     return used
 
 
-KANJI_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
+# U+3005 (iteration mark) is a 16x16 glyph too (revision 15).
+KANJI_RE = re.compile(r"[\u3005\u3400-\u9fff\uf900-\ufaff]")
 LINE_CTRL = {"<NL>", "<NL2>", "<WAIT>", "<PAGE>", "<END>", "<END_NOWAIT>"}
 
 
@@ -264,6 +267,7 @@ class Record:
     pages: list[list["Page"]] = field(default_factory=list)
     data_bank: int = 0
     data_addr: int = 0
+    relaxed: bool = False
 
 
 @dataclass
@@ -275,6 +279,7 @@ class Page:
     last_line_codes: list[int] = field(default_factory=list)
     line_codes: list[list[int]] = field(default_factory=list)
     line_used: list[set[int]] = field(default_factory=list)
+    line_codes_all: list[list[int]] = field(default_factory=list)
 
 
 def parse_dtx(path: Path) -> list[Record]:
@@ -322,13 +327,7 @@ def tokenize(text: str) -> list[str]:
             out.append(text[i:j + 1])
             i = j + 1
         else:
-            ch = text[i]
-            if ch == "\u3005" and out and KANJI_RE.match(out[-1]):
-                # The original 8x8 font has no iteration mark; expanding it to
-                # the previous kanji keeps the intended reading.
-                out.append(out[-1])
-            else:
-                out.append(ch)
+            out.append(text[i])
             i += 1
     return out
 
@@ -394,11 +393,34 @@ def split_pages(tokens: list[str]) -> list[list[str]]:
     return pages
 
 
+def page_padding(tokens: list[str], i: int) -> bytes:
+    """Fresh-window pages: after the wait at tokens[i] (<PAGE>), two empty
+    lines scroll the previous page out before the next page prints, so a
+    page never shares the window (or CHR tiles) with the one before it.
+    The line breaks match the page's own (<NL> keeps the dialogue indent)."""
+    rest = tokens[i + 1:]
+    visible = [t for t in rest if t not in LINE_CTRL and not t.startswith("<JUMP:")]
+    if not FRESH_PAGES or not visible:
+        return b""
+    nl = None
+    for t in rest:
+        if t in ("<NL>", "<NL2>"):
+            nl = t
+            break
+        if t in ("<PAGE>", "<WAIT>"):
+            break
+    if nl is None:
+        nl = "<NL>" if tokens and tokens[0] == "「" else "<NL2>"
+    code = textdata.CONTROL_TOKENS[nl]
+    return bytes((code, code))
+
+
 def compile_tokens(tokens: list[str], cmap: dict[str, int]) -> bytes:
     out = bytearray()
     i = 0
     while i < len(tokens):
         tok = tokens[i]
+
         if tok.startswith("<"):
             key = tok[1:-1].split("=", 1)[0].strip()
             if key.startswith("WORD:"):
@@ -409,6 +431,27 @@ def compile_tokens(tokens: list[str], cmap: dict[str, int]) -> bytes:
                 out += bytes((0xF1, int(key[5:], 16)))
             elif key.startswith("NAME:"):
                 out += bytes((0xF2, int(key[5:], 16)))
+            elif key.startswith("CALL:") and int(key[5:], 16) in KANJI_CALLS:
+                # Kanji pick: $EE $FF id lenA, variant A, $EE $FE lenB,
+                # variant B (kanji_overlay.asm kanji_ctl).
+                oid, name_a, name_b = KANJI_CALLS[int(key[5:], 16)]
+                vb = compile_tokens(list(name_b), cmap)
+                va = compile_tokens(list(name_a), cmap) + bytes((0xEE, 0xFE, len(vb)))
+                out += bytes((0xEE, 0xFF, oid, len(va))) + va + vb
+            elif key.startswith("CALL:") and int(key[5:], 16) in KANJI_TROOP_CALLS:
+                # Troop pick: <CALL:name helper>, $EE $FD lenA, variant A,
+                # $EE $FE lenB, variant B (kanji_overlay.asm kanji_ctl).
+                helper, text_a, text_b = KANJI_TROOP_CALLS[int(key[5:], 16)]
+                vb = compile_tokens(list(text_b), cmap)
+                va = compile_tokens(list(text_a), cmap) + bytes((0xEE, 0xFE, len(vb)))
+                out += bytes((0xF8, helper & 0xFF, helper >> 8, 0xEE, 0xFD, len(va))) + va + vb
+            elif key.startswith("CALL:") and int(key[5:], 16) in KANJI_SUFFIX_CALLS:
+                # Kanji tail: the call, $EE $FC cells (back over the kana
+                # tail), the kanji (kanji_overlay.asm kanji_ctl).
+                ptr = int(key[5:], 16)
+                cells, text = KANJI_SUFFIX_CALLS[ptr]
+                out += bytes((0xF8, ptr & 0xFF, ptr >> 8, 0xEE, 0xFC, cells))
+                out += compile_tokens(list(text), cmap)
             elif key.startswith("CALL:"):
                 ptr = int(key[5:], 16)
                 out += bytes((0xF8, ptr & 0xFF, (ptr >> 8) & 0xFF))
@@ -428,7 +471,10 @@ def compile_tokens(tokens: list[str], cmap: dict[str, int]) -> bytes:
         ch = tok
         if ch in cmap:
             code = cmap[ch]
-            out += bytes((0xEC + (code >> 8), code & 0xFF))
+            if code < 0x200:
+                out += bytes((0xEC + (code >> 8), code & 0xFF))
+            else:
+                out += bytes((0xEE, code >> 8, code & 0xFF))
         else:
             b = char_to_byte(ch)
             if b is not None:
@@ -490,6 +536,7 @@ def page_from_bytes(data: bytes, extra_used: set[int] | None = None) -> tuple[li
         page.kanji_order = list(kanji)
         page.line_codes = [list(line) for line in lines if line]
         page.line_used = [set(tiles) for tiles in line_used]
+        page.line_codes_all = [list(line) for line in lines]
         page.last_line_codes = list(lines[-1]) if lines else []
         pages.append(page)
         page = Page([])
@@ -500,14 +547,19 @@ def page_from_bytes(data: bytes, extra_used: set[int] | None = None) -> tuple[li
 
     while i < len(data):
         b = data[i]
+        if b == 0xEE and i + 1 < len(data) and data[i + 1] >= 0xFC:
+            # Kanji-pick control: both variants' kanji stay in the page.
+            i += 4 if data[i + 1] == 0xFF else 3
+            continue
         if 0xEC <= b <= 0xEE:
-            if i + 1 >= len(data):
+            n = 3 if b == 0xEE else 2
+            if i + n - 1 >= len(data):
                 break
-            code = ((b - 0xEC) << 8) | data[i + 1]
+            code = (data[i + 1] << 8 | data[i + 2]) if b == 0xEE else ((b - 0xEC) << 8) | data[i + 1]
             if code not in kanji:
                 kanji.append(code)
             lines[-1].append(code)
-            i += 2
+            i += n
             continue
         if b in (0xEF, 0xF0, 0xF1, 0xF2) and i + 1 < len(data):
             idx = data[i + 1]
@@ -575,7 +627,7 @@ _LIST_CACHE: dict[str, set[int]] = {}
 def list_tile_set(tag: str) -> set[int]:
     if tag not in _LIST_CACHE:
         if tag == "menu":
-            _LIST_CACHE[tag] = set(MENU_TILES)
+            _LIST_CACHE[tag] = set(SUBMENU_TILES)
         elif tag == "item":
             _LIST_CACHE[tag] = set(item_name_tiles())
         elif tag == "savename":
@@ -616,29 +668,206 @@ def message_kana_used(rec: Record) -> set[int]:
     return _KANA_CACHE[rec.text]
 
 
+MENU_TABLE_LO = 0x2DA1      # text_init's menu pointers: lo at $EDA1,x
+MENU_TABLE_HI = 0x2DD1      # hi at $EDD1,x
+MENU_COUNT = 0x30
+NEAR_BEFORE = 0x300         # code bytes before a print site searched for menus
+JUMP_AHEAD = 0x20           # code bytes after a JUMP target searched for menus
+_MENU_SCRIPT_TILES: dict[int, set[int]] | None = None
+
+
+def menu_script_tiles(menu: int) -> set[int]:
+    """Fixed kana of menu script `menu` (its bytes up to the next script)."""
+    global _MENU_SCRIPT_TILES
+    if _MENU_SCRIPT_TILES is None:
+        b15 = textdata.bank_bytes(15)
+        starts = [(b15[MENU_TABLE_LO + x] | (b15[MENU_TABLE_HI + x] << 8)) - 0xC000
+                  for x in range(MENU_COUNT)]
+        ends = sorted(set(starts) | {MENU_TABLE_LO})
+        _MENU_SCRIPT_TILES = {}
+        for x, start in enumerate(starts):
+            end = next((e for e in ends if e > start), None)
+            if end is None or not 0x2948 <= start < MENU_TABLE_LO:
+                continue            # not a script (entry $2F points at the table)
+            _MENU_SCRIPT_TILES[x] = menu_stream_tiles(((start, end),))
+    return _MENU_SCRIPT_TILES.get(menu, set())
+
+
+_CODE_SCAN: dict[int, tuple[list[tuple[int, int]], list[tuple[int, int]]]] = {}
+
+
+def code_scan(bank: int) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
+    """(menu opens, message prints) in an original code bank, as
+    (offset, menu index) and (offset, message index) lists.
+
+    Opens are ``ldx #menu`` + ``jsr`` text_init ($C9B8) or its two wait
+    variants ($C990, $C999), and ``jsr $C99F`` (yes/no, menu $02).  Prints
+    are ``jsr text_print_inline`` ($D10D) + the 16-bit message index.  Much
+    of the menu code is undecoded data in the decomp, so the bytes are
+    scanned.
+    """
+    if bank not in _CODE_SCAN:
+        d = textdata.bank_bytes(bank)
+        opens: list[tuple[int, int]] = []
+        prints: list[tuple[int, int]] = []
+        for i in range(len(d) - 4):
+            if (d[i] == 0xA2 and d[i + 2] == 0x20 and d[i + 4] == 0xC9
+                    and d[i + 3] in (0xB8, 0x90, 0x99)):
+                opens.append((i, d[i + 1]))
+            elif d[i] == 0x20 and d[i + 1] == 0x9F and d[i + 2] == 0xC9:
+                opens.append((i, 0x02))
+            elif d[i] == 0x20 and d[i + 1] == 0x0D and d[i + 2] == 0xD1:
+                prints.append((i, d[i + 3] | (d[i + 4] << 8)))
+        _CODE_SCAN[bank] = (opens, prints)
+    return _CODE_SCAN[bank]
+
+
+def message_label(idx: int) -> str:
+    return f"b10_msg_{idx:03d}" if idx < 0x200 else f"b11_msg_{idx - 0x200:03d}"
+
+
+def menus_near(bank: int, lo: int, hi: int) -> set[int] | None:
+    found = {menu for off, menu in code_scan(bank)[0] if lo <= off < hi}
+    return found or None
+
+
+_JUMP_TARGETS: list[int] | None = None
+
+
+def bank14_jump_targets() -> list[int]:
+    """Bank-14 offsets that messages JUMP to (menu routine entries)."""
+    global _JUMP_TARGETS
+    if _JUMP_TARGETS is None:
+        from kanji_common import DTX_FILES
+        found: set[int] = set()
+        for path in DTX_FILES:
+            for rec in parse_dtx(path):
+                for ptr in re.findall(r"<JUMP:([0-9A-Fa-f]{4})>", rec.text):
+                    if 0x8000 <= int(ptr, 16) < 0xC000:
+                        found.add(int(ptr, 16) - 0x8000)
+        _JUMP_TARGETS = sorted(found)
+    return _JUMP_TARGETS
+
+
+def site_menus(bank: int, off: int) -> set[int] | None:
+    """Menus that can be open at print site `off`: those opened in the
+    NEAR_BEFORE bytes before it and, in bank 14, every menu opened since
+    the menu routine entry (the nearest JUMP target) before it (revision 16:
+    the partner shop opens its menu $1F at $92BE and prints 「...殿は隊列から
+    外せないようですが」 at $9445)."""
+    lo = off - NEAR_BEFORE
+    if bank == 14:
+        entries = [t for t in bank14_jump_targets() if t <= off]
+        if entries:
+            lo = min(lo, entries[-1])
+    return menus_near(bank, lo, off)
+
+
+def menu_context_tiles(rec: Record) -> set[int]:
+    """Menu kana that can be on the band page while this message is shown.
+
+    The game keeps a menu window up beside the text window while menu code
+    prints its replies, and a message whose JUMP enters menu code leaves the
+    window up while that code opens its menu (revision 16: the partner
+    shop's のうりょく/くわえる/はずす/かいこ, garbled by 「...様、ご用件を
+    ...」 and by the replies printed under it).
+
+    - Printed by bank-14/15 code: the menus that code opened before the
+      print (site_menus; the full submenu set if none).
+    - JUMP into bank 14 or the fixed bank ($F9, high bit set): the menu the
+      target opens in its first JUMP_AHEAD bytes (the full submenu set if
+      none).
+    - Bank-13 event code (prints, or JUMP high bit clear) opens only
+      yes/no and きろく/よぶ next to a message.
+    """
+    labels = set(rec.labels)
+    tiles: set[int] = set()
+    for bank in (14, 15):
+        for off, idx in code_scan(bank)[1]:
+            if message_label(idx) in labels:
+                menus = site_menus(bank, off)
+                tiles |= (set().union(*(menu_script_tiles(m) for m in menus))
+                          if menus else SUBMENU_TILES)
+    if any(message_label(idx) in labels for _off, idx in code_scan(13)[1]):
+        tiles |= EVENT_MENU_TILES
+    for ptr in re.findall(r"<JUMP:([0-9A-Fa-f]{4})>", rec.text):
+        target = int(ptr, 16)
+        if target >= 0x8000:
+            # $8000-$BFFF: bank 14; $C000-$FFFF: the fixed bank
+            bank, off = (15, target - 0xC000) if target >= 0xC000 else (14, target - 0x8000)
+            menus = menus_near(bank, off, off + JUMP_AHEAD)
+            tiles |= (set().union(*(menu_script_tiles(m) for m in menus))
+                      if menus else SUBMENU_TILES)
+        else:
+            tiles |= EVENT_MENU_TILES
+    return tiles
+
+
+def menu_context(rec: Record) -> str:
+    """Report tag: "sub" (bank-14/15 menu code), "event" (bank 13) or ""."""
+    labels = set(rec.labels)
+    banks: set[int] = set()
+    for bank in (13, 14, 15):
+        if any(message_label(idx) in labels for _off, idx in code_scan(bank)[1]):
+            banks.add(bank)
+    for ptr in re.findall(r"<JUMP:([0-9A-Fa-f]{4})>", rec.text):
+        banks.add(14 if int(ptr, 16) >= 0x8000 else 13)
+    return "sub" if banks & {14, 15} else "event" if 13 in banks else ""
+
+
 def extra_for(rec: Record) -> set[int]:
     """Kana that must stay on the private band page for this message.
 
-    The scene is no longer shared, so only prompt lists that keep their own
-    kana on screen need extra reservations.
+    Prompt lists keep their own kana on screen (list tags), and a message
+    printed by or leading into menu code shares the band page with that
+    code's menu window (menu_context_tiles).
     """
     tag = message_list_tag(rec)
-    if tag != "none":
-        return set(list_tile_set(tag))
-    return set()
+    extra = set(list_tile_set(tag)) if tag != "none" else set()
+    if tag != "savename":
+        extra |= menu_context_tiles(rec)
+    return extra
+
+
+_EXPOSURE: dict[int, int] | None = None
+
+
+def tile_exposure(tile: int) -> int:
+    """How likely the game draws this kana tile on the band page while some
+    message is shown: 0 only in messages, 1 name-entry grid only,
+    2 fixed submenu kana, 3 runtime officer/item names (the lists that menu
+    code draws, which no reservation covers).  Kanji take the least exposed
+    free tiles first, so a window the compiler did not foresee keeps its
+    kana unless the page is kanji-heavy."""
+    global _EXPOSURE
+    if _EXPOSURE is None:
+        names = party_name_tiles() | item_name_tiles()
+        _EXPOSURE = {}
+        for t in range(128):
+            _EXPOSURE[t] = (3 if t in names else 2 if t in SUBMENU_TILES
+                            else 1 if t in NAME_GRID_TILES else 0)
+    return _EXPOSURE[tile]
+
+
+def page_line_count(page: Page) -> int:
+    return max(len(page.line_codes_all or page.line_codes), len(page.line_used), 1)
 
 
 def page_future_used(pages: list[Page], index: int) -> set[int]:
-    """Kana tiles that can overwrite a still-visible kanji line.
+    """Kana that this page's kanji tiles must avoid.
 
-    The window keeps up to three lines from earlier pages.  Only the first
-    three lines of the next two pages can be drawn while those lines are
-    visible, so reserve those lines rather than whole future pages.
+    The runtime keeps the kanji of the last three visible lines active for
+    the whole of the next page.  So a kanji on this page must avoid every
+    kana of each later page that starts while one of this page's lines can
+    still be on screen (fewer than three lines after this page's end).
     """
     used: set[int] = set(pages[index].used)
-    for page in pages[index + 1:index + 3]:
-        for tiles in page.line_used[:3]:
-            used |= tiles
+    lines_after = 0
+    for page in pages[index + 1:]:
+        if lines_after >= 3:
+            break
+        used |= page.used
+        lines_after += page_line_count(page)
     return used
 
 
@@ -649,52 +878,80 @@ def assign_page_tiles(page: Page, extra: set[int], reserved_extra: set[int] | No
     if not page.kanji_order:
         return {}
     reserved = set(page.used) | set(extra) | set(reserved_extra or ())
-    free = [tile for tile in range(128) if tile not in reserved]
+    free = sorted((tile for tile in range(128) if tile not in reserved),
+                  key=lambda tile: (tile_exposure(tile), tile))
     if len(free) < 4 * len(page.kanji_order) + PAGE_TILE_MARGIN:
         return None
     return {code: tuple(free[i * 4:i * 4 + 4])
             for i, code in enumerate(page.kanji_order)}
 
 
-def assign_pages_with_reserved(
-        pages: list[Page], extra: set[int]
-) -> list[tuple[dict[int, tuple[int, int, int, int]] | None, set[int]]]:
-    """Assign pages in order with both backward and forward tile reservations.
+def page_lines(page: Page) -> list[tuple[set[int], list[int]]]:
+    codes = page.line_codes_all or page.line_codes
+    out = []
+    for n in range(max(len(codes), len(page.line_used))):
+        kana = set(page.line_used[n]) if n < len(page.line_used) else set()
+        kanji = list(codes[n]) if n < len(codes) else []
+        out.append((kana, kanji))
+    return out
 
-    - ``carry``: the last three visible lines of earlier pages.  Their kanji
-      tiles must not be overwritten by this page's uploads.
-    - ``future``: kana tiles of this and the next two pages.  This page's
-      kanji must not sit on a tile that a nearby page will restore to kana.
 
-    Together these keep both the previous visible lines and the current page's
-    kana correct across a page break.
+RELAXED_LABELS: set[str] = set()
+# Each wait starts a fresh window (page_flip in the fixed bank clears the
+# window after the wait), so a page shares tiles only with itself.
+import os as _os
+FRESH_PAGES = _os.environ.get("KANJI_FRESH_PAGES", "1") == "1"
+
+
+def assign_pages_full(pages: list[Page], extra: set[int], relaxed: bool = False):
+    """Assign kanji tiles page by page.
+
+    Returns one (tiles, reserved, keep, clean) tuple per page:
+    - ``tiles``: code -> four tiles, or None when the page does not fit;
+    - ``keep``: kanji tiles on the (up to) three earlier lines still on
+      screen when the page starts; they stay active;
+    - ``clean``: this page's kana tiles that an earlier page of the message
+      used as kanji; the runtime restores them before printing.
+    Slots avoid this page's kana, every tile on the visible earlier lines,
+    and the kana of the next three lines.
     """
-    result: list[tuple[dict[int, tuple[int, int, int, int]] | None, set[int]]] = []
-    rolling: list[set[int]] = []
+    result = []
+    history: list[tuple[set[int], set[int]]] = []   # (kana, kanji tiles) per line
+    earlier_slots: set[int] = set()
     for i, page in enumerate(pages):
+        visible = [] if FRESH_PAGES else history[-3:]
         carry: set[int] = set()
-        for line in rolling[-3:]:
-            carry |= line
-        future = page_future_used(pages, i)
+        keep: set[int] = set()
+        for kana, kanji_tiles in visible:
+            carry |= kanji_tiles if relaxed else (kana | kanji_tiles)
+            keep |= kanji_tiles
+        future = set(page.used) if FRESH_PAGES else page_future_used(pages, i)
         reserved_extra = carry | future
         tiles = assign_page_tiles(page, extra, reserved_extra)
         reserved = set(page.used) | extra | reserved_extra
-        result.append((tiles, reserved))
+        clean = {t for t in page.used if t in earlier_slots and t not in keep}
+        result.append((tiles, reserved, keep, clean))
         if tiles is None:
             break
-        new_lines: list[set[int]] = []
-        for line_codes in page.line_codes:
-            line_tiles: set[int] = set()
-            for code in line_codes:
+        for t4 in tiles.values():
+            earlier_slots.update(t4)
+        for kana, codes in page_lines(page):
+            kt: set[int] = set()
+            for code in codes:
                 if code in tiles:
-                    line_tiles.update(tiles[code])
-            new_lines.append(line_tiles)
-        rolling = (rolling + new_lines)[-3:]
+                    kt.update(tiles[code])
+            history.append((kana, kt))
     return result
 
 
-def assign_pages(pages: list[Page], extra: set[int]) -> list[dict[int, tuple[int, int, int, int]] | None]:
-    return [tiles for tiles, _ in assign_pages_with_reserved(pages, extra)]
+def assign_pages_with_reserved(
+        pages: list[Page], extra: set[int], relaxed: bool = False
+) -> list[tuple[dict[int, tuple[int, int, int, int]] | None, set[int]]]:
+    return [(t, r) for t, r, _k, _c in assign_pages_full(pages, extra, relaxed)]
+
+
+def assign_pages(pages: list[Page], extra: set[int], relaxed: bool = False) -> list[dict[int, tuple[int, int, int, int]] | None]:
+    return [tiles for tiles, _ in assign_pages_with_reserved(pages, extra, relaxed)]
 
 
 def page_token_width(tokens: list[str]) -> list[int]:
@@ -756,16 +1013,67 @@ def split_failing_page(tokens: list[str], page_index: int) -> list[str]:
     return tokens[:i] + ["<NL2>", "<PAGE>"] + tokens[i:]
 
 
+WIDTH_ISSUES: list[str] = []
+SPLIT_COUNT = [0]
+
+
+def line_width_issues(rec: "Record", data: bytes) -> list[str]:
+    """Lines wider than the window: 18 cells, 17 after an indenting break
+    ($FA <NL>, $FC <PAGE>).  Runtime names count 8 cells."""
+    issues = []
+    width, cap, line = 0, 18, 0
+    i = 0
+    while i < len(data):
+        b = data[i]
+        if b == 0xEE and i + 2 < len(data) and data[i + 1] >= 0xFC:
+            # Pick: count variant A only ($EE $FE n then skips variant B);
+            # $EE $FC n steps back n cells.
+            if data[i + 1] == 0xFC:
+                width -= data[i + 2]
+            i += {0xFF: 4, 0xFD: 3, 0xFC: 3}.get(data[i + 1], 3 + data[i + 2])
+            continue
+        if 0xEC <= b <= 0xEE:
+            width += 2
+            i += 3 if b == 0xEE else 2
+            continue
+        if b in (0xEF, 0xF0, 0xF1, 0xF2):
+            width += 8
+            i += 2
+            continue
+        if 0xF3 <= b <= 0xF7:
+            width += 8
+            i += 1
+            continue
+        if b in (0xF8, 0xF9):
+            width += 8 if b == 0xF8 else 0
+            i += 3
+            continue
+        if b >= 0xFA:
+            if width > cap:
+                issues.append(f"{rec.labels[0]} line {line}: {width} > {cap}")
+            cap = 17 if b in (0xFA, 0xFC) else 18
+            width = 0
+            line += 1
+            i += 1
+            continue
+        width += 1
+        i += 1
+    if width > cap:
+        issues.append(f"{rec.labels[0]} line {line}: {width} > {cap}")
+    return issues
+
+
 def build() -> int:
     cmap = code_map()
-    if len(cmap) > 768:
-        raise SystemExit(f"too many kanji: {len(cmap)}")
+    from kanji_common import MAX_GLYPHS
+    if len(cmap) > MAX_GLYPHS:
+        raise SystemExit(f"too many kanji: {len(cmap)} > {MAX_GLYPHS}")
     OUT.mkdir(parents=True, exist_ok=True)
 
     records: list[Record] = []
     index_rec: dict[tuple[int, int], Record] = {}
-    for bank, path in ((10, PLAN / "bank10_messages_kanji_fixed.dtx"),
-                       (11, PLAN / "bank11_messages_kanji_fixed.dtx")):
+    from kanji_common import DTX_FILES
+    for bank, path in zip((10, 11), DTX_FILES):
         for rec in parse_dtx(path):
             records.append(rec)
             for label in rec.labels:
@@ -777,24 +1085,21 @@ def build() -> int:
                     index_rec[(bank, idx)] = rec
 
     # Reflow and page-split until every page has enough free kana tiles.
-    for rec in records:
-        extra = extra_for(rec)
-        tokens = reflow(tokenize(rec.text))
-        page_tiles = None
+    # A message whose visible earlier lines leave too few tiles even after
+    # splitting falls back to carrying only the kanji tiles (listed in the
+    # report as relaxed_labels).
+    def fit(rec: Record, tokens: list[str], extra: set[int], relaxed: bool):
         for _ in range(60):
             data = compile_tokens(tokens, cmap)
             if not data:
                 # An empty message record must still be a valid END stream;
                 # a zero-length data area would make its stub point at the
                 # next record.
-                data = b"\xFF"
+                data = bytes((0xFF,))
             pages = page_from_bytes(data, extra)[0]
-            assignments = assign_pages(pages, extra)
+            assignments = assign_pages(pages, extra, relaxed)
             if len(assignments) == len(pages) and all(t is not None for t in assignments):
-                rec.data = data
-                rec.pages = pages
-                page_tiles = assignments
-                break
+                return data, pages, assignments
             failed = None
             for i, tiles in enumerate(assignments):
                 if tiles is None:
@@ -805,19 +1110,30 @@ def build() -> int:
             token_pages = split_pages(tokens)
             if failed >= len(token_pages):
                 failed = len(token_pages) - 1
-            try:
-                tokens = split_failing_page(tokens, failed)
-            except Exception as exc:
-                raise RuntimeError(
-                    f"{rec.labels[:1]} page {failed + 1}: {exc}; "
-                    f"tokens={len(tokens)} pages={len(pages)} "
-                    f"text={rec.text[:80]!r}") from exc
-        else:
-            raise RuntimeError(f"{rec.labels[:1]}: could not fit after 60 splits")
+            tokens = split_failing_page(tokens, failed)
+            SPLIT_COUNT[0] += 1
+        raise RuntimeError(f"{rec.labels[:1]}: could not fit after 60 splits")
 
+    for rec in records:
+        extra = extra_for(rec)
+        tokens = reflow(tokenize(rec.text))
+        rec.relaxed = False
+        try:
+            rec.data, rec.pages, page_tiles = fit(rec, tokens, extra, False)
+        except RuntimeError:
+            rec.relaxed = True
+            RELAXED_LABELS.update(rec.labels[:1])
+            rec.data, rec.pages, page_tiles = fit(rec, tokens, extra, True)
+
+        WIDTH_ISSUES.extend(line_width_issues(rec, rec.data))
+        full = assign_pages_full(rec.pages, extra, rec.relaxed)
         page_blobs = []
-        for page, tiles in zip(rec.pages, page_tiles):
-            blob = bytearray((len(page.kanji_order),))
+        for page, (tiles, _r, keep, clean) in zip(rec.pages, full):
+            keep_l = sorted(t for t in keep if t < 0x80)
+            clean_l = sorted(t for t in clean if t < 0x80)
+            blob = bytearray((len(keep_l),)) + bytes(keep_l)
+            blob += bytes((len(clean_l),)) + bytes(clean_l)
+            blob.append(len(page.kanji_order))
             for code in page.kanji_order:
                 t4 = tiles[code]
                 if any(t >= 0x80 for t in t4):
@@ -826,7 +1142,13 @@ def build() -> int:
             page_blobs.append(bytes(blob))
         if len(page_blobs) > MAX_PAGES:
             raise SystemExit(f"message has {len(page_blobs)} pages > {MAX_PAGES}")
-        rec.meta_blob = bytes((len(page_blobs),)) + b"".join(page_blobs)
+        kana = bytearray(16)
+        for page in rec.pages:
+            for t in page.used:
+                if 0 <= t < 0x80:
+                    kana[t >> 3] |= 0x80 >> (t & 7)
+        rec.meta_blob = (bytes((len(page_blobs),)) + bytes(kana)
+                         + b"".join(page_blobs))
 
     # Deduplicate identical message streams and page assignments.
     canon: dict[tuple[bytes, bytes], Record] = {}
@@ -844,6 +1166,17 @@ def build() -> int:
     overlay = overlay_path.read_bytes()
     if len(overlay) != OVERLAY_SIZE:
         raise SystemExit(f"overlay padding is {len(overlay)} bytes, expected {OVERLAY_SIZE}")
+    from kanji_common import GLYPHS_PER_BANK
+    glyphs = (OUT / "kanji_font.bin").stat().st_size // 32
+    glyph_banks = set(range(23, 23 + max(2, -(-glyphs // GLYPHS_PER_BANK))))
+    need = sum(len(rec.data) + len(rec.meta_blob) for rec in unique)
+    banks = list(TEXT_BANKS)
+    for extra in TEXT_BANKS_EXTRA:
+        if need <= len(banks) * TEXT_BANK_LIMIT * 0.97:
+            break
+        if extra not in glyph_banks:
+            banks.append(extra)
+    TEXT_BANKS[:] = banks
     bank_data = {b: bytearray(0x4000) for b in TEXT_BANKS}
     for b in TEXT_BANKS:
         bank_data[b][TEXT_BANK_LIMIT:TEXT_BANK_LIMIT + OVERLAY_SIZE] = overlay
@@ -944,7 +1277,8 @@ def build() -> int:
     for rec in unique:
         extra = extra_for(rec)
         pages = page_from_bytes(rec.data, extra)[0]
-        assignments = assign_pages_with_reserved(pages, extra)
+        assignments = assign_pages_with_reserved(pages, extra,
+                                                 getattr(rec, "relaxed", False))
         for page, (tiles, reserved) in zip(pages, assignments):
             if tiles is None:
                 over_capacity += 1
@@ -979,6 +1313,16 @@ def build() -> int:
             if reservation_sizes else 0,
         },
         "menu_stream_tiles": len(MENU_TILES),
+        "submenu_tiles": len(SUBMENU_TILES - RESERVED_TILES),
+        "event_menu_tiles": len(EVENT_MENU_TILES - RESERVED_TILES),
+        "menu_context": {ctx or "none": sum(1 for rec in unique if menu_context(rec) == ctx)
+                         for ctx in ("", "sub", "event")},
+        "menu_context_conflicts": sorted(
+            rec.labels[0] for rec in unique if rec.labels and any(
+                t in menu_context_tiles(rec)
+                for tiles in assign_pages(page_from_bytes(rec.data, extra_for(rec))[0],
+                                          extra_for(rec), getattr(rec, "relaxed", False))
+                if tiles for t4 in tiles.values() for t in t4)),
         "party_name_tiles": len(party_name_tiles()),
         "item_name_tiles": len(item_name_tiles()),
         "list_tags": {tag: sum(1 for value in tags.values() if value == tag)
@@ -987,12 +1331,18 @@ def build() -> int:
         "max_meta_pages": max((rec.meta_blob[0] for rec in unique), default=0),
         "data_banks": sorted({rec.data_bank for rec in unique}),
         "overlay_bytes": len(overlay),
+        "relaxed_labels": sorted(RELAXED_LABELS),
+        "width_issues": len(WIDTH_ISSUES),
+        "split_pages": SPLIT_COUNT[0],
     }
+    (OUT / "kanji_width_issues.txt").write_text(chr(10).join(WIDTH_ISSUES) + chr(10), encoding="utf-8")
     (OUT / "kanji_text_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     if max_slots > MAX_PAGE_ENTRIES:
         raise RuntimeError(f"page needs {max_slots} entries; limit is {MAX_PAGE_ENTRIES}")
     if over_capacity:
         raise RuntimeError(f"{over_capacity} pages do not fit after splitting")
+    if report["menu_context_conflicts"]:
+        raise RuntimeError(f"kanji on menu kana: {report['menu_context_conflicts'][:8]}")
     print(json.dumps(report, indent=2))
     return 0
 
