@@ -48,7 +48,7 @@ def expected(fixed: bytes, idx: int, a5: int, before: bytes) -> bytes:
 
 def main() -> int:
     kanji = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "decomp" / "build" / "rom_kanji.nes"
-    lst = (ROOT / "decomp" / "build" / "kanji" / "surom_b15.lst").read_text(encoding="utf-8", errors="ignore")
+    lst = (ROOT / "decomp" / "build" / "kanji" / "mmc3_b15.lst").read_text(encoding="utf-8", errors="ignore")
     m = re.search(r"^0(C[0-9A-F]{3}) 60\s+rts", lst[lst.index("load_text_graphics:"):], re.M)
     lua_src = (ROOT / "tools" / "lua" / "palette_loads.lua").read_text(encoding="utf-8")
     lua_src = re.sub(r"local A_EXIT  = 0x[0-9A-F]{4}", f"local A_EXIT  = 0x{m.group(1)}", lua_src)

@@ -3,7 +3,7 @@
 
 A Lua line of the form   local NAME = 0x1234  -- @label@
 gets 0x1234 replaced by the address of `label:` in
-decomp/build/kanji/hack.lst, kanji_overlay.lst or surom_b15.lst (first
+decomp/build/kanji/hack.lst, kanji_overlay.lst or mmc3_b15.lst (first
 listing that defines it).  Usage: python tools/lua_addrs.py <lua>...
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LSTS = [ROOT / "decomp" / "build" / "kanji" / n
-        for n in ("hack.lst", "kanji_overlay.lst", "surom_b15.lst")]
+        for n in ("hack.lst", "kanji_overlay.lst", "mmc3_b15.lst")]
 
 
 def labels() -> dict[str, int]:

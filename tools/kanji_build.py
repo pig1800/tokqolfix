@@ -30,8 +30,9 @@ HACK_BANKS = (23, 24)          # grown by build_hack_banks to fit the font
 
 # Fixed-bank regions assigned to the hooks (revision 11; $C460-$C47D, the
 # dead MMC1 reset/init, and $F004-$F00B since the MMC3 port, revision 21).
-HOOK_RANGES = ((0xC5A6, 0xC6D1), (0xC460, 0xC47D), (0xC4BA, 0xC4CA),
-               (0xD291, 0xD2B6), (0xF004, 0xF039), (0xFFE0, 0xFFEF))
+HOOK_RANGES = ((0xC5A6, 0xC6D1), (0xC460, 0xC47D), (0xC489, 0xC49D),
+               (0xC4AD, 0xC4B9), (0xC4BA, 0xC4CA), (0xD291, 0xD2B6),
+               (0xF004, 0xF039), (0xFFE0, 0xFFEF))
 
 # load_text_graphics and the palette tables it alone reads ($C5A6-$C6D1).
 # The routine is rewritten in place to read the tables from the hack bank;
@@ -62,7 +63,7 @@ PATCH_SITES = {
     0xEF0B: bytes((0xA9, 0x08, 0x20, 0xAA, 0xC4)),  # lda #8 / jsr restore_bank_after_nmi
     0xEF31: bytes((0x68, 0xA8, 0x68)),       # NMI epilogue start (pla/tay/pla)
     0xD1C8: bytes((0x20, 0x56, 0xD4)),       # <PAGE> wait: jsr text_draw_char
-    0xC44F: bytes((0x00, 0xF0)),             # clear_oam_shadow: ldx #$00 / beq
+    0xFFFE: bytes((0x79, 0xEE)),             # IRQ vector: the NMI handler
     0xDBED: bytes((0x7C, 0xDC)),             # text_render_cell: jmp loc_DC7C
     0xD416: bytes.fromhex("a5f4c907d004a90ad007bd19031002a90a"),  # text_redraw_lines cell copy
 }
@@ -118,7 +119,7 @@ def listing_bytes(listing: Path, ranges) -> dict[int, int]:
 
 
 def write_hook_constants(labels: dict[str, int]) -> None:
-    need = ("main_prg", "nmi_prg", "far_head", "call_hack", "c343_hook",
+    need = ("main_prg", "nmi_prg", "irq_handler", "far_head", "call_hack", "c343_hook",
             "ef08_hook", "ef08_gate", "ef31_hook", "ef31_gate", "chr1_scene", "wait_text", "scroll_text",
             "page_flip", "window_clear", "ltg_copied")
     for label in need:
@@ -276,15 +277,11 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     apply_patch(bank, 0xC343, bytes((0x4C, labels["c343_hook"] & 0xFF,
                                      labels["c343_hook"] >> 8)))
 
-    # clear_oam_shadow leaves OAM slot 0 to the NMI (revision 16).  The
-    # game's sprites start at slot 1 (update_oam), and the NMI rewrites
-    # slot 0 every frame (band sprite or hidden).  The screen fades call
-    # the clear every step; with slot 0 hidden the band could not switch
-    # and the kanji showed from the scene page for the whole fade.
-    # The original's beq after ldx #$00 relies on Z; with ldx #$04 it must
-    # be bne, or the clear falls into hide_sprites ($C452, from sprite $A1)
-    # and the field sprites stayed on the officer screen (revision 20).
-    apply_patch(bank, 0xC44F, bytes((0x04, 0xD0)))
+    # The MMC3 scanline IRQ switches the band page (revision 21b); the
+    # original's IRQ vector pointed at the NMI handler (no IRQ source).
+    # Sprite 0 and clear_oam_shadow are the game's own again.
+    apply_patch(bank, 0xFFFE, bytes((labels["irq_handler"] & 0xFF,
+                                     labels["irq_handler"] >> 8)))
 
     # text_render_cell draws the battle pool's kanji tiles ($A4-$DF), which
     # have bit 7 set like the row buffer's end codes (revision 18).

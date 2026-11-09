@@ -1,5 +1,74 @@
 # Changelog
 
+## 2026-11-09 — revision 21: MMC3; the band switch is a scanline IRQ
+
+Request: move the kanji target to MMC3 (the revision-17 assessment's
+option 2: a line interrupt instead of the sprite-0 wait, finer CHR banks).
+
+**21a, the mapper layer** (sprite-0 band kept, every gate against
+revision 20):
+
+- Mapper 4 (NES 2.0: 32 x 16 KiB PRG, 16 KiB CHR RAM, 8 KiB battery PRG
+  RAM).  PRG mode 0: every 16 KiB game bank is two 8 KiB halves (R6/R7);
+  bank 31 is the fixed bank at `$C000-$FFFF`.  The SUROM outer-bank
+  register and the `$BFFF` marker are gone.
+- The game's MMC1 routines are replaced in place: `set_bank_lock` keeps
+  its `sta current_prg_bank` and jumps to `main_prg`,
+  `restore_bank_after_nmi` (NMI only) jumps to `nmi_prg`; `mmc1_reset`,
+  `mmc1_init` and the rest of both bodies are dead (no other reference in
+  any code bank; the two byte patterns that point there are glyph and map
+  data).  The reset writes every MMC3 register before it touches
+  `$C000-$DFFF` (the power-on PRG mode is unknown).
+- Bank-switch protocol: the MMC1 lock byte `$EB` (used only by the
+  rewritten routines) is the bank-select shadow `MMC3_SEL`.  The main
+  thread stores it before every `$8000` write; interrupt code writes
+  `$8000` directly and leaves with `$8000 = MMC3_SEL | $80`.  An interrupt
+  between a select and its data write changes nothing, so the retry loops
+  are gone.
+- CHR mode 1: R0 = BG tiles `$00-$7F` (scene page 1 or band page 2), R1 =
+  `$80-$FF` (always the scene page), R2-R5 = sprites.  The band page is
+  only 2 KiB now: upper tiles are no longer copied to it or marked stale,
+  which also halves the scene-load copies (boot 3 frames longer than the
+  original instead of 6).
+- `tools/mss_to_mmc3.py` converts Mesen states of the SUROM build: MMC3
+  registers and mapping arrays from the MMC1 ones, `$EB` = `$87`, the
+  CPU's interrupt-disable flag cleared, OAM slot 0 hidden.  The gates' states are
+  in `out/user/m3/`.  The garble gates track R0/R1 data writes per
+  scanline; `band_check` compares only tiles `$00-$7F`.
+
+**21b, the scanline IRQ:**
+
+- The MMC3 IRQ switches R0 to the band page in the window's top border
+  row (`irq_handler`, fixed bank, IRQ vector `$FFFE`, `cli` at reset; the
+  APU frame IRQ is inhibited and there is no DMC).  The NMI arms it after
+  the frame's last PPU access (the counter also counts the A12 rises of
+  vblank VRAM traffic) for latch T + 2, T = the border row's first line.
+  Frames whose game queue flushed at most 40 bytes reach the arm before
+  the pre-render line's clock (standard path: at most 32 bytes, latest
+  261.3; 48 bytes and more 263.9-278.7); heavier frames keep the IRQ's own
+  re-arm for the same line one frame later, which can only come early.
+  No switch while no band is shown or in busy mode; the busy-mode NMI,
+  split frames and rendering-off frames disable it.
+- Gone: the sprite-0 wait in the NMI epilogue (15,000-19,000 cycles per
+  band frame), the sprite tile at page-0 `$FF`, sprite placement and the
+  vblank `OAMDATA` fix.  OAM slot 0 and `clear_oam_shadow` are the game's
+  again (`$C44F` original).  The epilogue runs only in split frames.
+- Measured in Mesen: the counter takes one more clock at the start of
+  line 0 on every other frame, and one more when vblank ends with the PPU
+  address below `$1000`; with latch T + 2 the switch lands in border
+  lines 0-2.  `band_check`: switch minus band top -4..+6 (82 of 3,596
+  frames outside 0-7: heavy frames 1-4 lines early, late arms up to +6),
+  0 mismatching cells.
+- Messages start at 608/888/1589/2363/3297 (original 607/888/1589/2359/
+  3290; revision 20: 607/888/1593/2367/3302).
+
+Gates: garble 0 (standard path x6, play-test state, normal and boss
+battles, forced level-up, save fade); shop paths only the state's own
+episode (42/84/43/89/123 frames; revision 20: 49/87/50/92/130); deadline
+0 late (costliest unit 733 cycles; was 776); taint 0/0, min SP
+`$12`/`$0F`/`$0F`; ram 0, min SP `$16`; zp 0; mask 0; palettes 8/0;
+opening frames 11-301 pixel-identical (3-frame boot offset).
+
 ## 2026-11-09 — revision 20: battle text scrolls again; officer screen sprites; text source
 
 Play-test report: (1) a line-break improvement for 「強い武将は前…」;

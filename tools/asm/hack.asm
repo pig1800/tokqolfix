@@ -43,9 +43,12 @@ OFF_UNITS    = 16           ; work units per NMI with rendering off
 nmi_ef08:
     lda nmi_busy
     beq @live
-    ; Busy frame: rendering is off and the main thread owns the PPU.  Put
-    ; the scene page back for the game's own CHR writes unless a hack
-    ; routine on the main thread has the band page selected on purpose.
+    ; Busy frame: rendering is off and the main thread owns the PPU (its
+    ; CHR writes would clock the IRQ counter: no IRQ until a light frame
+    ; arms it).  Put the scene page back for the game's own CHR writes
+    ; unless a hack routine on the main thread has the band page selected
+    ; on purpose.
+    sta MMC3_IRQ_OFF
     lda KANJI_MAINCHR
     bne @busy_q
     lda #1
@@ -61,19 +64,12 @@ nmi_ef08:
     ; Everything up to the scroll restore races the end of vblank: keep it
     ; short.  CPU-only bookkeeping (queue scan, DMA flag, upload marks,
     ; page select) runs after the frame's last PPU access.
-    lda KANJI_SPR0
-    cmp #SPR0_DIRTY
-    bne @sprite_clean
-    lda #SPR0_STALE
-    sta KANJI_SPR0
-    lda KANJI_NFLAGS
-    and #<~FLAG_SPRITE_OK
-    sta KANJI_NFLAGS
-@sprite_clean:
     jsr anim_check
     bcc @no_anim
     ; The game's NMI uploaded a CHR-animation step and ran long: no VRAM
-    ; work this frame (not even a replay).
+    ; work this frame (not even a replay), no IRQ arm.
+    lda #$FF
+    sta KANJI_QBYTES
     jsr scene_page_now
     sec
     jsr queue_scan
@@ -83,6 +79,7 @@ nmi_ef08:
     sec
     sbc KANJI_QPOS
     tax                         ; bytes the game flushed this frame
+    stx KANJI_QBYTES
     ; Dormant (no band shown, no request): only track stale tiles.  The
     ; band page is brought up to date when the next message starts
     ; (REQ_SYNC), so no restore runs while nobody can see page 2.
@@ -166,25 +163,21 @@ nmi_ef08:
     jsr queue_scan
 @post_nounit:
     jsr nt_rescan               ; window-gone check, now past the deadline
+    jsr irq_post                ; after the frame's last PPU access
     ; No unit ran: CHR register 1 still holds the scene page unless the
     ; last epilogue switched to the band page.
     lda KANJI_NFLAGS
     and #FLAG_PAGE2
     beq @page_kept
 @post:
-    ; Scene page for the coming frame; sprite-0 marker of this frame's DMA.
+    ; Scene page for the coming frame.
     lda KANJI_MAINCHR
     bne @page_kept
     lda #1
     jsr wr_reg1
 @page_kept:
     lda KANJI_NFLAGS
-    and #<~(FLAG_DMA_SPRITE|FLAG_PAGE2|FLAG_PPU_DIRTY)
-    ldx $0200
-    cpx #$F0
-    bcs @nodma
-    ora #FLAG_DMA_SPRITE
-@nodma:
+    and #<~(FLAG_HIT|FLAG_MISS|FLAG_PAGE2|FLAG_PPU_DIRTY)
     sta KANJI_NFLAGS
     lda KANJI_REQ
     cmp #REQ_MARK
@@ -212,7 +205,7 @@ nmi_ef08:
     lda #0
     sta KANJI_REQ
 @picked:
-    jmp spr0_place              ; sprite 0 for the next frame's OAM DMA
+    rts
 
 ; The game's NMI uploads a CHR-animation step in flush_palette: 4 tiles at
 ; ($3C:$3B) - $40, then $39 += $40.  The fixed-bank block hook only selects
@@ -245,11 +238,6 @@ anim_check:
     sec
     rts
 @page0:
-    cmp #$0F
-    bne @seen
-    lda KANJI_NFLAGS
-    and #<~FLAG_SPRITE_OK
-    sta KANJI_NFLAGS
 @seen:
     sec
     rts
@@ -330,11 +318,6 @@ queue_scan:
     jsr mark_range
     jmp @skip
 @page0:
-    cmp #$0F
-    bne @skip
-    lda KANJI_NFLAGS
-    and #<~FLAG_SPRITE_OK
-    sta KANJI_NFLAGS
 @skip:
     sty KANJI_T0
     txa
@@ -573,37 +556,12 @@ work_unit:
     jmp upload_unit
 @no_req:
     jsr probe_window
-    lda KANJI_BAND
-    beq @restore
-    lda KANJI_NFLAGS
-    and #FLAG_SPRITE_OK
-    bne @restore
-    jsr write_sprite_tile
-    clc
-    rts
-@restore:
     jmp restore_next
 
 ; One unit of vblank work in a light frame, with no searching.  Order:
-; the sprite-0 tile (the band must be able to go live before any kanji is
-; uploaded and shown), a pending request, the window probe (every 8th
-; frame), the restore picked in advance by the epilogue (KANJI_PICK).
+; a pending request, the window probe (every 8th frame), the restore
+; picked in advance by the epilogue (KANJI_PICK).
 light_unit:
-    lda KANJI_BAND
-    beq @req
-    lda KANJI_NFLAGS
-    and #FLAG_SPRITE_OK
-    bne @placed
-    jmp write_sprite_tile
-@placed:
-    ; Sprite 0 went out with this NMI's OAM DMA, placed by the last NMI.
-    ; The main thread may have moved the screen since (battle shake) or
-    ; the window (SPR0_STALE): place it for this frame now.
-    lda scroll_y
-    cmp KANJI_SPR0
-    beq @req
-    jsr spr0_fix
-@req:
     lda KANJI_REQ
     beq @probe
     cmp #REQ_SYNC
@@ -1069,31 +1027,6 @@ restore_tile:
     rts
 
 ; ----------------------------------------------------------------------
-; Sprite-0 pattern on CHR page 0, tile $FF: rows 1-2 opaque (colour 1),
-; matching the horizontal line of the window's top border.
-; ----------------------------------------------------------------------
-write_sprite_tile:
-    lda #$0F
-    sta PPUADDR
-    lda #$F0
-    sta PPUADDR
-    lda #0
-    sta PPUDATA
-    lda #$FF
-    sta PPUDATA
-    sta PPUDATA
-    lda #0
-    ldx #13
-@z:
-    sta PPUDATA
-    dex
-    bne @z
-    lda KANJI_NFLAGS
-    ora #FLAG_SPRITE_OK
-    sta KANJI_NFLAGS
-    rts
-
-; ----------------------------------------------------------------------
 ; Glyph upload, one tile (Y = 0-3).  KANJI_CODE_LO/HI = glyph 0-717,
 ; KANJI_TILES = the four destination tiles, CHR page 2 selected.  Maps bank 24 for glyphs
 ; 359-717 (the code is identical there).
@@ -1217,21 +1150,19 @@ upload_high_3:
     rts
 
 ; ======================================================================
-; NMI epilogue (every frame).  Normal frames with the band on: wait for
-; the sprite-0 hit on the window's top border and switch CHR register 1
-; to the band page.  Split frames: scene page, no sprite, no band.
+; NMI epilogue, split frames only (ef31_gate): the scene page, no band, no
+; IRQ (the band switch is the scanline IRQ's since revision 21b).
 ; ======================================================================
 nmi_ef31:
     lda nmi_busy
     bne @rts
     lda nmi_mode
-    beq @normal
+    beq @rts
+    sta MMC3_IRQ_OFF
     lda KANJI_MAINCHR
     bne @rts
     lda #1
     jsr wr_reg1
-    lda #$F8
-    sta $0200
     lda #0
     sta KANJI_BAND
     lda KANJI_NFLAGS
@@ -1240,54 +1171,57 @@ nmi_ef31:
     jmp anim_check
 @rts:
     rts
-@normal:
-    lda KANJI_BAND
-    beq @rts
-    lda KANJI_NFLAGS
-    and #FLAG_DMA_SPRITE
-    beq @rts
+
+; ----------------------------------------------------------------------
+; Scanline IRQ arming (revision 21b), after the frame's last PPU access.
+; T = the window's top border row's first scanline in the frame about to
+; be drawn (WIN_ROW * 8 - scroll_y, modulo 240; 16-208 as the sprite-0
+; rule had it).  The MMC3 counter also counts the A12 rises of vblank VRAM
+; traffic, so the reload must follow the frame's last PPU access and
+; precede the pre-render line's clock: frames whose game queue flushed at
+; most IRQ_ARM_MAX bytes arm here (see kanji.inc); heavier ones (and CHR
+; animation frames, KANJI_QBYTES = $FF) keep the counter the IRQ re-armed.
+; ----------------------------------------------------------------------
+irq_post:
+    lda KANJI_QBYTES
+    cmp #IRQ_ARM_MAX+1
+    bcs irq_check_off
+irq_arm:
     lda ppu_mask_shadow
     and #$18
-    cmp #$18
-    bne @rts
-    ; The previous frame's hit flag stays set until the pre-render line.
-band_poll:                      ; (labels for the test scripts)
-    lda #MMC3_R0                ; select BG tiles $00-$7F now: after the
-    sta MMC3_SELECT             ; hit only the data write remains (the
-    lda #CHR_BAND_LO            ; epilogue's restore_bank_after_nmi gives
-    ldx #0                      ; $8000 back)
-    ldy #2
-@wait_clear:
-    bit PPUSTATUS
-    bvc @wait_hit_go
-    dex
-    bne @wait_clear
-    dey
-    bne @wait_clear
-    beq band_miss
-@wait_hit_go:
-    ldx #0
-    ldy #7
-@wait_hit:
-    bit PPUSTATUS
-    bvs band_hit
-    dex
-    bne @wait_hit
-    dey
-    bne @wait_hit
-band_miss:
-    lda KANJI_NFLAGS
-    and #$3F
-    ora #FLAG_MISS
-    sta KANJI_NFLAGS
+    beq irq_disable             ; rendering off: nothing to switch
+    lda KANJI_BAND
+    beq irq_disable
+    lda KANJI_WIN_ROW
+    asl a
+    asl a
+    asl a
+    sec
+    sbc scroll_y
+    bcs @row
+    sbc #15                     ; borrow: wrap modulo 240 (carry clear: -16)
+@row:
+    cmp #16
+    bcc irq_disable
+    cmp #209
+    bcs irq_disable
+    adc #IRQ_OFS                ; carry clear
+    sta MMC3_IRQ_LATCH
+    sta MMC3_IRQ_RELOAD
+    sta MMC3_IRQ_ON
     rts
-band_hit:
-    sta MMC3_DATA               ; A = CHR_BAND_LO (bit/branch keep A)
-band_switched:                  ; (label for the test scripts)
-    lda KANJI_NFLAGS
-    and #$3F
-    ora #FLAG_HIT|FLAG_PAGE2    ; the next flush finds page 2 selected
-    sta KANJI_NFLAGS
+irq_disable:
+    sta MMC3_IRQ_OFF
+    rts
+
+; Heavy frame: no band or no rendering means no IRQ (any time in the NMI
+; will do); otherwise the IRQ's own re-arm stands.
+irq_check_off:
+    lda KANJI_BAND
+    beq irq_disable
+    lda ppu_mask_shadow
+    and #$18
+    beq irq_disable
     rts
 
 ; ======================================================================
@@ -1394,10 +1328,6 @@ fn_block_pre:
     lda #1
     jmp wr_reg1_main
 @page0:
-    cmp #$0F
-    bne @rts
-    lda #SPR0_DIRTY
-    sta KANJI_SPR0
 @rts:
     rts
 
@@ -1757,98 +1687,6 @@ nr_skip:
     tax
     jmp nr_entry
 nr_rts:
-    rts
-
-; ----------------------------------------------------------------------
-; Sprite 0 for the OAM DMA (hook tail, CPU only) and the vblank fix.
-; Rule: sprite 0 must sit on the border line of the frame being drawn.
-; The tail places it for the scroll the PPU was just given; KANJI_SPR0
-; keeps that scroll so the next NMI can tell whether the main thread
-; moved the screen in between (light_unit).
-; ----------------------------------------------------------------------
-spr0_place:
-    lda scroll_y
-    sta KANJI_SPR0              ; placed for this vertical scroll
-    lda KANJI_BAND
-    beq @shide
-    lda KANJI_NFLAGS
-    and #FLAG_SPRITE_OK
-    beq @shide
-    lda KANJI_WIN_ROW
-    asl a
-    asl a
-    asl a
-    sec
-    sbc scroll_y
-    bcs @sy_ok
-    sbc #15                     ; borrow: wrap modulo 240 (carry clear: -16)
-@sy_ok:
-    cmp #16
-    bcc @shide
-    cmp #209
-    bcs @shide
-    sta KANJI_T0                ; band top scanline
-    lda KANJI_WIN_COL
-    and #$1F
-    asl a
-    asl a
-    asl a
-    sec
-    sbc scroll_x
-    sta KANJI_T1                ; corner x, low 8 bits
-    lda #0
-    adc #0                      ; 1 = no borrow
-    eor #1                      ; 1 = borrow
-    sta KANJI_T2
-    lda KANJI_WIN_COL
-    and #$20                    ; bits 6-7: pool state
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    eor KANJI_T2
-    sta KANJI_T2
-    lda ppu_ctrl_shadow
-    and #1
-    eor KANJI_T2
-    bne @shide                   ; corner is in the other 256-pixel half
-    lda KANJI_T1
-    cmp #240
-    bcs @shide
-    adc #8
-    sta $0203
-    lda #SPRITE0_TILE
-    sta $0201
-    lda #$20                    ; behind the background, palette 0
-    sta $0202
-    ldx KANJI_T0
-    dex
-    stx $0200
-    rts
-@shide:
-    lda #$F8
-    sta $0200
-    rts
-
-; Sprite 0 went out with this NMI's DMA for another vertical scroll (or
-; window): place it for this frame and write it into the PPU's sprite
-; memory.  The game's NMI sets OAMADDR to 0 before its OAM DMA and nothing
-; touches OAM after it, so the four writes land on sprite 0; the PPU
-; resets OAMADDR during the pre-render line.  Light frames only (still
-; vblank); the frame's unit follows, one tile at most.
-spr0_fix:
-    jsr spr0_place
-    lda $0200
-    sta OAMDATA
-    lda $0201
-    sta OAMDATA
-    lda $0202
-    sta OAMDATA
-    lda $0203
-    sta OAMDATA
-    lda #1
-    sta KANJI_T1                ; one glyph tile this frame
     rts
 
 ; ----------------------------------------------------------------------

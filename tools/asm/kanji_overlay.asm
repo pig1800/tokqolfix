@@ -200,15 +200,7 @@ window_geometry:
     lda KANJI_WIN_COL
     and #WINCOL_POOL_OK|WINCOL_CHECKED
     ora KANJI_M0
-    sta KANJI_WIN_COL
-    ; sprite 0 follows the window in the next vblank (SPR0_DIRTY wins: the
-    ; tile goes first and the tail places the sprite after it)
-    lda KANJI_SPR0
-    cmp #SPR0_DIRTY
-    beq @spr_kept
-    lda #SPR0_STALE
-    sta KANJI_SPR0
-@spr_kept:
+    sta KANJI_WIN_COL           ; the NMI arms the IRQ for it
     rts
 
 ; ----------------------------------------------------------------------

@@ -7,7 +7,8 @@ report (prompt and oath garbled until the band went live); revision 13
 restored the area palettes (white town exterior); revision 14 replaced
 the text with an Opus re-conversion laid out by program, with page flips.  `STATUS.md` is the reference for the runtime as built; this file
 lists what the executor does next.  Target: emulator (Mesen) first; the
-hardware caveat in section 4 stands.
+hardware caveat in section 4 stands.  Revision 21 moved the target to
+MMC3 and replaced the sprite-0 switch with the MMC3 scanline IRQ.
 
 ---
 
@@ -28,8 +29,8 @@ hardware caveat in section 4 stands.
 Rules that every change must keep:
 
 1. No added cycle before the game's split-screen code in `nmi_mode != 0`
-   frames.  Check: opening frames 2-294 pixel-identical to the original
-   (6-frame boot offset), split-write dots identical.
+   frames.  Check: opening frames 11-301 pixel-identical to the original
+   (3-frame boot offset since revision 21, every frame compared), split-write dots identical.
 2. No hack `$2006/$2007` access while rendering.  Check: `r11_diag.lua`
    reports 0, `vblank_deadline.lua` reports 0 accesses after the pre-render
    line start, and `anim_timing.lua` keeps the game's own scroll/mask
@@ -70,15 +71,16 @@ Rules that every change must keep:
     compiler report (the build fails), and `tools/lua/garble_state.lua`
     from a save state in a menu.
 11. Everything the band switch depends on must hold for the frame being
-    drawn, not the frame it was computed in.  Sprite 0 goes out with the
-    DMA at the start of the NMI; any input the main thread can change
-    between NMIs (`scroll_y`, the window position) is checked again in
-    that NMI's vblank and sprite 0 is rewritten through `OAMDATA` when it
-    changed (revision 17: battle shake).  A new input gets the same
-    treatment: compare it in `light_unit`, or mark `KANJI_SPR0` stale
-    where it is written.  Check: `tools/lua/band_timing.lua` (0 misses
-    with the band on and the window drawn) and `garble_state.lua` from
-    battle and menu states, including `kanji_left`.
+    drawn.  The IRQ arm (`irq_arm`) reads `scroll_y` and the window row
+    in the NMI of that frame, after the frame's last PPU access and before
+    the pre-render line's clock (the MMC3 counter also counts the A12
+    rises of vblank VRAM traffic): no PPU access may follow it, and any
+    NMI work added before it must keep frames with at most
+    `IRQ_ARM_MAX` queued bytes ahead of that clock.  Interrupt code that
+    writes `$8000` leaves with `$8000 = MMC3_SEL | $80`; main-thread code
+    stores `MMC3_SEL` before every `$8000` write.  Check: `band_check.lua`
+    (switch minus band top), `garble_state.lua` from battle and menu
+    states, including `kanji_left`.
 12. Scene-page tiles the hack writes (the battle pool) must be read back
     unused before use and guarded against every game write path; a game
     path the hack cannot see (direct `$2007` loops) must be followed by a
@@ -122,34 +124,39 @@ Rules that every change must keep:
     `r11_diag.lua` on each.  Gate: rules 1-6.
 2.3 **Power-on robustness.**  Random RAM fills (`$00`, `$FF`, random) at
     power-on; reset during a message.  Gate: rules 1-6, no hang.
-2.4 **Second emulator.**  FCEUX or Nestopia with a 16 KiB CHR RAM header;
-    record whether they honour NES 2.0 CHR RAM size and 4 KiB mode.
-2.5 **Performance check.**  While the band is on, the NMI waits for the
-    sprite-0 hit (~145 scanlines).  Measure main-thread frame overruns in
-    the field with a message open (count frames where the main loop misses
-    a vblank) against the original.  If any appear, move the poll start
-    later (the hit is at the window's top border, typically scanline 145).
+2.4 **Second emulator.**  FCEUX or Nestopia with the MMC3 build (NES 2.0
+    CHR-RAM size 16 KiB); record whether they honour the size and where
+    their MMC3 IRQ lands (`band_check.lua` switch minus band top).
+2.5 **IRQ arm in heavy frames.**  Frames with more than `IRQ_ARM_MAX`
+    queued bytes keep the IRQ's own re-arm (1-4 lines early on the
+    standard path).  If a play-test shows a kanji or stale tile above a
+    window while it is drawn or erased, arm those frames from a measured
+    estimate of the game's flush time instead.
 2.6 **Phase 3/4** content and proofreading as before.
 
 ---
 
 ## 3. What remains for the user
 
-- Play-test the current build `e37d75f8...` (`decomp/build/rom_kanji.nes`):
+- Play-test the current build `92eb006a...` (`decomp/build/rom_kanji.nes`):
   history select and name entry, the opening logo, the oath and the first
   town.  Save a Mesen state at any glitch into `out/user/`.
 - Outside battle, a message that continues an open window starts on a
   cleared window; in battle the window scrolls as in the original.
+- The build is MMC3 now: old Mesen states of the SUROM build need
+  `python -I tools\mss_to_mmc3.py <old.mss> <new.mss>` (load the new
+  file with Mesen's "Load State From File"); the battery save works as is.
 - Do not distribute builds yet.
 
 ---
 
-## 4. Hardware caveat (unchanged)
+## 4. Hardware caveat (revision 21)
 
-No MMC1 board has 16 KiB CHR RAM, and CHR register 1 is written without
-the SUROM outer-bank bit (emulators read the outer bit from register 0
-only; real SUROM would follow the register selected by PPU A12).
-Emulator-only until tried on an N8; the fallback is a mapper port.
+The build is MMC3 with 16 KiB CHR RAM (NES 2.0).  Nintendo's MMC3
+CHR-RAM boards (TGROM/TNROM) have 8 KiB, and the band's 2 KiB cannot
+share the sprite page (the game shows sprite tiles `$80-$CF` and writes
+sprite CHR `$0800-$0FFF`).  Emulator-only until a board with more CHR
+RAM; the IRQ timing is measured in Mesen only.
 
 ---
 
@@ -168,6 +175,8 @@ python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\vblank_deadline.l
 python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\anim_timing.lua --name anim
 python tools\garble_run.py decomp\build\rom_kanji.nes --offsets 0,5,11,19,29,40
 python tools\palette_check.py
+python -I tools\mss_to_mmc3.py <SUROM state.mss> <MMC3 state.mss>
+sh tools/run_gates.sh        # every gate, states from out/user/m3 (GDIR=, TAG=)
 ```
 
 Always use a fresh `--name` per ROM variant: Mesen keys the battery save on

@@ -1,6 +1,6 @@
 # Current implementation status
 
-Revision 20, 2026-11-09 (branch `rev10-wip`, uncommitted working tree).
+Revision 21, 2026-11-09 (branch `rev10-wip`, uncommitted working tree).
 Implemented by the planner after the revision-10 and revision-11 play
 tests; see CHANGELOG for what each revision fixed.
 
@@ -8,10 +8,11 @@ tests; see CHANGELOG for what each revision fixed.
 
 - Original 256 KiB ROM: byte-identical,
   `40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367`.
-- Kanji 512 KiB SUROM ROM (16 KiB CHR RAM, 4 KiB CHR mode):
-  `e37d75f82ff965d03fd10b3c4461a62ca9346d2a1e6f8732d07484a46355e2a0`.
-- Fixed-bank hooks in five audited regions plus the rewritten reset setup
-  (`$F00C-$F039`).  The largest region is `$C5A6-$C6D1`: the game's
+- Kanji 512 KiB MMC3 ROM (mapper 4, NES 2.0, 16 KiB CHR RAM, CHR mode 1;
+  revision 21): `92eb006ab4a3fa3ee616ea10527ca275cb447f9c07e6661f199b54446f0f10c7`.
+- Fixed-bank hooks in audited regions plus the rewritten reset setup
+  (`$F004-$F039`), the dead MMC1 routines (`$C460-$C47D`, `$C489-$C49D`,
+  `$C4AD-$C4B9`) and the IRQ vector.  The largest region is `$C5A6-$C6D1`: the game's
   `load_text_graphics` rewritten in place, its palette tables moved to hack
   banks 23/24 at `$BF00`.  Hack code `$8000-$8BFF` plus a second segment at
   `$B900` (after the glyph tables), identical in every hack bank 23-25;
@@ -35,31 +36,49 @@ tests; see CHANGELOG for what each revision fixed.
   `ef31_gate` skips the epilogue unless a band is shown or a split mode
   runs.  With no band the NMI only records stale band-page tiles; the next
   message start syncs them (`REQ_SYNC`, 1-8 frames on the test paths).
-  Bank switches write the SUROM outer register only when the 256 KiB half
-  changes (`$BFFF` marker).  Town walking, no message: NMI ~3,370 cycles
-  per frame (original ~3,110).  While a message is shown the band's
-  sprite-0 wait costs ~15,000-19,000 cycles per frame.
-- **Pages.** CHR page 0 sprites, page 1 scene, page 2 band.  Page 2 equals
-  page 1 except for kanji slots.  Every game CHR write is mirrored:
+  Town walking, no message: NMI ~3,370 cycles per frame (original
+  ~3,110; measured on SUROM).  While a message is shown the band costs
+  the scanline IRQ (~90 cycles) instead of the sprite-0 wait
+  (15,000-19,000 cycles per frame up to revision 21a).
+- **Mapper (revision 21).**  MMC3, PRG mode 0: every 16 KiB game bank is
+  two 8 KiB halves (R6/R7), bank 31 is the fixed bank.  `set_bank_lock`
+  and `restore_bank_after_nmi` keep their addresses and jump to
+  `main_prg` / `nmi_prg`.  `$EB` (the MMC1 lock, used only by those
+  routines) is the bank-select shadow `MMC3_SEL`: the main thread stores
+  it before every `$8000` write, interrupt code writes `$8000` directly
+  and leaves with `$8000 = MMC3_SEL | $80` (the NMI's last
+  `restore_bank_after_nmi` does it).  The reset writes every MMC3 register
+  from `$E000-$FFFF` before using `$C000-$DFFF`, then `cli`.
+- **Pages.** CHR page 0 sprites (R2-R5), page 1 scene, page 2 band.  Only
+  BG tiles `$00-$7F` switch (R0, 2 KiB); `$80-$FF` always show the scene
+  page (R1), so they are never copied or stale (revision 21).  Page 2's
+  lower half equals page 1's except for kanji slots.  Every game CHR write is mirrored:
   block writes are copied page 1 -> page 2 right after they happen (main
   thread, rendering off); queue writes are marked stale and restored in
   vblank; kanji slots released by a message are restored the same way.
-- **Band switch.** Sprite 0 sits on the window's top-border line; the NMI
-  epilogue waits for the hit and selects page 2, so page 2 covers the
-  window and everything below it.  The window position is computed per
-  message from the engine's line address and the scroll.  The vblank hook
-  selects page 1 again for the next frame (before its queue scan when the
-  game flushed a large queue, so the top lines never show page 2).  The sprite-0 tile is the first
-  unit whenever the band is requested and the tile is not in place, so the
-  band is live before any glyph upload of the message completes.  OAM
-  slot 0 belongs to the NMI: the game's `clear_oam_shadow` (screen fades)
-  starts at slot 1 (revision 16b).
+- **Band switch (revision 21b).**  The MMC3 scanline IRQ selects page 2
+  (R0) in the window's top border row, so page 2 covers the window and
+  everything below it; the NMI selects page 1 again for the next frame.
+  The NMI arms the counter after the frame's last PPU access (it also
+  counts the A12 rises of vblank VRAM traffic): latch T + 2, T = the
+  border row's first line (`KANJI_WIN_ROW * 8 - scroll_y`, modulo 240,
+  16-208), computed for the frame about to be drawn.  Frames whose game
+  queue flushed at most 40 bytes reach the arm before the pre-render
+  line's clock; heavier frames and CHR-animation frames keep the IRQ's
+  own re-arm for the same line one frame later (vblank CHR/palette
+  writes can only make it early, onto the map above the window).  The
+  IRQ does nothing while no band is shown or in busy mode (the main
+  thread's CHR writes clock the counter too); busy, split and
+  rendering-off frames disable it.  In Mesen the counter takes one more
+  clock at line 0 on every other frame and one more when vblank ends with
+  the PPU address below `$1000`: the switch lands in border lines 0-2,
+  heavy frames up to 4 lines early, late arms up to +6.
 - **Battle pool (revision 18).**  The battle tile set leaves tiles
   `$A4-$DF` of the scene page blank and never shows them.  When graphics
   set 8 (battle) is loaded, the hack reads them back; all blank arms the
   pool, and any game write into them disarms it.  A message printed then,
   with no page over 15 kanji, puts its kanji there (entry k of a page in
-  `$A4+4k..+3`, plane 0, scene page): no band, no sprite 0, no NMI wait.
+  `$A4+4k..+3`, plane 0, scene page): no band, no IRQ.
   The engine's row renderer draws `$A4-$DF` as tiles (`render_ctl`).
   Everywhere else, and for a page over 15 kanji, the band page as below.
   Revision 20: the battle window scrolls as in the original.  A page takes
@@ -67,13 +86,6 @@ tests; see CHANGELOG for what each revision fixed.
   first slot in `KANJI_UPLOADED+1` bits 0-3, at most 12 kanji a page); a
   page that does not fit clears the window first.  The engine's scroll
   copy keeps cells below `$FA` (`$D416`).
-- **Sprite 0 follows the drawn frame (revision 17).**  The hook tail places
-  sprite 0 for the next DMA and records the vertical scroll it used in
-  `KANJI_SPR0`; the overlay marks it `SPR0_STALE` when it moves the window.
-  If the main thread moved the screen before the next NMI (battle shake),
-  that NMI's light unit places sprite 0 again and writes it to `OAMDATA`
-  in the same vblank, then uploads one tile.  Heavy and CHR-animation
-  frames cannot do this (no vblank left) and keep the DMA'd sprite.
 - **Fixed-bank tables.** `$E6A9-$E6D0` (battle damage factors) and every
   other byte outside the registered ranges are the original's (revision
   16c); `$0100/$0101` are game RAM, the overlay's scratch is at
@@ -82,14 +94,14 @@ tests; see CHANGELOG for what each revision fixed.
   `nmi_mode` branch (`$EF0B`, normal frames only) and in the epilogue
   (`$EF31`, after every split loop).
 - **VRAM work only in vblank.**  One unit (a glyph tile, two when the queue
-  is idle; one tile restore; the window probe; the sprite tile) in light
+  is idle; one tile restore; the window probe) in light
   frames (no CHR animation, <= 8 queued bytes); bulk while rendering is
   off.  Bookkeeping runs after the frame's last PPU access.  Measured from
   the hook entry, the latest light-frame entry (scanline 254.7) plus the
   costliest unit ends before the pre-render line.
 - **NMI block write** (flush_palette's CHR-animation step, the only block
   write in the NMI): the fixed-bank hook selects page 1 directly
-  (`chr1_scene`, lock protocol) and the NMI hook marks the 4 tiles stale
+  (`chr1_scene`, one R0 write) and the NMI hook marks the 4 tiles stale
   from the animation pointer.  Queued CHR writes that land on page 2 after
   a band frame are replayed on page 1 from the queue ring.
 - **Overlay.** Posts requests and waits frame by frame; never touches the
@@ -108,24 +120,23 @@ tests; see CHANGELOG for what each revision fixed.
 |---|---|
 | Original target | byte-identical |
 | Palettes (`palette_check.py`) | every load equals the original routine on the original tables (8 loads incl. the town exterior; revision 12 fails) |
-| `bank15_lint` | 16 ranges, bank 31 == bank 15; build fails if hook code leaves its gaps |
-| Opening logo (raster split) | frames 2-294 pixel-identical to the original (6-frame boot offset) |
+| `bank15_lint` | 19 ranges, bank 31 == bank 15, mapper 4; build fails if hook code leaves its gaps |
+| Opening logo (raster split) | frames 11-301 pixel-identical to the original, every frame compared (3-frame boot offset; 6 before revision 21) |
 | Visible garble (`garble_check.lua`, 6 input timings) | 0 frames (revision 11: 16-460 frames per run) |
-| Partner shop from the play-test state (`garble_state.lua`, 5 paths) | only the state's own garbled menu until each path redraws it (49-130 frames; revision 19: 45-129; revision 15b: 206-329 per path) |
+| Partner shop from the play-test state (`garble_state.lua`, 5 paths) | only the state's own garbled menu until each path redraws it (42-123 frames; revision 20: 49-130; revision 15b: 206-329 per path) |
 | Save at the record office, fade out/in (`garble_state.lua`) | 0 frames (revision 16: 40) |
-| Hack VRAM/OAM access vs vblank end (`vblank_deadline.lua`, standard path and three battle states) | 0 after the pre-render line; costliest unit 776 cycles from entry (16c: 777); pool check 533; `spr0fix` ends by 252.2 |
-| CHR-animation NMIs (`anim_timing.lua`) | game's scroll/mask restore at scanline 260 (original 259; revision 11: 268) |
+| Hack VRAM/OAM access vs vblank end (`vblank_deadline.lua`, standard path and three battle states) | 0 after the pre-render line; costliest unit 733 cycles from entry (revision 20: 776) |
+| Game's scroll/mask restore (`anim_timing.lua`) | by scanline 259, same histogram as revision 20 (the current path has no CHR-animation step; revision 11: 268) |
 | Hack PPU access while rendering (`r11_diag.lua`) | 0 |
-| Band switch scanline (`band_check.lua`) | 3,792 band frames, all on border-row line 1 |
+| Band switch scanline (`band_check.lua`) | 3,596 IRQ switches: border lines 0-2 in 3,453, +3/+6 in 61, 1-4 lines early in 82 (heavy frames) |
 | Band page vs scene page for shown tiles | 0 mismatching cells |
 | Kana written over an active kanji tile | 0 |
-| `ram_gate.lua` | 0 battery-RAM writes by the hack; 0 game writes to hack state; min SP `$13` |
-| Stack at battle entry (`taint_check.lua`, normal and boss) | min SP `$0D` (revision 17: `$0B`, revision 18 before the fix `$09`; original `$1C`) |
+| `ram_gate.lua` | 0 battery-RAM writes by the hack; 0 game writes to hack state; min SP `$16` |
+| Stack at battle entry (`taint_check.lua`, normal and boss) | min SP `$0F` (revision 20: `$0D`; revision 17: `$0B`; original `$1C`) |
 | `mask_restore` | 0 |
-| Message timeline | messages start at 607/888/1593/2367/3302 (original 607/888/1589/2359/3290) |
-| `zp_check.lua` | `$10/$11` unchanged at every overlay exit (1,001 checks; the town's RNG differs by build) |
-| Battles from three states (`garble_state.lua`: play-test, before a normal and a boss battle) and a forced level-up (`SHOP_POKE`) | 0 frames, window closes, shake steps and scrolling included (revision 17: 15 frames in 7 closes) |
-| Sprite-0 hits from save states (`band_timing.lua`) | 0 misses: partner shop 600, save fade 2,200 (battles use the pool) |
+| Message timeline | messages start at 608/888/1589/2363/3297 (original 607/888/1589/2359/3290; revision 20: 607/888/1593/2367/3302) |
+| `zp_check.lua` | `$10/$11` unchanged at every overlay exit (836 checks; the town's RNG differs by build) |
+| Battles from three states (`garble_state.lua`: play-test, before a normal and a boss battle) and a forced level-up (`SHOP_POKE`), converted states (`out/user/m3/`) | 0 frames, window closes, shake steps and scrolling included (revision 17: 15 frames in 7 closes) |
 | Battles from three states (`taint_check.lua`) | 0 game reads of hack-changed RAM, 0 game writes to hack state |
 | Battle round from the play-test state (`taint_check.lua`, revision 16c) | 0 game reads of hack-changed RAM, 0 game writes to hack state; damage 26/22/4/9/3/7 (revision 16b: every hit killed) |
 | Menu kana under kanji (compiler) | 0 conflicts |
@@ -137,9 +148,11 @@ tests; see CHANGELOG for what each revision fixed.
 - Kanji print a little slower than kana: each new kanji of a page waits
   for its glyph upload (2-4 frames).  The first history prompt finishes at
   frame 639 against 626 in the original.
-- While the band is on, the NMI waits for the sprite-0 hit each frame, so
-  the main thread gets about 95 scanlines per frame instead of about 200.
-  No slowdown is visible on the tested paths.
+- The band switch follows the IRQ arm: in frames whose game queue flushed
+  more than 40 bytes (window drawn or erased) it comes 1-4 lines early,
+  onto the map above the window, where the band page shows the scene's
+  tiles; a kanji or stale tile shown there would show from page 2 for
+  that frame.  The IRQ timing is Mesen's (see Band switch).
 - Outside battle, each wait inside a kanji message flips to a fresh window
   (the original scrolls line by line); a message that continues a window
   also starts on a cleared window.  In battle the window scrolls; it is
@@ -156,8 +169,12 @@ tests; see CHANGELOG for what each revision fixed.
   kana from the game's tables; fixed names in the text are kanji.  The two
   fixed kana tails game code adds to a name in messages are kanji
   (`$D549` の兵, `$D565` の計; revision 19); menus stay kana.
-- 16 KiB CHR RAM on MMC1 exists on no real board; CHR register 1 is written
-  without the outer-bank bit.  Emulator-only until tested on hardware.
+- 16 KiB CHR RAM: the MMC3 CHR-RAM boards (TGROM/TNROM) have 8 KiB.  The
+  band's 2 KiB cannot live in the sprite page: the game shows sprite tiles
+  `$80-$CF` (history screen, battle) and writes sprite CHR `$0800-$0FFF`.
+  Emulator-only (NES 2.0 CHR-RAM size) until a board with more CHR RAM.
+- Save states of the SUROM builds need `tools/mss_to_mmc3.py`; battery
+  saves (`.sav`) work unchanged.
 
 ## Remaining work
 
@@ -186,9 +203,11 @@ python tools\garble_run.py decomp\build\rom_kanji.nes --offsets 0,5,11,19,29,40
 # from a save state: SHOP_STATE=<.mss> SHOP_PATH=b,w,a,... SHOP_OUT=<dir>
 python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\garble_state.lua --name gs
 python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\taint_check.lua --name tnt
-# battle states: out/user/r16c/rom_kanji_1.mss, out/user/r17/pre_battle_normal.mss, pre_battle_boss.mss
+# states: SUROM states converted by tools/mss_to_mmc3.py into out/user/m3/
+#   (r16c_rom_kanji_1, r17_pre_battle_normal, r17_pre_battle_boss, r16b_rom_kanji_1, shop_k_rom_kanji_1)
+python -I tools\mss_to_mmc3.py <SUROM state.mss> <MMC3 state.mss>
+# all gates: sh tools/run_gates.sh (GDIR=<out/test subdir> TAG=<name suffix>)
 # vblank deadline from a save state: DL_STATE=<.mss> DL_PATH=... DL_FRAMES=2500 DL_OUT=<file>
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\band_timing.lua --name bt   # SHOP_STATE/SHOP_PATH, BT_OUT, BT_FRAMES
 python tools\palette_check.py
 python tools\lua_addrs.py tools\lua\band_check.lua tools\lua\vblank_deadline.lua tools\lua\zp_check.lua tools\lua\band_timing.lua
 ```

@@ -5,7 +5,7 @@
 -- MMC3 (revision 21): only tiles $00-$7F come from the band page (R0);
 -- $80-$FF always show the scene page and are not compared.
 -- Standard path + town, 6000 frames.  Output: out/test/r11/band_check.txt
-local A_SWITCHED = 0x8A73  -- @band_switched@
+local A_SWITCHED = 0xC6C4  -- @irq_switched@
 local outdir = "D:/EMU/NES/tokqolfix/out/test/r11"
 local frame = 0
 local log = assert(io.open(outdir .. "/band_check.txt", "w"))
@@ -46,7 +46,7 @@ local function ppu(a) return emu.read(a, emu.memType.nesPpuMemory) end
 local function chr(a) return emu.read(a, emu.memType.nesChrRam) end
 local function hm() return rd(0x8000) == 0x4C and rd(0x8003) == 0x4C and rd(0x8006) == 0x4C end
 local function onSwitch()
-  if hm() then switch_sl = emu.getState()["ppu.scanline"] end
+  switch_sl = emu.getState()["ppu.scanline"]   -- fixed bank (IRQ)
 end
 local function onFrame()
   frame = frame + 1

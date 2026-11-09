@@ -18,9 +18,10 @@
 ; CHR (16 KiB RAM, MMC3 CHR mode 1, revision 21): page 0 sprites (R2-R5),
 ; page 1 scene, page 2 band.  Only BG tiles $00-$7F switch (R0, 2 KiB):
 ; tiles $80-$FF always show the scene page (R1).  Page 2's lower half is
-; kept equal to page 1's except for the tiles in KANJI_STALE; the NMI
-; selects it from the dialogue window's top border to the bottom of the
-; frame (sprite-0 sync) while KANJI_BAND is set.
+; kept equal to page 1's except for the tiles in KANJI_STALE; the MMC3
+; scanline IRQ selects it from the dialogue window's top border row to the
+; bottom of the frame while KANJI_BAND is set (revision 21b; sprite 0
+; before).
 
 ; MMC3 registers and the bank-select shadow (see mmc3_b15.asm).
 MMC3_SELECT       = $8000
@@ -60,9 +61,9 @@ KANJI_BUF         = $0164   ; 16 bytes: CHR read-back buffer (NMI scratch outsid
                             ; restore_tile: nt_check +0..+4, queue_scan +14, mark_stale +15)
 
 KANJI_REQ         = $0174   ; request to the NMI (see REQ_* below)
-KANJI_SPR0        = $0175   ; sprite 0 state: the vertical scroll it was placed
-                            ; for (0-239); SPR0_STALE: place it again; SPR0_DIRTY:
-                            ; page-0 tile $FF may have been overwritten
+KANJI_QBYTES      = $0175   ; NMI scratch: VRAM-queue bytes the game flushed
+                            ; this frame ($FF: CHR animation); revision 21b
+                            ; (was KANJI_SPR0, the sprite-0 state)
 KANJI_BAND        = $0176   ; 1 = band page shown below the window border
 KANJI_WIN_ROW     = $0177   ; window top-border nametable row (0-29)
 KANJI_WIN_COL     = $0178   ; window left column 0-31, +$20 for nametable 1;
@@ -95,15 +96,30 @@ REQ_UP3           = 6       ; NMI internal: glyph tile 3 next
 REQ_MARK          = 7       ; NMI internal: glyph done, mark its tiles
 REQ_SYNC          = 8       ; restore every stale, inactive tile (message start)
 
-FLAG_SPRITE_OK    = $01     ; page-0 tile $FF holds the sprite-0 pattern
-FLAG_DMA_SPRITE   = $02     ; sprite 0 was in the OAM copied this frame
-FLAG_PAGE2        = $04     ; band page selected since the last epilogue hit
+FLAG_PAGE2        = $04     ; band page selected by this frame's IRQ
 FLAG_PPU_DIRTY    = $08     ; NMI-internal: PPU address used, restore scroll
 FLAG_HI_SUB       = $30     ; upper-tile restore cursor within a group
-FLAG_HIT          = $40     ; last band frame: sprite-0 hit seen
-FLAG_MISS         = $80     ; last band frame: poll timed out
+FLAG_HIT          = $40     ; this frame: the IRQ switched to the band page
+FLAG_MISS         = $80     ; (unused since revision 21b)
 
-SPR0_STALE        = $FE     ; KANJI_SPR0: window moved, place sprite 0 again
+; Scanline IRQ (revision 21b).  The counter clocks once per rendered line
+; (and on every A12 rise of vblank VRAM traffic, so the NMI reloads it
+; after its last PPU access, before the pre-render line's clock at dot
+; 325 of line 261).  Latch T + IRQ_OFS (T = the border row's first line):
+; the IRQ comes at the end of line T + 1 and the switch lands in line
+; T + 2.  Mesen clocks the counter once more at the start of line 0 on
+; every other frame (A12 low time across the pre-render line's end), and
+; once more when vblank ends with the PPU address below $1000, so the
+; switch lands in border lines 0-2, inside the 8-line border row; an arm
+; a little after the pre-render clock moves it a line later, still inside.
+; Frames whose game queue flushed at most IRQ_ARM_MAX bytes reach the arm
+; before that clock (standard path: at most 32 bytes, latest 261.3; 48 or
+; more: 263.9-278.7).  Heavier frames keep IRQ_CHAIN, the IRQ's own
+; re-arm for the same line one frame later, which vblank CHR/palette
+; writes can only make come early (onto the map above the window).
+IRQ_OFS           = 2
+IRQ_CHAIN         = 240
+IRQ_ARM_MAX       = 40
 
 ; Battle pool (revision 18).  The battle tile set leaves tiles $A4-$DF of
 ; the scene page blank and never shows them.  A message printed while the
@@ -121,10 +137,8 @@ WINCOL_CHECKED    = $80     ; checked since the last graphics-set load
 PAGE_POOL         = $40     ; KANJI_PAGES_LEFT: this message prints into the pool
 POOL_CHECK_CODE   = $FF     ; KANJI_CODE_HI of the check request (REQ_UPLOAD
                             ; with pool tiles): read the tiles, no glyph
-SPR0_DIRTY        = $FF     ; KANJI_SPR0: re-upload the sprite-0 tile first
 
 WINDOW_CORNER     = $6D     ; top-left frame tile of every text window
-SPRITE0_TILE      = $FF     ; page-0 tile used for the sprite-0 hit
 
 ; The game's palette tables (data_C5EF / data_C6B2 / data_C6C2, read only by
 ; load_text_graphics) live in hack banks 23/24 at $BF00, relocated by

@@ -19,10 +19,11 @@ OVERLAY_OFF = 0x3800
 OVERLAY_SIZE = 0x800
 
 PATCHES = [
-    (0xC460, 0xC47D),   # dead mmc1_reset/mmc1_init: render_ctl, chr1_scene
+    (0xC460, 0xC47D),   # dead mmc1_reset/mmc1_init: render_ctl, IRQ tail
     (0xC486, 0xC488),   # set_bank_lock: jmp main_prg (MMC3)
+    (0xC489, 0xC49D),   # dead rest of set_bank_lock: IRQ middle
     (0xC4AA, 0xC4AC),   # restore_bank_after_nmi: jmp nmi_prg (MMC3)
-    (0xC44F, 0xC450),   # clear_oam_shadow: ldx #$04 / bne (slot 0 is the NMI's)
+    (0xC4AD, 0xC4B9),   # dead rest of restore_bank_after_nmi: chr1_scene
     (0xC5A6, 0xC6D1),   # load_text_graphics (tables moved), MMC3 switches, call_hack, block hook
     (0xC4BA, 0xC4CA),   # NMI EF08 hook (dead write_prg_bank body)
     (0xC343, 0xC345),   # jmp c343_hook
@@ -36,6 +37,7 @@ PATCHES = [
     (0xEF31, 0xEF33),   # jmp ef31_gate
     (0xF004, 0xF039),   # reset: MMC3 registers + hack RAM clear (rewritten)
     (0xFFE0, 0xFFEF),   # block-writer entry, overlay frame wait (padding)
+    (0xFFFE, 0xFFFF),   # IRQ vector: irq_handler (MMC3 scanline IRQ)
 ]
 
 

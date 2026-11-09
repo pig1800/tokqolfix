@@ -17,10 +17,15 @@ same point:
   (MMC1 PRG register | CHR register 0 bit 4, the SUROM outer bit).
   $8000 = MMC3_SEL = $87 (the last select of the main thread's switch;
   the RAM byte $EB, the MMC1 lock, becomes that shadow).
+  The CPU's interrupt-disable flag is cleared: the MMC1 build never ran
+  cli, the MMC3 build does at reset (its scanline IRQ switches the band).
+  OAM slot 0 (the MMC1 build's band sprite) is hidden: it is the game's
+  again, and the game keeps it hidden.
 
 Everything else (CPU, PPU, APU, RAM, CHR RAM, battery RAM, nametables)
 is copied.  The state must not stop inside the rewritten bank-switch code
-($C460-$C4CA) or the reset; the tool refuses such a PC.
+($C460-$C4CA), the reset or the NMI handler ($EE79-$EFC8, where the
+main thread's flags sit on the stack); the tool refuses such a PC.
 """
 from __future__ import annotations
 
@@ -79,6 +84,8 @@ def convert(src, dst):
     pc, = struct.unpack("<H", d["cpu.pc"])
     if 0xC460 <= pc <= 0xC4CA or 0xF004 <= pc <= 0xF039:
         raise SystemExit(f"{src}: PC ${pc:04X} is inside rewritten mapper code")
+    if 0xEE79 <= pc <= 0xEFC8:
+        raise SystemExit(f"{src}: PC ${pc:04X} is inside the NMI handler")
     bank = (d["mapper.prgReg"][0] & 0x0F) | (d["mapper.chrReg0"][0] & 0x10)
     page = d["mapper.chrReg1"][0]
     if page not in (1, 2):
@@ -134,10 +141,15 @@ def convert(src, dst):
             out.append([k, v])
             out.extend(tail)
             continue
+        if k == "cpu.ps":
+            v = bytes((v[0] & ~0x04 & 0xFF,))     # I clear (cli at reset)
         if k == "memoryManager.internalRam":
             ram = bytearray(v)
             ram[0xEB] = SEL                      # MMC3_SEL (was the MMC1 lock)
+            ram[0x200] = 0xF8                    # OAM shadow slot 0 hidden
             v = bytes(ram)
+        if k == "ppu.spriteRam":
+            v = bytes((0xF8,)) + v[1:]           # OAM slot 0 hidden
         out.append([k, v])
     write(dst, head, out)
     return pc, bank, page

@@ -6,13 +6,11 @@
 -- Unit entry addresses come from decomp/build/kanji/hack.lst (@ADDR@ lines
 -- are rewritten by tools/garble_run.py --lua ... or edited by hand).
 local A_ENTRY  = 0x800C  -- @nmi_ef08@
-local A_PROBE  = 0x82E9  -- @probe_window@
-local A_SPRITE = 0x86F2  -- @write_sprite_tile@
-local A_UPLOAD = 0x84BC  -- @upload_go@
-local A_SPRFIX = 0xBB16  -- @spr0_fix@
-local A_POOLCHK = 0xBBEA  -- @pool_check_go@
-local A_RESTORE= 0x85F0  -- @restore_tile@
-local A_REPLAY = 0x8222  -- @replay_entry@
+local A_PROBE  = 0x82C0  -- @probe_window@
+local A_UPLOAD = 0x8469  -- @upload_go@
+local A_POOLCHK = 0xBB4C  -- @pool_check_go@
+local A_RESTORE= 0x859D  -- @restore_tile@
+local A_REPLAY = 0x81F9  -- @replay_entry@
 local LAST = tonumber(os.getenv("DL_FRAMES") or "6000")
 -- DL_STATE: run from a save state instead of power-on, with DL_PATH steps
 -- (one every 40 frames from load+30, "w" = wait) as in garble_state.lua.
@@ -119,11 +117,9 @@ end
 emu.addMemoryCallback(function() nmistart = pos() end, emu.callbackType.exec, 0xEE79, 0xEE79, emu.cpuType.nes, emu.memType.nesMemory)
 emu.addMemoryCallback(onEntry, emu.callbackType.exec, A_ENTRY, A_ENTRY, emu.cpuType.nes, emu.memType.nesMemory)
 emu.addMemoryCallback(mark("probe"), emu.callbackType.exec, A_PROBE, A_PROBE, emu.cpuType.nes, emu.memType.nesMemory)
-emu.addMemoryCallback(mark("sprite"), emu.callbackType.exec, A_SPRITE, A_SPRITE, emu.cpuType.nes, emu.memType.nesMemory)
 emu.addMemoryCallback(mark("upload"), emu.callbackType.exec, A_UPLOAD, A_UPLOAD, emu.cpuType.nes, emu.memType.nesMemory)
 emu.addMemoryCallback(mark("restore"), emu.callbackType.exec, A_RESTORE, A_RESTORE, emu.cpuType.nes, emu.memType.nesMemory)
 emu.addMemoryCallback(mark("replay"), emu.callbackType.exec, A_REPLAY, A_REPLAY, emu.cpuType.nes, emu.memType.nesMemory)
-emu.addMemoryCallback(mark("spr0fix"), emu.callbackType.exec, A_SPRFIX, A_SPRFIX, emu.cpuType.nes, emu.memType.nesMemory)
 emu.addMemoryCallback(mark("poolchk"), emu.callbackType.exec, A_POOLCHK, A_POOLCHK, emu.cpuType.nes, emu.memType.nesMemory)
 emu.addMemoryCallback(onData, emu.callbackType.write, 0x2004, 0x2004, emu.cpuType.nes, emu.memType.nesMemory)
 if DL_STATE then

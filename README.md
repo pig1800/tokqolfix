@@ -41,7 +41,7 @@ references such as `b10_msg_index_036`.  See
 ## Execution plan
 
 [`PLAN.md`](PLAN.md) is the phased execution plan for the full kanji+kana
-conversion (SUROM expansion, font pipeline, renderer, text relocation, script
+conversion (512 KiB expansion, font pipeline, renderer, text relocation, script
 proofread, UI screens, QA), with per-task exit criteria.
 
 The current implementation state is tracked in [`STATUS.md`](STATUS.md) and
@@ -51,21 +51,21 @@ The current implementation state is tracked in [`STATUS.md`](STATUS.md) and
 python decomp\build.py --target kanji
 ```
 
-It writes `decomp/build/rom_kanji.nes` (524,304 bytes) and leaves the original
-256 KiB target byte-identical.  The runtime is ROM-resident in text banks
-18-22, uses no battery RAM and has no NMI PPU work.  Revision 9 moves the
-dialogue to a private 4 KiB CHR page (16 KiB CHR RAM, 4 KiB mode) and
-switches it in at the window's top border, so the hack never writes the
-scene's pattern table.  See `STATUS.md` for the verified gates and the
-remaining field-queue/Phase-2b/3 work.
+It writes `decomp/build/rom_kanji.nes` (524,304 bytes, MMC3 since revision
+21) and leaves the original 256 KiB target byte-identical.  The runtime is
+ROM-resident in the text and hack banks and uses no battery RAM.  Dialogue
+kanji live on a private CHR band page (16 KiB CHR RAM) that the MMC3
+scanline IRQ switches in at the window's top border; in battle they use
+tiles the battle scene leaves blank.  See `STATUS.md` for the verified
+gates and the remaining work.
 
 ## Handoff / expansion plan
 
 [`HANDOFF.md`](HANDOFF.md) is a self-contained planning handoff covering the
 verified byte-identical build, the 718-kanji inventory, the SUROM 512 KiB
 expansion path, CHR RAM limits, EverDrive N8 constraints, and a phased
-implementation plan.  Use it as the source of truth for the next planning
-model.
+implementation plan (written before the build moved to MMC3 in revision
+21; `STATUS.md` describes the runtime as built).
 
 ## Current analysis
 

@@ -8,7 +8,9 @@
 ;   $C5A6-$C6D1  load_text_graphics (its palette tables moved to the hack
 ;                bank), the MMC3 bank switches, call_hack/map_hack,
 ;                block-writer hook
-;   $C460-$C47D  dead mmc1_reset / mmc1_init: render_ctl, chr1_scene
+;   $C460-$C47D  dead mmc1_reset / mmc1_init: render_ctl, IRQ tail
+;   $C489-$C49D  dead rest of set_bank_lock: IRQ middle
+;   $C4AD-$C4B9  dead rest of restore_bank_after_nmi: chr1_scene
 ;   $C4BA-$C4CA  NMI hook at loc_EF08 (dead original write_prg_bank body)
 ;   $D291-$D2B6  NMI epilogue hook at loc_EF31 (dead original $EF-$F7
 ;                dispatcher, replaced by the overlay's text_dispatch)
@@ -23,6 +25,7 @@
 ; (restore_bank_after_nmi does it last in every NMI that touched the
 ; mapper).  So an NMI between a main-thread select and its data write
 ; changes nothing: the data lands in the register the main thread chose.
+; The scanline IRQ (revision 21b) follows the same rule.
 ;
 ; Nothing here runs before the game's own split-screen code: the NMI work
 ; is attached after the nmi_mode branch ($EF0B, normal frames only) and in
@@ -132,14 +135,13 @@ nmi_prg:
     rts
 
 ; NMI epilogue gate (jumped to from $EF31 in place of "pla / tay / pla").
-; The hack's epilogue work is the band split and the split-mode reset;
-; with neither, the frame skips the hack bank (and its two bank
-; switches) entirely.
+; The hack's epilogue work is the split-mode reset (the band switch is the
+; scanline IRQ's since revision 21b); normal frames skip the hack bank
+; (and its two bank switches) entirely.
 ef31_gate:
     lda nmi_busy
     bne @skip
     lda nmi_mode
-    ora KANJI_BAND
     beq @skip
     jmp ef31_hook
 @skip:
@@ -246,6 +248,32 @@ c343_hook:
     lda #FN_BLOCK_POST
     jmp call_hack
 
+; MMC3 scanline IRQ (revision 21b; the vector at $FFFE, IRQs enabled at
+; reset).  The NMI arms the counter for the line after the window's top
+; border row starts (irq_arm in the hack bank); here BG tiles $00-$7F
+; switch to the band page, and the counter is re-armed for the same line
+; one frame later (240 clocks: lines up to 239 and the pre-render line),
+; which the next light frame's NMI overrides.  No switch while no band is
+; shown or the main thread owns the PPU (busy mode: its CHR writes clock
+; the counter too).  $8000 goes back to MMC3_SEL, as after every NMI.
+; Split over three gaps; A and the stack only.
+irq_handler:
+    pha
+    lda KANJI_BAND
+    beq irq_off
+    lda nmi_busy
+    bne irq_off
+    lda #MMC3_R0
+    sta MMC3_SELECT
+    lda #CHR_BAND_LO
+    sta MMC3_DATA
+irq_switched:                   ; (label for the test scripts)
+    lda #IRQ_CHAIN
+    sta MMC3_IRQ_LATCH
+    jmp irq_mid
+irq_off:
+    jmp irq_off_tail
+
 ; ----------------------------------------------------------------------
 .base $C460
 ; ----------------------------------------------------------------------
@@ -262,6 +290,36 @@ render_ctl:
     jmp $DBEF                   ; queue the cell (top tile in A)
 @ctl:
     jmp $DC7C                   ; end of line, as the original
+
+; IRQ tail: $8000 back to the main thread's select.
+irq_tail:
+    lda MMC3_SEL
+    ora #MMC3_CHR_MODE
+    sta MMC3_SELECT
+    pla
+    rti
+irq_off_tail:
+    sta MMC3_IRQ_OFF            ; acknowledge, no IRQ until the NMI arms it
+    pla
+    rti
+
+; ----------------------------------------------------------------------
+.base $C489
+; ----------------------------------------------------------------------
+
+; IRQ middle: reload, acknowledge, re-enable; the band flags for the NMI.
+irq_mid:
+    sta MMC3_IRQ_RELOAD
+    sta MMC3_IRQ_OFF
+    sta MMC3_IRQ_ON
+    lda KANJI_NFLAGS
+    ora #FLAG_HIT|FLAG_PAGE2    ; the next vblank finds page 2 selected
+    sta KANJI_NFLAGS
+    jmp irq_tail
+
+; ----------------------------------------------------------------------
+.base $C4AD
+; ----------------------------------------------------------------------
 
 ; BG tiles $00-$7F = the scene page (R0).  NMI only (c343_hook): $8000 is
 ; given back by the restore_bank_after_nmi that ends every such NMI.
@@ -349,7 +407,8 @@ reset_mmc3:
     stx MMC3_IRQ_OFF
     lda #$80
     sta MMC3_WRAM               ; battery RAM enabled, writable
-    txa
+    cli                         ; the MMC3 IRQ is the only IRQ source (APU
+    txa                         ; frame IRQ inhibited at $EFFF, no DMC)
     ldx #$7C
 @clear:
     sta KANJI_MAINCHR,x
