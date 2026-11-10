@@ -15,8 +15,8 @@ Bank 14 runs it.  The officers menu reaches `$84A2`, then
 
 | Step | Code | What it does |
 |---|---|---|
-| 1 | `b14_calc_party_stat`, `load_party_member_record` | the officer's data |
-| 2 | `battle_intro_screen` (`$CED2`, fixed bank; also used by `b14_field_transition_a`) | window, fade, clear the nametables; `copy_to_vram` bank 9: tiles `$00-$0F` (digits, borders; the hack's block writer supplies them) and `$E0-$FE` (bars, S.P); `load_text_graphics` index 8 (palette) |
+| 1 | `b14_calc_tactic_points`, `compact_items_actor` | tactic points; the item list compacted |
+| 2 | `battle_intro_screen` (`$CED2`, fixed bank; also used by `b14_army_status_screen`) | window, fade, clear the nametables; `copy_to_vram` bank 9: tiles `$00-$0F` (digits, borders; the hack's block writer supplies them) and `$E0-$FE` (bars, S.P); `load_text_graphics` index 8 (palette) |
 | 3 | `status_message` -> `text_load_page` | the portrait, tiles `$80-$A3`, through the VRAM queue (6 frames x 96 bytes) |
 | 4 | `draw_string` (inline) | the portrait's nametable block |
 | 5 | `text_init` `$1B` | name in kana |
@@ -174,23 +174,25 @@ the code and the traces say (kanji ROM `5449ff00...`; traces and dumps in
 ## Verified
 
 Name kanji (original engine):
-- `load_party_member_stats` `loc_D4C9` (fixed bank).  Officer record
+- `put_officer_name` (`$D4A1`, formerly `load_party_member_stats`), `loc_D4C9`
+  (fixed bank).  Officer record
   (`$F3`, bank 12): byte `$10` = per-kanji bank bits, `$11-$13` = up to 3
   glyph indices (`$FF` ends).  Source bank 1 or 2, `$8000 + index * 32`.
   CHR stream mode 2 (`vram_put_run` with C set reads 8 bytes, so plane 0
   is kept; then 8 bytes go to plane 1).  Destination: bump pointer `$A9`,
   +4 tiles per kanji; the tile numbers also go into `$0300`/`$0318`.
-- Battle setup `$E09B`: `$A9` = `$10`, then every name in order, no
+- Battle setup `battle_setup_names` (`$E09B`): `$A9` = `$10`, then every name in order, no
   deduplication (兵士 x3 = 6 slots), no bound check.  Kanji 29 and 30
   would land in plane 1 of the portrait tiles `$80-$87` (the next
   portrait upload overwrites them).
 - Info screen: `$A9` = `$10` (bank 14 `$8545`).
-- Exit to battle: bank 14 `$AA1A-$AA5E` (the battle-side wrapper; it runs
-  the info screen through `$8518`).  Afterwards `$A9` = `$10` and the
-  names of battle slots 0 and 1 are re-streamed (`$D49F`, `$D4A1`): 4-6
+- Exit to battle: `b14_battle_officer_info` (bank 14 `$AA1A-$AA5E`, the
+  battle-side wrapper; it runs the info screen `b14_officer_info_screen`,
+  `$8518`).  Afterwards `$A9` = `$10` and the
+  names of battle slots 0 and 1 are re-streamed (`put_officer_name_actor` `$D49F`, `put_officer_name` `$D4A1`): 4-6
   kanji, which always cover `$10-$1B`.  The new plan needs every slot
   re-streamed: record (glyph index, bank) per slot when the battle
-  allocates, or replay its loop (`$E060-$E098`).
+  allocates, or replay its loop (`$E0A3-$E113`).
 - Map path: the map entry runs `$84F8` -> `b14_party_status_update`
   (`$84FE`); the battle wrapper calls `$8518` directly.
 
@@ -208,10 +210,10 @@ CHR tiles `$E0-$FF`:
 - Exit to map reloads `$1800-$1FEF` (tiles `$80-$FE`; bank 4 in the
   town) and the whole font page.  `$FF` is not reloaded.
 
-Gauge colour (bank 14 `$AE10-$AE45`, in the `$AC00` data blob):
+Gauge colour (bank 14 `b14_battle_gauge_scale`, `$ADB5`; tier pick `$AE10-$AE45`):
 - The max HP is compared with 500, 2001, 5001, 10001, 15001 (tables
-  `$AE58` high / `$AE5D` low bytes, `jsr $FA3E` / `$FA10` with inline
-  arguments); tier X 0-5 picks units per gauge segment (`$AE4C`/`$AE52`:
+  `$AE58` high / `$AE5D` low bytes, `sub24_inline_clamped` / `add24_inline`
+  with inline arguments); tier X 0-5 picks units per gauge segment (`$AE4C`/`$AE52`:
   10, 40, 100, 200, 300, 400 -> `$76`/`$77`) and the colour (`$AE46`:
   `25 27 38 31 21 2A`; `$2A` green for 15001 and up), stored to `$03EA`
   (P2 colour 2) and `$3D` at `$AE40`.
@@ -278,22 +280,114 @@ even rows):
 - Kana in a 16-pixel line go in the lower row (as in the battle
   messages: kanji rows 19-20, kana row 20).
 
-Not in the decomp as code: bank 15 `$E000-$E370` (`data_E000`, the
-battle name setup) and bank 14 `$A800-$ABFF` (the wrapper at `$AA1A`).
-Disassemble first, or hash-check the bytes to patch.
+Bank 15 `$E000-$E370` and bank 14 `$A800-$AFFF` are source since step A
+(see "Step A result").
 
 WRAM: 141 bytes free at `$7F73-$7FFF` (canvas code installed): the panel
 kanji map (about 16 x 2 bytes) plus a battle-name record (28 x 2) fit.
 
+## Step A result (2026-11-11)
+
+Done.  The battle and info-screen code is source now; both builds are
+unchanged (original `40f19e17...` byte-identical, kanji `5449ff00...`,
+bank15 lint OK).
+
+Capture: 12 runs on the kanji build (`tools/lua/cdl_run.lua`), mapped onto
+the original PRG (`tools/map_kanji_cdl.py`: banks 0-14 at the same offsets,
+the fixed bank from bank 31, code bits only, only where the bytes equal the
+original) and ORed into `out/cdl_combined3.bin` (the new default CDL).
+States: the user's slot 1 (battle against 2 盗賊 with a strategist, tactic
+window open) and `out/user/m5` `r17_pre_battle_normal` / `_boss`.  Paths:
+tactic subwindow, a tactic round (わんかの計), both command windows,
+ぶしょう -> info (enemy officer) -> battle, item subwindow, defend, retreat,
+all-out attack to victory (exp, gold), map menu ぶしょう -> info (劉備,
+tactics and equipment) -> map, battle starts (with a surprise attack).
+In battle, ぶしょう can only target enemy slots.
+
+Generator fixes (`tools/trace6502.py`, `tools/decompile.py`):
+- inline words: every routine that starts with `fetch_inline_word` takes a
+  word after its JSR (`copy_to_vram`, `read_inline_rect`,
+  `read_inline_block_3`, the 24-bit `add24_inline` / `sub24_inline_clamped`
+  helpers), not only `text_print_inline` / `draw_string`;
+- `call_inline_block` blocks are decoded by their own control flow inside
+  the 255 copied bytes (several `return_inline_block` exits), each
+  `jsr return_inline_block` is followed by its resume word, and the main
+  trace continues at the resume addresses; a block's calls into
+  `$8000-$BFFF` belong to the bank it maps (no labels, no "called by");
+- the 255-byte block copy no longer makes the code after a block "data";
+- `dispatch_return_table` (`$C10C`) does not return; the item-menu and
+  item-effect tables (`$8748`, `$8988`) are listed;
+- bank 14 code may call anywhere in bank 14; fixed-bank routines called
+  only from banked code are seeded.
+
+Coverage (code bytes): bank 14 2,311 -> 11,761 (the blobs left, 4.4 KB,
+are tables, window and nametable records); bank 15 10,446 -> 12,004;
+bank 13 2,557 -> 2,663; bank 8 2,278 -> 2,327; bank 7 796 -> 882.
+
+Renamed (the old names were wrong):
+
+| Address | Old | New |
+|---|---|---|
+| `$C15B` / `$C15F` | `rng_seed` / `rng_next` | `mul16_by_u8` / `mul16x16_shr8` (+ `mul24x16_shr8` `$C163`) |
+| `$C1B3` | `mul16x8_shift` | `div16_by_u8` |
+| `$D4A1` | `load_party_member_stats` | `put_officer_name` (kana, or kanji glyphs streamed to `$A9`) |
+| `$D5FE` | `load_party_member_record` | `compact_items_actor` |
+| `$FA10` / `$FA3E` | `read_inline_offset` / `load_battle_graphics` | `add24_inline` / `sub24_inline_clamped` |
+| `$8000` | `b14_game_bank_entry` | `b14_field_cmd_talk` (field menu table `$F1C3`) |
+| `$959E` | `b14_field_transition_a` | `b14_army_status_screen` (Select on the map) |
+| `$9B73` / `$9B79` | `b14_field_transition_b` / `_body` | `b14_battle_entry` / `b14_battle_run` |
+| `$B855` / `$B863` | `b14_find_injured_member` / `b14_calc_party_stat` | `b14_calc_strategist_tactic_pts` / `b14_calc_tactic_points` |
+| `$BF09`, `$BF46`, `$BF66` | `b14_battle_setup`, `b14_get_item_category`, `b14_draw_battle_status` | `b14_field_load_area_screen`, `b14_field_get_area_tileset`, `b14_field_play_area_music` |
+
+Labels for step B:
+
+| Label | Address | Role |
+|---|---|---|
+| `battle_setup_slots` | `$DF04` | battle setup (enemy slots, then the two parts below) |
+| `battle_setup_names` | `$E09B` | `$A9` = `$10`; loop `$E0A3-$E113` over the 10 slots: sprite, name (`put_officer_name_actor`), troops |
+| `battle_draw_slot_troops` | `$E200` | troop number and gauge (tiles `$E0-$EE`) |
+| `put_officer_name` | `$D4A1` | name of officer Y; kanji path `loc_D4C9` when `$AA` != 0 |
+| `put_officer_name_actor` / `_target` | `$D49F` / `$D49A` | for `text_actor` / `text_target` |
+| `b14_battle_build_lineup` | `$9C87` | calls `battle_setup_slots`, then `$AA` = 0 (`$9CC9`) |
+| `b14_battle_start` | `$9B89` | `battle_intro_screen_body` (`$CEDA`: CHR `$E0-$FE`, palette set 8) |
+| `b14_battle_command_panel` / `_full` | `$9D92` / `$9D9C` | window `$11` (first command of a round, two columns) or `$12` |
+| `b14_battle_item_subwindow` | `$9E2D` | window `$16`, 8 x CALL `b14_wincb_item_list_line` (`$8691`) |
+| `b14_battle_tactic_subwindow` | `$9EAB` | window `$17`: title (のこり S P, template `$EB46`), CALL `b14_wincb_tactic_sp_left` (`$968A`), 6 x CALL `b14_text_call_tactic_name` (`$B723`) |
+| `b14_battle_open_list_window` | `$A590` | opens `$16` / `$17` and waits |
+| `b14_battle_show_actor_portrait` | `$ABD4` | portrait tiles `$80-$A3` (`load_actor_portrait` `$CF96`) |
+| `b14_battle_open_msg_window` / `b14_battle_close_msg_window` | `$ABEB` / `$ABFF` | battle message window `$01` / `$15`, blank `$13` / `$14` |
+| `b14_battle_officer_info` | `$AA1A` | ぶしょう in battle: `b14_officer_info_screen`, then `$A9` = `$10`, names of slots 0 and 1, `$03EA` restored |
+| `b14_officer_info_screen` | `$8518` | the info screen (both paths) |
+| `b14_field_officer_info` | `$84F8` | the map path |
+| `b14_wincb_stat_value_bar` | `$857B` | stat digits and bars (`lda #$F3` at `$85CE`) |
+| `b14_wincb_sp_label` | `$8616` | S . P (`$F6 $F8 $F7`) |
+| `b14_battle_gauge_scale` | `$ADB5` | gauge scale and colour; tier pick `$AE10`, `sta $03EA` at `$AE40` |
+
+Facts found on the way:
+- The original prints battle-message names in kana: `$AA` is cleared at
+  `$9CC9` right after `battle_setup_slots`.  Only `battle_setup_names` and
+  `b14_battle_officer_info` stream name kanji (the kanji build's message
+  kanji are the hack's).
+- The info screen draws window `$1B` with `$AA` = 0 (kana), then sets `$AA`
+  and `$A9` = `$10` for window `$08` (kanji name), `$8543-$854B`.
+- `b14_army_status_screen` (`$959E`, Select on the map) also shows kanji:
+  plane 1 of tiles `$C0-$D7` from bank 1 (`b14_inline_upload_status_kanji`)
+  and names through `$A9` = `$10`.  Not covered by the plan yet.
+- Palette writes in these paths: only `b14_battle_gauge_scale`
+  (`$AE33-$AE45`) and a scripted lightning flash (`$B273-$B28F`).
+- Bank 13 `$986A` (step A item 3): part of a picture (rows `$2064-$21C4`)
+  drawn at bank 13 `$9677-$96B0` after that screen loads its own tiles
+  `$80-$FF` from bank 3.  Its `$EF-$F9` are picture tiles, not the bank-9
+  glyphs: decision 11 does not touch it.
+
 ## Questions for the user
 
-None open.  For step A, a battle save state where the tactic subwindow
-opens (a party with a strategist) would let the CDL capture and the later
-gates cover it; the test states so far have none (軍師がおりません).
+None open.  The strategist battle state is the user's slot 1 (copy:
+`out/test/stepA/user_slot1.mss`).
 
 ## Work order
 
-### Step A (after the next compaction): decompile what is still data
+### Step A: done 2026-11-11 (see "Step A result")
 
 1. Capture a CDL on the original ROM (`tools/lua/cdl_*.lua`,
    `tools/merge_cdl.py`): battle start, command panel, item subwindow,
@@ -317,7 +411,7 @@ gates cover it; the test states so far have none (軍師がおりません).
 4. Name the routines, update this file with the new labels, run the
    original-build check and `bank15_lint`, commit.  Then compact.
 
-### Step B (after the second compaction): implement
+### Step B (next, after the compaction): implement
 
 1. Font: add the 32 missing kanji (kanji font build).
 2. Path flag (map entry `$84F8` vs battle wrapper `$8518`).

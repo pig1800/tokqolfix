@@ -20,8 +20,71 @@ from cpu6502 import decode, successors, BRANCHES
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# JSR targets that consume a 2-byte inline pointer following the call.
-INLINE_WORD_JSR = {0xC25A, 0xD10D, 0xDD14}
+# JSR targets that consume a 2-byte inline pointer following the call:
+# every routine that calls fetch_inline_word ($C25A) first.
+# fetch_inline_word reads the word after its caller's caller's JSR, so a
+# direct "jsr fetch_inline_word" is followed by code, not by data.
+INLINE_WORD_JSR = {
+    0xC33A,  # copy_to_vram
+    0xC3EE,  # read_inline_rect
+    0xD10D,  # text_print_inline
+    0xD652,  # read_inline_block_3
+    0xDD14,  # draw_string
+    0xFA10,  # add24_inline
+    0xFA1B,  # add24_inline_y
+    0xFA3E,  # sub24_inline_clamped
+    0xFA49,  # sub24_inline_clamped_y
+}
+
+# return_inline_block: ends a call_inline_block ($C4E4) block; a resume
+# word follows the JSR.
+RETURN_INLINE_BLOCK = 0xC4FB
+CALL_INLINE_BLOCK = 0xC4E4
+# dispatch_return_table: "jsr $C10C" is followed by a word table indexed by
+# A and never returns.  Tables whose length the CDL does not show:
+DISPATCH_RETURN_TABLE = 0xC10C
+DISPATCH_TABLES = {
+    14: [(0x8748, 4),    # item menu: use / give / equip / discard
+         (0x8988, 40)],  # item effects, item ids $18-$3F
+}
+
+
+def inline_block_flow(data, off, base):
+    """Follow the control flow of a call_inline_block block that starts at
+    bank offset off (the 255 bytes copied to $0600).  Returns (insn, resumes):
+    the block's instructions by CPU address, and the resume address after each
+    "jsr return_inline_block" (its word + 1)."""
+    from cpu6502 import BRANCHES as _BR
+    lo, hi = off, min(off + 255, len(data))
+    insn, resumes, work = {}, [], [off]
+    while work:
+        o = work.pop()
+        if not (lo <= o < hi) or (base + o) in insn:
+            continue
+        ins = decode(data, o, base)
+        if ins is None or o + ins.size > hi:
+            continue
+        insn[base + o] = ins
+        m = ins.mnemonic
+        if m in ("jsr", "jmp") and ins.mode == "abs" and ins.value == RETURN_INLINE_BLOCK:
+            w = o + ins.size
+            if m == "jsr" and w + 1 < len(data):
+                resumes.append((data[w] | (data[w + 1] << 8)) + 1)
+            continue
+        if m in ("rts", "rti", "brk"):
+            continue
+        if m == "jmp":
+            if ins.mode == "abs" and lo <= ins.value - base < hi:
+                work.append(ins.value - base)
+            continue
+        if m in _BR:
+            work.append(ins.value - base)
+        nxt = o + ins.size
+        if m == "jsr" and ins.mode == "abs" and ins.value in INLINE_WORD_JSR:
+            nxt += 2
+        work.append(nxt)
+    return insn, resumes
+
 
 # Plausible code ranges for switchable banks.  A JSR/JMP target outside these
 # ranges is only followed when Mesen CDL marked it as executed.  This prevents
@@ -31,10 +94,12 @@ TRACE_RANGES = {
     7: [(0x1400, 0x1F00)],
     8: [(0x0000, 0x0A00)],
     13: [(0x0800, 0x2200)],
-    14: [(0x0000, 0x1C00), (0x340E, 0x4000)],
+    14: [(0x0000, 0x4000)],  # bank-14 code only calls bank 14 (blocks are not traced here)
 }
 ROM_PATH = ROOT / "Tenchi o Kurau (Japan) (Rev 1).nes"
-DEFAULT_CDL = ROOT / "out" / "cdl_combined.bin"
+# cdl_combined.bin plus the step-A capture (2026-11-11, tools/lua/cdl_run.lua,
+# tools/map_kanji_cdl.py).
+DEFAULT_CDL = ROOT / "out" / "cdl_combined3.bin"
 OUT_DIR = ROOT / "decomp"
 ASM6F = ROOT / "tools" / "toolchain" / "asm6f" / "asm6f_64.exe"
 
@@ -45,12 +110,18 @@ KNOWN_ENTRIES = {
     7: [0x9400, 0x9403],
     8: [0x8000, 0x8003],
     13: [0x8800, 0x8D0, 0x98E7, 0x9C00, 0x9CC6, 0x9F63, 0xA075, 0xA0F3],
-    14: [0x8000, 0x842F, 0x867D, 0x959E, 0x9B73, 0xB40E, 0xB487, 0xBC79, 0xBD77, 0xBF09, 0xBF46],
+    14: [0x8000, 0x842F, 0x867D, 0x959E, 0x9B73, 0xB40E, 0xB487, 0xBC79, 0xBD77, 0xBF09, 0xBF46,
+         # step A: field menu しらべる (bank-15 table $F1C3), window CALLs
+         # (F8 in bank-15 templates), victory message CALL (msg 061)
+         0x809B, 0x9670, 0x967D, 0x968A, 0x969C, 0x9A65],
     15: [0xFFD8, 0xEE79, 0xC06E, 0xC08F,
          0xC106, 0xC3EE, 0xC4CF, 0xCC19, 0xCED2, 0xCF91,
          0xD43C, 0xD4A1, 0xD567, 0xD5A5, 0xD5FE, 0xD652, 0xD661,
          0xD671, 0xDDDA, 0xDE07, 0xE371, 0xE711,
-         0xF0BB, 0xF0D7, 0xF0DF, 0xF999, 0xF99C, 0xFA10],
+         0xF0BB, 0xF0D7, 0xF0DF, 0xF999, 0xF99C, 0xFA10,
+         # step A: called from banked code (banks 13/14), not reached in bank 15
+         0xC0C3, 0xC990, 0xC99F, 0xCDA8, 0xCE2D, 0xCE7A, 0xCFA1, 0xD59F, 0xD5F2,
+         0xD6C2, 0xE369, 0xE38B, 0xE50D, 0xE937],
 }
 
 # Human names for important addresses.  Anything here is emitted as a label
@@ -308,9 +379,21 @@ def trace_bank(r, bank, cdl, debug=False):
     cdl_bank = cdl[bank * 0x4000:(bank + 1) * 0x4000]
     code_bytes = {i for i, v in enumerate(cdl_bank) if v & 1}
     data_only = {i for i, v in enumerate(cdl_bank) if (v & 2) and not (v & 1)}
+    # call_inline_block ($C4E4) always copies the 255 bytes after its JSR to
+    # $0600, so CDL marks them as read even when the block is shorter: the
+    # code after a block is not data.
+    for i in range(len(data) - 2):
+        if data[i] == 0x20 and data[i + 1] == 0xE4 and data[i + 2] == 0xC4 and cdl_bank[i] & 1:
+            for j in range(i + 3, min(i + 3 + 255, len(data))):
+                data_only.discard(j)
     insn = {}
     bad = set()
     work = []
+    for t, n in DISPATCH_TABLES.get(bank, []):
+        for k in range(n):
+            o = t - base + 2 * k
+            data_only.update((o, o + 1))
+            work.append(data[o] | (data[o + 1] << 8))
 
     for a in KNOWN_ENTRIES.get(bank, []):
         work.append(a)
@@ -336,8 +419,31 @@ def trace_bank(r, bank, cdl, debug=False):
             if ins.mnemonic == "jsr" and ins.value in INLINE_WORD_JSR:
                 # The two bytes after the call are an inline pointer, not code.
                 off = a - base
-                for j in range(1, 3):
+                for j in range(ins.size, ins.size + 2):
                     data_only.add(off + j)
+            if ins.mnemonic == "jsr" and ins.mode == "abs" and ins.value == RETURN_INLINE_BLOCK:
+                # return_inline_block ends a RAM-resident block: the word after
+                # the JSR is the resume address minus 1 in the caller's bank.
+                off = a - base
+                for j in range(ins.size, ins.size + 2):
+                    data_only.add(off + j)
+                if off + ins.size + 1 < len(data):
+                    w = data[off + ins.size] | (data[off + ins.size + 1] << 8)
+                    if base <= w + 1 < base + len(data):
+                        work.append(w + 1)
+                continue
+            if ins.mnemonic == "jsr" and ins.mode == "abs" and ins.value == DISPATCH_RETURN_TABLE:
+                work.append(DISPATCH_RETURN_TABLE)
+                continue
+            if ins.mnemonic == "jsr" and ins.mode == "abs" and ins.value == CALL_INLINE_BLOCK:
+                # The block after the JSR runs from RAM with another bank
+                # mapped (decompile.find_inline_blocks emits it).  Do not trace
+                # it as this bank's code; continue at its resume address.
+                work.append(CALL_INLINE_BLOCK)
+                for res in inline_block_flow(data, a - base + ins.size, base)[1]:
+                    if base <= res < base + len(data):
+                        work.append(res)
+                continue
             for s in successors(ins):
                 if ins.mnemonic == "jsr" and s == ins.next_addr and ins.value in INLINE_WORD_JSR:
                     s += 2

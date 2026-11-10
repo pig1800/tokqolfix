@@ -1,7 +1,7 @@
 ; ======================================================================
 ; PRG bank 08  CPU $8000-$BFFF
 ; ======================================================================
-; traced code: 1195 instructions / 2278 bytes; CDL code bytes: 1946
+; traced code: 1218 instructions / 2327 bytes; CDL code bytes: 2122
 ;
 ; Data resources (editable PNGs under assets/, rebuilt by build.py):
 ;   $8000-$8A4F  b08_sound_driver: Music/sound driver code.
@@ -988,10 +988,34 @@ b08_loc_8600:
     ldy #$13
     sta ($CC),y
     jmp b08_loc_858A
+    jsr sound_fetch_byte
+    txa
+    beq b08_loc_8613
+    cpx $D3
+    beq b08_loc_8624
+    inc $D3
+b08_loc_8613:
+    jsr sound_fetch_byte
+    sta $D4
+    jsr sound_fetch_byte
+    sta $D1
+    lda $D4
+    sta $D0
+    jmp b08_loc_858A
+b08_loc_8624:
+    lda #$00
+    sta $D3
+    lda #$02
+    clc
+    adc $D0
+    sta $D0
+    lda #$00
+    adc $D1
+    sta $D1
+    jmp b08_loc_858A
 
-b08_data_8607:
-    .incbin "build/assets/bank08_data.bin", $0607, $0047
-
+b08_data_8638:
+    .incbin "build/assets/bank08_data.bin", $0638, $0016
     lda $D0
     sec
     sbc #$01
@@ -1035,7 +1059,7 @@ b08_loc_8687:
 ; ----------------------------------------------------------------------
 ; sound_fetch_byte
 ;   Fetch the next byte from the current music stream.
-;   called by: $858A, $859A, $85A4, $85CB, $85D3, $85DD, $85ED
+;   called by: $858A, $859A, $85A4, $85CB, $85D3, $85DD, $85ED, $8607, $8613, $8618
 ; ----------------------------------------------------------------------
 sound_fetch_byte:
     ldy #$00

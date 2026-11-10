@@ -1,7 +1,7 @@
 ; ======================================================================
 ; PRG bank 13  CPU $8000-$BFFF
 ; ======================================================================
-; traced code: 1182 instructions / 2557 bytes; CDL code bytes: 1650
+; traced code: 1229 instructions / 2663 bytes; CDL code bytes: 1778
 ;
 ; Data resources (editable PNGs under assets/, rebuilt by build.py):
 ;   $8000-$87FF  b13_data_tables: Data tables at the start of bank 13.
@@ -64,11 +64,22 @@ b13_inline_881A:
     lda #$00
     ldx #$80
     ldy #$18
-    jsr copy_to_vram
-    brk
+    jsr copy_to_vram            ; inline pointer/data follows the JSR
 
-b13_data_8829:
-    .incbin "build/assets/bank13_data.bin", $0829, $0014
+b13_data_8828:
+    .incbin "build/assets/bank13_data.bin", $0828, $0002
+    lda #$04
+    ldx #$20
+    ldy #$1E
+    jsr copy_to_vram            ; inline pointer/data follows the JSR
+
+b13_data_8833:
+    .incbin "build/assets/bank13_data.bin", $0833, $0002
+    jsr load_battle_palette
+    jsr return_inline_block
+
+b13_data_883B:
+    .incbin "build/assets/bank13_data.bin", $083B, $0002
     jsr draw_string             ; inline pointer/data follows the JSR
 
 b13_data_8840:
@@ -91,7 +102,7 @@ b13_data_8840:
     sta $04
     lda #$80
     sta nmi_mode
-    jsr b13_load_officer_palette
+    jsr b13_load_officer_palette; bank 02 target
     jsr loc_C139
 b13_loc_8871:
     ldx #$04
@@ -99,9 +110,10 @@ b13_loc_8873:
     lda controller_state
     and #$10
     beq b13_loc_8882
-
-b13_data_8879:
-    .incbin "build/assets/bank13_data.bin", $0879, $0009
+    jsr load_text_graphics
+    lda #$00
+    sta nmi_mode
+    beq b13_loc_88AA
 b13_loc_8882:
     jsr wait_vblank
     dex
@@ -121,6 +133,7 @@ b13_loc_8882:
     sta $A5
     ldy #$0A
     jsr draw_text_window_small
+b13_loc_88AA:
     lda #$21
     sta party_scan
     ldx #$3C
@@ -481,7 +494,7 @@ b13_data_8C5D:
     .dw b11_msg_index_150    ; text index $0296 -> b11_msg_150
     ldx #$2A
     jsr text_init
-    jsr data_CDA8
+    jsr text_wait_ask
     bcs b13_loc_8C23
     jsr b13_init_name_entry
     ldy #$08
@@ -596,7 +609,7 @@ b13_loc_9059:
     ldy #$73
     lda ($10),y
     sta ptr1_lo
-    jsr read_inline_block_3
+    jsr read_inline_block_3     ; inline pointer/data follows the JSR
 
 b13_data_907E:
     .incbin "build/assets/bank13_data.bin", $107E, $0002
@@ -808,7 +821,7 @@ b13_loc_920F:
 ; ----------------------------------------------------------------------
 ; b13_draw_officer_portrait
 ;   Draw the officer portrait.
-;   called by: $915A, $919E, $9209
+;   called by: $915A, $919E, $9209, $92C8
 ; ----------------------------------------------------------------------
 b13_draw_officer_portrait:
     jsr call_inline_block       ; copies the following block to $0600 and executes it there
@@ -829,20 +842,24 @@ b13_inline_9213:
     sta copy_src_lo
     lda #$40
     sta ppu_addr_hi
-    jsr rng_seed
+    jsr mul16_by_u8
     lda text_menu_sub
     asl a
     sta $16
-    jsr read_inline_offset
-    asl $00,x
+    jsr add24_inline            ; inline pointer/data follows the JSR
+
+b13_data_9233:
+    .incbin "build/assets/bank13_data.bin", $1233, $0002
     lda #$00
     sta ptr1_lo
     lda #$21
     sta ptr0_hi
     lda #$05
     sta ptr0_lo
-    jsr read_inline_offset
-    asl $00,x
+    jsr add24_inline            ; inline pointer/data follows the JSR
+
+b13_data_9244:
+    .incbin "build/assets/bank13_data.bin", $1244, $0002
     jsr return_inline_block
 
 b13_data_9249:
@@ -935,21 +952,26 @@ b13_officer_status_draw:
     lda ($1B),y
     cmp #$FD
     bne b13_loc_92B7
-
-b13_data_92B0:
-    .incbin "build/assets/bank13_data.bin", $12B0, $0007
+    lda copy_src_hi
+    beq b13_loc_92B6
+    dec copy_src_hi
+b13_loc_92B6:
+    rts
 b13_loc_92B7:
     cmp #$FE
     bne b13_loc_92C4
-
-b13_data_92BB:
-    .incbin "build/assets/bank13_data.bin", $12BB, $0009
+    lda copy_src_hi
+    cmp #$03
+    beq b13_loc_9330
+    inc copy_src_hi
+    rts
 b13_loc_92C4:
     cmp #$FF
     bne b13_loc_92D0
-
-b13_data_92C8:
-    .incbin "build/assets/bank13_data.bin", $12C8, $0008
+    jsr b13_draw_officer_portrait
+    pla
+    pla
+    jmp b13_officer_status_exit
 b13_loc_92D0:
     pha
     ldx vram_queue_write
@@ -971,9 +993,14 @@ b13_loc_92D0:
     pha
     asl a
     bcc b13_loc_9300
-
-b13_data_92F3:
-    .incbin "build/assets/bank13_data.bin", $12F3, $000D
+    ldy #$72
+    cmp #$C4
+    bcc b13_loc_9300
+    pla
+    sec
+    sbc #$0A
+    pha
+    ldy #$73
 b13_loc_9300:
     pla
     and #$7F
@@ -1142,11 +1169,28 @@ b13_inline_967A:
     lda #$00
     ldx #$80
     ldy #$18
-    jsr copy_to_vram
-    brk
+    jsr copy_to_vram            ; inline pointer/data follows the JSR
 
-b13_data_9689:
-    .incbin "build/assets/bank13_data.bin", $1689, $001C
+b13_data_9688:
+    .incbin "build/assets/bank13_data.bin", $1688, $0002
+    lda #$20
+    ldx #$1A
+    ldy #$14
+    jsr copy_to_vram            ; inline pointer/data follows the JSR
+
+b13_data_9693:
+    .incbin "build/assets/bank13_data.bin", $1693, $0002
+    lda #$00
+    ldx #$08
+    ldy #$08
+    jsr copy_to_vram            ; inline pointer/data follows the JSR
+
+b13_data_969E:
+    .incbin "build/assets/bank13_data.bin", $169E, $0002
+    jsr return_inline_block
+
+b13_data_96A3:
+    .incbin "build/assets/bank13_data.bin", $16A3, $0002
     jsr draw_string             ; inline pointer/data follows the JSR
 
 b13_data_96A8:
@@ -1161,7 +1205,7 @@ b13_data_96B0:
 
 b13_data_96B8:
     .incbin "build/assets/bank13_data.bin", $16B8, $0002
-    jsr read_inline_rect
+    jsr read_inline_rect        ; inline pointer/data follows the JSR
 
 b13_data_96BD:
     .incbin "build/assets/bank13_data.bin", $16BD, $0002
@@ -1384,7 +1428,7 @@ b13_init_name_entry:
     clc
     adc #$0D
     sta ppu_addr_hi
-    jsr rng_seed
+    jsr mul16_by_u8
     lda #$00
     sta $00
     lda #$60
@@ -1439,7 +1483,13 @@ b13_check_name_tile:
     rts
 
 b13_data_9CCE:
-    .incbin "build/assets/bank13_data.bin", $1CCE, $0295
+    .incbin "build/assets/bank13_data.bin", $1CCE, $0266
+
+b13_data_9F34:
+    .incbin "build/assets/bank13_data.bin", $1F34, $0010
+
+b13_data_9F44:
+    .incbin "build/assets/bank13_data.bin", $1F44, $001F
 
 ; ----------------------------------------------------------------------
 ; b13_name_entry_screen
@@ -1599,7 +1649,7 @@ b13_data_A0E2:
 b13_officer_status_init:
     jsr ppu_bg_sprites_off
     jsr ppu_nmi_off
-    jsr b13_loc_9FAB            ; bank 14 target
+    jsr b14_data_9FAB           ; bank 14: b14_data_9FAB
     lda $6014
     sta party_index
     ldx #$03
@@ -1656,8 +1706,8 @@ b13_loc_A14D:
 b13_inline_A157:
     lda #$0E
     jsr set_bank_a
-    jsr b14_get_item_category   ; bank 14: b14_get_item_category
-    jsr b14_draw_battle_status  ; bank 14: b14_draw_battle_status
+    jsr b14_field_get_area_tileset; bank 14: b14_field_get_area_tileset
+    jsr b14_field_play_area_music; bank 14: b14_field_play_area_music
     jsr b14_init_battle_party   ; bank 14: b14_init_battle_party
     jsr init_party_status
     jsr battle_main
@@ -1665,7 +1715,26 @@ b13_inline_A157:
     jsr return_inline_block
 
 b13_data_A171:
-    .incbin "build/assets/bank13_data.bin", $2171, $0024
+    .incbin "build/assets/bank13_data.bin", $2171, $0002
+    jsr find_party_member
+    jsr reset_text_engine
+    lda party_index
+    cmp #$05
+    bne b13_loc_A187
+    jsr text_print_inline       ; inline pointer/data follows the JSR
+
+b13_data_A182:
+    .dw b10_msg_index_211    ; text index $00D3 -> b10_msg_211
+    jmp b13_loc_A18C
+b13_loc_A187:
+    jsr text_print_inline       ; inline pointer/data follows the JSR
+
+b13_data_A18A:
+    .dw b10_msg_index_212    ; text index $00D4 -> b10_msg_212
+b13_loc_A18C:
+    jsr wait_keypress
+    jsr text_draw_screen
+    jmp set_bank_14
     lda $6705
     and #$F7
     sta $6705
@@ -1699,7 +1768,10 @@ b13_data_B800:
     .incbin "build/assets/bank13_data.bin", $3800, $0310
 
 b13_data_BB10:
-    .incbin "build/assets/bank13_data.bin", $3B10, $0398
+    .incbin "build/assets/bank13_data.bin", $3B10, $0388
+
+b13_data_BE98:
+    .incbin "build/assets/bank13_data.bin", $3E98, $0010
 
 b13_data_tail:
     .incbin "build/assets/bank13_data.bin", $3EA8, $0158

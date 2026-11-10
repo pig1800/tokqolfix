@@ -17,15 +17,15 @@
 ;   bank 04:     0 insns,     0 bytes code,     0 CDL code bytes
 ;   bank 05:     0 insns,     0 bytes code,     0 CDL code bytes
 ;   bank 06:     0 insns,     0 bytes code,     0 CDL code bytes
-;   bank 07:   344 insns,   796 bytes code,   312 CDL code bytes
-;   bank 08:  1195 insns,  2278 bytes code,  1946 CDL code bytes
+;   bank 07:   381 insns,   882 bytes code,   312 CDL code bytes
+;   bank 08:  1218 insns,  2327 bytes code,  2122 CDL code bytes
 ;   bank 09:     0 insns,     0 bytes code,     0 CDL code bytes
 ;   bank 10:     0 insns,     0 bytes code,     0 CDL code bytes
 ;   bank 11:     0 insns,     0 bytes code,     0 CDL code bytes
 ;   bank 12:     0 insns,     0 bytes code,     0 CDL code bytes
-;   bank 13:  1182 insns,  2557 bytes code,  1650 CDL code bytes
-;   bank 14:  1106 insns,  2311 bytes code,  1004 CDL code bytes
-;   bank 15:  5206 insns, 10446 bytes code,  8690 CDL code bytes
+;   bank 13:  1229 insns,  2663 bytes code,  1778 CDL code bytes
+;   bank 14:  5366 insns, 11761 bytes code,  5173 CDL code bytes
+;   bank 15:  5965 insns, 12004 bytes code, 10063 CDL code bytes
 ; ======================================================================
 ; iNES/NES 2.0 header: PRG 16x16K, CHR 0, mapper 1 (MMC1),
 ; horizontal mirroring, battery PRG RAM, 8K CHR RAM, NTSC.

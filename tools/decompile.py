@@ -25,7 +25,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from rom import Rom
-from trace6502 import BASES, DEFAULT_CDL, INLINE_WORD_JSR, KNOWN_ENTRIES, load_cdl, trace_bank
+from trace6502 import (BASES, DEFAULT_CDL, INLINE_WORD_JSR, KNOWN_ENTRIES, inline_block_flow,
+                       load_cdl, trace_bank)
 from cpu6502 import decode
 from symbols import DOCS, HW_NAMES, INLINE_COMMENTS, NAMES, RAM_NAMES, RAM_RANGES
 import textdata
@@ -133,6 +134,13 @@ BRANCHES = {"bpl", "bmi", "bvc", "bvs", "bcc", "bcs", "bne", "beq"}
 # Populated by main(): (bank, start) -> block instructions for the RAM-resident
 # inline routines copied by call_inline_block ($C4E4).
 INLINE_STARTS: dict[tuple[int, int], list] = {}
+# (bank, address) of every instruction inside an inline block: its calls into
+# $8000-$BFFF go to the bank the block maps, not to this bank.
+BLOCK_INSNS: set[tuple[int, int]] = set()
+
+
+def banked_from_block(bank: int, addr: int, target: int) -> bool:
+    return (bank, addr) in BLOCK_INSNS and 0x8000 <= target < 0xC000
 
 
 def prefix(bank: int) -> str:
@@ -172,7 +180,8 @@ def find_inline_blocks(insn: dict, bank: int) -> dict[int, list]:
 
     The block is copied to $0600 and executed there.  Its source bytes are
     ordinary bank data until a caller looks for them, so the normal CDL trace
-    does not mark them as code.  Decode linearly until return_inline_block.
+    does not mark them as code.  Follow its control flow inside the 255
+    copied bytes; every "jsr return_inline_block" ends a path.
     """
     base = BASES[bank]
     data = Rom(str(ROM_PATH)).bank(bank)
@@ -181,21 +190,9 @@ def find_inline_blocks(insn: dict, bank: int) -> dict[int, list]:
         if not (i.mnemonic == "jsr" and i.mode == "abs" and i.value == 0xC4E4):
             continue
         start = addr + i.size
-        block = []
-        a = start
-        while bank * 0x4000 + (a - base) < (bank + 1) * 0x4000 and len(block) < 255:
-            off = a - base
-            ins = decode(data, off, base)
-            if ins is None:
-                break
-            block.append((a, ins))
-            if ins.mnemonic in ("jsr", "jmp") and ins.mode == "abs" and ins.value == 0xC4FB:
-                break
-            if ins.mnemonic in ("rts", "rti", "brk"):
-                break
-            a += ins.size
+        block, _ = inline_block_flow(data, start - base, base)
         if block:
-            found[start] = block
+            found[start] = sorted(block.items())
     return found
 
 
@@ -280,6 +277,8 @@ def build_labels(bank: int, insn: dict, cdl: bytes) -> dict[int, str]:
     for addr, ins in sorted(insn.items()):
         if ins.mnemonic == "jsr" and ins.mode == "abs":
             t = ins.value
+            if banked_from_block(bank, addr, t):
+                continue
             if base <= t < base + 0x4000 and t in insn and t not in labels:
                 add(t, f"sub_{t:04X}" if bank == 15 else f"b{bank:02d}_sub_{t:04X}")
             if t in INLINE_WORD_JSR:
@@ -288,6 +287,8 @@ def build_labels(bank: int, insn: dict, cdl: bytes) -> dict[int, str]:
                 add(addr + ins.size, f"data_{addr + ins.size:04X}" if bank == 15 else f"b{bank:02d}_data_{addr + ins.size:04X}")
         elif ins.mnemonic == "jmp" and ins.mode == "abs":
             t = ins.value
+            if banked_from_block(bank, addr, t):
+                continue
             if base <= t < base + 0x4000 and t in insn and t not in labels:
                 add(t, f"loc_{t:04X}" if bank == 15 else f"b{bank:02d}_loc_{t:04X}")
 
@@ -502,7 +503,7 @@ def comment_for_insn(ins, bank: int, labels: dict[int, str], routines: dict[int,
                 notes.append(f"bank {hb:02d}" + (f": {target}" if target else " target"))
     if m in ("jsr", "jmp") and mode == "abs" and v == 0xC4E4:
         notes.append("copies the following block to $0600 and executes it there")
-    if m == "jsr" and mode == "abs" and v in (0xC25A, 0xD10D, 0xDD14):
+    if m == "jsr" and mode == "abs" and v in INLINE_WORD_JSR:
         notes.append("inline pointer/data follows the JSR")
     return notes
 
@@ -556,7 +557,7 @@ def emit_bank(bank: int, insn: dict, cdl: bytes, manifest: dict,
     # Reverse call graph for comments.
     callers: dict[int, list[int]] = defaultdict(list)
     for a, i in insn.items():
-        if i.mnemonic == "jsr" and i.mode == "abs":
+        if i.mnemonic == "jsr" and i.mode == "abs" and not banked_from_block(bank, a, i.value):
             callers[i.value].append(a)
 
     lines = header
@@ -809,10 +810,18 @@ def main() -> int:
         insn = traces[bank][0]
         for start, block in find_inline_blocks(insn, bank).items():
             INLINE_STARTS[(bank, start)] = block
-            if any(a in insn for a, _ in block):
+            # Part of a block may already be traced (CDL-backed code inside
+            # it); insert the rest only when every instruction boundary agrees.
+            covered = {}
+            for a, i in insn.items():
+                for j in range(i.size):
+                    covered[a + j] = a
+            if any(a in covered and (covered[a] != a or insn[a].size != i.size)
+                   for a, i in block):
                 continue
             for a, i in block:
-                insn[a] = i
+                insn.setdefault(a, i)
+                BLOCK_INSNS.add((bank, a))
 
     all_labels = {}
     for bank in range(16):

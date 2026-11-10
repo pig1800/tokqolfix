@@ -1,7 +1,7 @@
 ; ======================================================================
 ; PRG bank 07  CPU $8000-$BFFF
 ; ======================================================================
-; traced code: 344 instructions / 796 bytes; CDL code bytes: 312
+; traced code: 381 instructions / 882 bytes; CDL code bytes: 312
 ;
 ; Data resources (editable PNGs under assets/, rebuilt by build.py):
 ;   $8000-$93FF  b07_map_data: Map movement/event data and tables.
@@ -182,6 +182,7 @@ b07_loc_94DD:
     jsr b07_delay_frames
     lda #$96
     jsr b07_delay_frames
+b07_loc_9516:
     lda #$00
     sta loop_counter
     sta battle_flags
@@ -211,8 +212,9 @@ b07_inline_9527:
     iny
     sty map_y
     jsr draw_string             ; inline pointer/data follows the JSR
+
 b07_data_953C:
-    sbc $95
+    .incbin "build/assets/bank07_data.bin", $153C, $0002
     jsr load_text_graphics
     lda #$FB
     sta $A5
@@ -238,13 +240,17 @@ b07_loc_955B:
     jsr wait_vblank
     lda controller_prev
     and #$10
-    bne b07_data_9569
+    bne b07_loc_9569
     dec party_scan
     bne b07_loc_955B
     rts
+b07_loc_9569:
+    ldx #$2E
+    txs
+    jmp b07_loc_9516
 
-b07_data_9569:
-    .incbin "build/assets/bank07_data.bin", $1569, $0007
+b07_data_956F:
+    .incbin "build/assets/bank07_data.bin", $156F, $0001
 
 b07_data_9570:
     .incbin "build/assets/bank07_data.bin", $1570, $01E6
@@ -293,8 +299,9 @@ b07_inline_9C88:
     lda #$10
     jsr b13_data_9CBE           ; bank 13: b13_data_9CBE
     jsr return_inline_block
+
 b07_data_9C93:
-    sty $9C,x
+    .incbin "build/assets/bank07_data.bin", $1C93, $0002
     ldx #$00
     stx ppu_update_len
     lda #$A8
@@ -318,7 +325,6 @@ b07_loc_9C9D:
 ; ----------------------------------------------------------------------
 ; b07_party_list_draw
 ;   Draw the party/list screen entries.
-;   called by: $9C8D
 ; ----------------------------------------------------------------------
 b07_party_list_draw:
     stx $0511                   ; Per-actor state flags.
@@ -378,11 +384,48 @@ b07_inline_9D1A:
     lda #$00
     ldx #$40
     ldy #$18
-    jsr copy_to_vram
-    brk
+    jsr copy_to_vram            ; inline pointer/data follows the JSR
 
-b07_data_9D29:
-    .incbin "build/assets/bank07_data.bin", $1D29, $003F
+b07_data_9D28:
+    .incbin "build/assets/bank07_data.bin", $1D28, $0002
+    jsr return_inline_block
+
+b07_data_9D2D:
+    .incbin "build/assets/bank07_data.bin", $1D2D, $0002
+    lda #$0F
+    sta $03EC                   ; Small VRAM upload buffer.
+    lda #$30
+    sta $03ED                   ; Small VRAM upload buffer.
+    lda #$10
+    sta $03EE                   ; Small VRAM upload buffer.
+    lda #$00
+    sta $03EF                   ; Small VRAM upload buffer.
+    sta vram_dma_pending
+    jsr draw_string             ; inline pointer/data follows the JSR
+
+b07_data_9D48:
+    .incbin "build/assets/bank07_data.bin", $1D48, $0002
+    jsr screen_fade_out
+    ldy #$0A
+    jsr draw_text_window_small
+    jsr call_inline_block       ; copies the following block to $0600 and executes it there
+; ----------------------------------------------------------------------
+; b07_inline_9D55
+;   Inline RAM routine copied to $0600 by call_inline_block.
+;   It executes with another PRG bank mapped and returns
+;   through return_inline_block ($C4FB).
+; ----------------------------------------------------------------------
+b07_inline_9D55:
+    jsr set_bank_13
+    lda #$10
+    jsr b13_check_name_tile     ; bank 13: b13_check_name_tile
+    jsr return_inline_block
+
+b07_data_9D60:
+    .incbin "build/assets/bank07_data.bin", $1D60, $0002
+b07_loc_9D62:
+    jsr wait_vblank
+    jmp b07_loc_9D62            ; bank 13 target
 ; ----------------------------------------------------------------------
 ; b07_screen_fade_in
 ;   Fade the screen in before the list is drawn.
@@ -415,14 +458,14 @@ b07_party_list_page:
     asl a
     pha
     tax
-    lda b07_data_9F34,x
+    lda b13_data_9F34,x
     ldx #$00
     stx loop_counter
     stx battle_flags
     jsr text_load_page
     ldy text_menu_index
     dey
-    lda b07_data_9F44,y
+    lda b13_data_9F44,y
     bne b07_loc_9DAF
     pla
     jsr draw_string             ; inline pointer/data follows the JSR
@@ -464,8 +507,9 @@ b07_inline_9DC5:
 b07_data_9DDA:
     .incbin "build/assets/bank07_data.bin", $1DDA, $0002
     jsr return_inline_block
+
 b07_data_9DDF:
-    cpx #$9D
+    .incbin "build/assets/bank07_data.bin", $1DDF, $0002
     jsr screen_fade_out
     lda #$09
     sta text_graphics_index
@@ -538,11 +582,30 @@ b07_inline_9E52:
     jsr set_bank_14
     jsr b14_init_battle_party   ; bank 14: b14_init_battle_party
     jsr init_party_status
-    jsr b14_battle_setup        ; bank 14: b14_battle_setup
+    jsr b14_field_load_area_screen; bank 14: b14_field_load_area_screen
     jsr return_inline_block
 
 b07_data_9E61:
-    .incbin "build/assets/bank07_data.bin", $1E61, $0021
+    .incbin "build/assets/bank07_data.bin", $1E61, $0002
+    ldx #$FF
+b07_loc_9E65:
+    txa
+    pha
+    jsr update_frame
+    pla
+    tax
+    dex
+    bne b07_loc_9E65
+    ldy #$05
+    jsr draw_window
+    ldx #$0F
+b07_loc_9E76:
+    lda #$00
+    sta $0500,x                 ; Per-actor state flags.
+    dex
+    bpl b07_loc_9E76
+    jsr clear_oam_shadow
+    rts
 
 b07_data:
     .incbin "build/assets/bank07_data.bin", $1E82, $00B2

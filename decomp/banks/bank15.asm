@@ -1,7 +1,7 @@
 ; ======================================================================
 ; PRG bank 15  CPU $C000-$FFFF
 ; ======================================================================
-; traced code: 5206 instructions / 10446 bytes; CDL code bytes: 8690
+; traced code: 5965 instructions / 12004 bytes; CDL code bytes: 10063
 ;
 ; Data resources (editable PNGs under assets/, rebuilt by build.py):
 ;   $C000-$EBFF  b15_code: Fixed-bank main code and tables.
@@ -12,6 +12,7 @@
 
 ; Overlapping data aliases (tables referenced inside instructions)
 data_C400 = $C400
+data_E000 = $E000
 data_F279 = $F279
 data_F679 = $F679
 
@@ -160,13 +161,20 @@ task_slot_from_a:
 ;   Wait for the NMI window and flush queued PPU updates.
 ;   If rendering is off, switch to the scheduler before waiting.
 ;   This is the standard 'yield' call used by text, menu, and map loops.
-;   called by: $C0BC, $C13C, $C14B, $C155, $C57C, $C70E, $CE1E, $CED7, $D035, $D07E, $D527, $DC8A (+4 more)
+;   called by: $C0BC, $C13C, $C14B, $C155, $C57C, $C70E, $CE1E, $CE6D, $CEBE, $CED7, $D035, $D07E (+6 more)
 ; ----------------------------------------------------------------------
 wait_vblank:
     lda nmi_busy
     bne loc_C0AD
     lda ppu_ctrl_shadow
     bpl loc_C0AD
+; ----------------------------------------------------------------------
+; wait_vblank_queued
+;   Yield one frame with nmi_update_budget = 1 (the NMI flushes the
+;   VRAM queue); unlike wait_vblank there is no direct-flush path.
+;   called by: $DF32, $E0A3, $E200, $E238
+; ----------------------------------------------------------------------
+wait_vblank_queued:
     lda #$01                    ; Request one NMI transfer.
     sta nmi_update_budget
     bne loc_C076
@@ -185,20 +193,30 @@ loc_C0AD:
 ; ----------------------------------------------------------------------
 ; wait_frames
 ;   Wait for X frames by repeatedly yielding.
-;   called by: $D1F0
+;   called by: $D1F0, $E176
 ; ----------------------------------------------------------------------
 wait_frames:
     jsr wait_vblank
     dex
     bne wait_frames
     rts
-
-data_C0C3:
-    .incbin "build/assets/bank15_data.bin", $00C3, $000B
+; ----------------------------------------------------------------------
+; update_frames
+;   Run update_frame X times.
+; ----------------------------------------------------------------------
+update_frames:
+    txa
+    pha
+    jsr update_frame
+    pla
+    tax
+    dex
+    bne update_frames
+    rts
 ; ----------------------------------------------------------------------
 ; wait_frame_tick
 ;   Frame-paced wait helper.  Only acts when the low nibble of $33 is zero.
-;   called by: $CA56, $CDEB, $D38B
+;   called by: $CA56, $CDEB, $CE44, $CE8E, $D38B
 ; ----------------------------------------------------------------------
 wait_frame_tick:
     lda frame_counter
@@ -209,7 +227,7 @@ wait_frame_tick:
 ; update_frame
 ;   Per-frame input/UI update.
 ;   Polls the controller, updates sprites, and yields to the scheduler.
-;   called by: $CDBE, $D442, $D44C, $D477, $D488, $DC70, $F195, $F1CD, $F1DA
+;   called by: $C0C5, $CDBE, $D442, $D44C, $D477, $D488, $DC70, $F195, $F1CD, $F1DA
 ; ----------------------------------------------------------------------
 update_frame:
     lda input_buttons
@@ -218,6 +236,10 @@ update_frame:
     and #$0F
     bne update_frame_no_input
     jsr draw_text_window
+; ----------------------------------------------------------------------
+; loc_C0E2
+;   called by: $E31D
+; ----------------------------------------------------------------------
 loc_C0E2:
     jsr update_oam
     jsr hide_sprites
@@ -333,7 +355,7 @@ screen_fade_in:
 ; ----------------------------------------------------------------------
 ; screen_fade_out
 ;   Begin a screen fade-out and wait.
-;   called by: $CF3A
+;   called by: $CF3A, $E116
 ; ----------------------------------------------------------------------
 screen_fade_out:
     lda #$00
@@ -341,21 +363,26 @@ screen_fade_out:
     jsr wait_vblank
     jmp screen_fade_in_step
 ; ----------------------------------------------------------------------
-; rng_seed
-;   Seed the 24-bit LFSR from $10/$11/$16.
+; mul16_by_u8
+;   $10-$12 = $10-$11 x $15 (clears $14 and $12, then mul16x16_shr8).
 ;   called by: $CFE6
 ; ----------------------------------------------------------------------
-rng_seed:
+mul16_by_u8:
     lda #$00
     sta ppu_addr_lo
 ; ----------------------------------------------------------------------
-; rng_next
-;   Advance the 24-bit LFSR (used for random encounters and battle rolls).
-;   called by: $E756
+; mul16x16_shr8
+;   $10-$12 = ($10-$11 x $14-$15) >> 8 (clears $12, then mul24x16_shr8).
+;   called by: $E044, $E062, $E756
 ; ----------------------------------------------------------------------
-rng_next:
+mul16x16_shr8:
     lda #$00
     sta ptr1_lo
+; ----------------------------------------------------------------------
+; mul24x16_shr8
+;   $10-$12 = ($10-$12 x $14-$15) >> 8 (24-bit result).
+; ----------------------------------------------------------------------
+mul24x16_shr8:
     lda $16
     pha
     lda ptr1_lo
@@ -404,11 +431,11 @@ loc_C199:
 data_C1AE:
     .incbin "build/assets/bank15_data.bin", $01AE, $0005
 ; ----------------------------------------------------------------------
-; mul16x8_shift
-;   Shift/multiply helper used by the RNG and battle math.
+; div16_by_u8
+;   $10-$11 = $10-$11 / $13, remainder in $12.  Y preserved.
 ;   called by: $E58B
 ; ----------------------------------------------------------------------
-mul16x8_shift:
+div16_by_u8:
     tya
     pha
     lda #$00
@@ -433,7 +460,7 @@ loc_C1CC:
 ; ----------------------------------------------------------------------
 ; div24_shift
 ;   24-bit shift/divide helper.
-;   called by: $D698
+;   called by: $D698, $E284
 ; ----------------------------------------------------------------------
 div24_shift:
     txa
@@ -647,13 +674,13 @@ write_vram_block:
 ; ----------------------------------------------------------------------
 ; copy_to_vram
 ;   Copy a block from CPU memory to PPUDATA.
-;   called by: $CEF5, $CF00, $DE98
+;   called by: $CEF5, $CF00, $DE98, $DF0E
 ; ----------------------------------------------------------------------
 copy_to_vram:
     sta $04
     stx $02
     sty $03
-    jsr fetch_inline_word       ; inline pointer/data follows the JSR
+    jsr fetch_inline_word
 loc_C343:
     lda PPUSTATUS
     ldy $03
@@ -790,8 +817,7 @@ loc_C3E2:
 ;   Read an inline rectangle/table descriptor and copy four bytes to $02-$06.
 ; ----------------------------------------------------------------------
 read_inline_rect:
-    jsr fetch_inline_word       ; inline pointer/data follows the JSR
-data_C3F1:
+    jsr fetch_inline_word
     ldy #$00
     lda ($00),y
 loc_C3F5:
@@ -857,7 +883,7 @@ clear_screen:
 ; ----------------------------------------------------------------------
 ; clear_oam_shadow
 ;   Hide all 64 sprites in the OAM shadow.
-;   called by: $C576
+;   called by: $C576, $E1D2
 ; ----------------------------------------------------------------------
 clear_oam_shadow:
     ldx #$00
@@ -922,7 +948,7 @@ set_bank_a:
 ; ----------------------------------------------------------------------
 ; set_bank_b
 ;   Map bank A at $8000; used for temporary data access.
-;   called by: $C9C6, $CBDA, $CDB8, $CEEC, $CFAC, $CFEB, $CFFD, $D047, $D139, $D288, $D315, $D4A7 (+24 more)
+;   called by: $C9C6, $CBDA, $CDB8, $CEEC, $CFAC, $CFEB, $CFFD, $D047, $D139, $D288, $D315, $D4A7 (+29 more)
 ; ----------------------------------------------------------------------
 set_bank_b:
     sta current_bank_b
@@ -956,7 +982,7 @@ set_bank_12:
 ; ----------------------------------------------------------------------
 ; set_bank_13
 ;   Map bank 13 at $8000.
-;   called by: $D190, $F088, $F2AD
+;   called by: $D190, $E38B, $E937, $F088, $F2AD
 ; ----------------------------------------------------------------------
 set_bank_13:
     lda #$0D
@@ -964,7 +990,7 @@ set_bank_13:
 ; ----------------------------------------------------------------------
 ; set_bank_14
 ;   Map bank 14 at $8000.
-;   called by: $D198, $F08E, $F0BB, $F2F1
+;   called by: $D198, $E392, $F08E, $F0BB, $F2F1
 ; ----------------------------------------------------------------------
 set_bank_14:
     lda #$0E
@@ -1005,6 +1031,7 @@ data_C4CB:
 ; ----------------------------------------------------------------------
 ; sound_queue_add_once
 ;   Queue a sound command only when it differs from the last one.
+;   called by: $E13F
 ; ----------------------------------------------------------------------
 sound_queue_add_once:
     cmp sound_bank_lock
@@ -1075,7 +1102,7 @@ return_inline_block:
 ; ----------------------------------------------------------------------
 ; draw_text_window_small
 ;   Draw a compact text window (status/menu variant).
-;   called by: $CF4F
+;   called by: $CF4F, $E11B
 ; ----------------------------------------------------------------------
 draw_text_window_small:
     txa
@@ -1646,11 +1673,40 @@ data_C980:
     .incbin "build/assets/bank15_data.bin", $0980, $000C
 
 data_C98C:
-    .incbin "build/assets/bank15_data.bin", $098C, $0024
+    .incbin "build/assets/bank15_data.bin", $098C, $0004
+; ----------------------------------------------------------------------
+; text_window_restore_wait
+;   text_init window X, text_restore_tiles, then text_wait_loop.
+; ----------------------------------------------------------------------
+text_window_restore_wait:
+    jsr text_init
+    jsr text_restore_tiles
+    jmp text_wait_loop
+; ----------------------------------------------------------------------
+; text_window_restore
+;   text_init window X, then text_restore_tiles.
+; ----------------------------------------------------------------------
+text_window_restore:
+    jsr text_init
+    jmp text_restore_tiles
+; ----------------------------------------------------------------------
+; text_window_restore_ask
+;   Open window 2 (or $25 when battle_flags is set), restore the
+;   saved text tiles and wait; C set = cancelled.
+; ----------------------------------------------------------------------
+text_window_restore_ask:
+    ldx #$02
+    lda battle_flags
+    beq loc_C9A7
+    ldx #$25
+loc_C9A7:
+    jsr text_init
+    jsr text_restore_tiles
+    jmp text_wait_ask
 ; ----------------------------------------------------------------------
 ; reset_text_engine
 ;   Clear the text engine and reset its cursor.
-;   called by: $E5A9, $F110, $F23F, $F286
+;   called by: $E142, $E5A9, $F110, $F23F, $F286
 ; ----------------------------------------------------------------------
 reset_text_engine:
     ldx #$01
@@ -1659,7 +1715,7 @@ reset_text_engine:
 ; ----------------------------------------------------------------------
 ; text_init
 ;   Initialise text buffers, window tiles, and cursor state.
-;   called by: $C9B2, $F1AD
+;   called by: $C990, $C999, $C9A7, $C9B2, $F1AD
 ; ----------------------------------------------------------------------
 text_init:
     stx text_mode
@@ -2030,6 +2086,7 @@ data_CC14:
 ; ----------------------------------------------------------------------
 ; read_stack_arg
 ;   Read a byte from the caller's stack frame.
+;   called by: $E22B
 ; ----------------------------------------------------------------------
 read_stack_arg:
     sta ppu_update_ptr_lo
@@ -2307,13 +2364,22 @@ loc_CDA3:
     pla
     pla
     jmp game_main
-
-data_CDA8:
-    .incbin "build/assets/bank15_data.bin", $0DA8, $000B
+; ----------------------------------------------------------------------
+; text_wait_ask
+;   text_wait_loop; C set when cancelled or when $5B is non-zero.
+; ----------------------------------------------------------------------
+text_wait_ask:
+    jsr text_wait_loop
+    bcs loc_CDB2
+    lda text_menu_index
+    beq loc_CDB2
+    sec
+loc_CDB2:
+    rts
 ; ----------------------------------------------------------------------
 ; text_wait_loop
 ;   Main text input/wait loop.
-;   called by: $CD9D
+;   called by: $CD9D, $CDA8
 ; ----------------------------------------------------------------------
 text_wait_loop:
     jsr clear_text_state
@@ -2385,10 +2451,88 @@ loc_CDEA:
     pla
     sta game_mode
     jmp text_hide
-
-data_CE2D:
-    .incbin "build/assets/bank15_data.bin", $0E2D, $00A5
-
+sub_CE2D:
+    lda #$12
+    jsr cursor_add_y
+    lda cursor_y2
+    sta text_y2
+    lda cursor_x2
+    sta text_x2
+    lda game_mode
+    pha
+    lda #$02
+    sta game_mode
+    lda #$12
+loc_CE43:
+    pha
+    jsr wait_frame_tick
+    jsr draw_party_header
+    jsr draw_party_status
+    jsr draw_party_window
+    inc ppu_addr_lo_shadow
+    lda #$80
+    sta tile_attr
+    ldy #$1E
+    ldx #$1E
+    jsr draw_tile_run
+    jsr draw_party_footer
+    dec ppu_addr_lo_shadow
+    lda #$80
+    sta tile_attr
+    ldy #$00
+    ldx #$1E
+    jsr draw_tile_run
+    jsr wait_vblank
+    pla
+    sec
+    sbc #$01
+    bne loc_CE43
+    pla
+    sta game_mode
+    rts
+sub_CE7A:
+    lda #$08
+    jsr cursor_add_x
+    lda cursor_x
+    sta text_x
+    lda cursor_y
+    sta text_y
+    lda game_mode
+    pha
+    lda #$00
+    sta game_mode
+    jsr wait_frame_tick
+    jsr draw_party_header
+    jsr draw_party_status
+    jsr draw_party_window
+    lda ppu_addr_lo_shadow
+    clc
+    adc #$20
+    sta ppu_addr_lo_shadow
+    lda #$00
+    sta tile_attr
+    ldy #$24
+    ldx #$14
+    jsr draw_tile_run
+    lda ppu_addr_lo_shadow
+    clc
+    adc #$E0
+    sta ppu_addr_lo_shadow
+    lda #$00
+    sta tile_attr
+    ldy #$00
+    ldx #$14
+    jsr draw_tile_run
+    jsr wait_vblank
+    pla
+    sta game_mode
+    lda #$F9
+    jsr cursor_add_x
+    lda cursor_x
+    sta text_x
+    lda cursor_y
+    sta text_y
+    rts
 ; ----------------------------------------------------------------------
 ; battle_intro_screen
 ;   Battle introduction screen: window, fade, and clear.
@@ -2397,6 +2541,11 @@ battle_intro_screen:
     ldy #$03
     jsr draw_window
     jsr wait_vblank
+; ----------------------------------------------------------------------
+; battle_intro_screen_body
+;   battle_intro_screen after its window and frame wait.
+; ----------------------------------------------------------------------
+battle_intro_screen_body:
     lda #$80
     sta input_buttons
     inc $AA
@@ -2409,14 +2558,14 @@ battle_intro_screen:
     ldy #$10
     lda #$08
     ldx #$10
-    jsr copy_to_vram
+    jsr copy_to_vram            ; inline pointer/data follows the JSR
 
 data_CEF8:
     .incbin "build/assets/bank15_data.bin", $0EF8, $0002
     ldy #$1E
     lda #$00
     ldx #$1F
-    jsr copy_to_vram
+    jsr copy_to_vram            ; inline pointer/data follows the JSR
 
 data_CF03:
     .incbin "build/assets/bank15_data.bin", $0F03, $0002
@@ -2428,13 +2577,17 @@ data_CF03:
     sta text_graphics_index
     jsr load_text_graphics
     jmp wait_vblank
-
-data_CF19:
-    .incbin "build/assets/bank15_data.bin", $0F19, $0006
+; ----------------------------------------------------------------------
+; field_return_refresh
+;   screen_refresh, then continue the field loop at $F1DD.
+; ----------------------------------------------------------------------
+field_return_refresh:
+    jsr screen_refresh
+    jmp loc_F1DD
 ; ----------------------------------------------------------------------
 ; screen_refresh
 ;   Refresh the whole screen: palette, window, text, sprites.
-;   called by: $F106
+;   called by: $CF19, $F106
 ; ----------------------------------------------------------------------
 screen_refresh:
     jsr screen_fade_in
@@ -2483,9 +2636,28 @@ loc_CF6C:
     dey
     bpl loc_CF6C
     rts
-
-data_CF76:
-    .incbin "build/assets/bank15_data.bin", $0F76, $001B
+; ----------------------------------------------------------------------
+; text_restore_tiles
+;   Restore the text tile rows ($0180 -> $0300, $60 bytes) and the
+;   text cursor ($39-$3C -> $1C-$1F, $57 -> $56) saved by text_save_tiles.
+;   called by: $C993, $C9AA
+; ----------------------------------------------------------------------
+text_restore_tiles:
+    ldy #$5F
+loc_CF78:
+    lda $0180,y
+    sta $0300,y                 ; Top 8x8 tiles for the four text lines.
+    dey
+    bpl loc_CF78
+    lda text_saved_line
+    sta text_line
+    ldy #$03
+loc_CF87:
+    lda a:$0039,y
+    sta cursor_x,y
+    dey
+    bpl loc_CF87
+    rts
 ; ----------------------------------------------------------------------
 ; status_message
 ;   Draw a status message and load the matching text page.
@@ -2495,13 +2667,23 @@ status_message:
 
 data_CF94:
     .incbin "build/assets/bank15_data.bin", $0F94, $0002
+; ----------------------------------------------------------------------
+; load_actor_portrait
+;   Load the portrait page of text_actor's officer (text_load_page).
+; ----------------------------------------------------------------------
+load_actor_portrait:
     ldy text_actor
     lda $60A8,y                 ; Party member class/officer id.
     jsr text_load_page
     jmp loc_C139
+sub_CFA1:
+    tya
+    pha
+    jsr draw_string             ; inline pointer/data follows the JSR
 
-data_CFA1:
-    .incbin "build/assets/bank15_data.bin", $0FA1, $0008
+data_CFA6:
+    .incbin "build/assets/bank15_data.bin", $0FA6, $0002
+    pla
 ; ----------------------------------------------------------------------
 ; text_load_page
 ;   Load a text page/graphics set from bank 12.
@@ -2540,7 +2722,7 @@ loc_CFDA:
     lda #$60
     sta ptr1_lo
     sta ptr0_lo
-    jsr rng_seed
+    jsr mul16_by_u8
     lda ppu_update_len
     jsr set_bank_b
     lda #$00
@@ -2673,11 +2855,10 @@ data_D107:
 ;   Print the inline message reference that follows the JSR.
 ;   The first word is a 16-bit message-table index (< $200: bank 10,
 ;   >= $200: bank 11 with $200 subtracted), not a direct address.
-;   called by: $E5AF, $E5BC, $F113, $F12D, $F242, $F289
+;   called by: $E15C, $E5AF, $E5BC, $F113, $F12D, $F242, $F289
 ; ----------------------------------------------------------------------
 text_print_inline:
-    jsr fetch_inline_word       ; Fetch the inline word after the JSR.; inline pointer/data follows the JSR
-data_D110:
+    jsr fetch_inline_word       ; Fetch the inline word after the JSR.
     lda $00
     sta ppu_addr_lo
     lda $01
@@ -2945,7 +3126,18 @@ loc_D2C7:
     rts
 
 data_D2CB:
-    .incbin "build/assets/bank15_data.bin", $12CB, $003F
+    .incbin "build/assets/bank15_data.bin", $12CB, $0016
+    pla
+    tax
+    jsr put_officer_name_actor
+    rts
+    pla
+    tax
+    jsr put_officer_name_target
+    rts
+
+data_D2ED:
+    .incbin "build/assets/bank15_data.bin", $12ED, $001D
     pla
     tax
     ldy text_col
@@ -3032,7 +3224,7 @@ loc_D371:
 ; ----------------------------------------------------------------------
 ; text_scroll_up
 ;   Scroll the four dialogue lines up by one line.
-;   called by: $D1BA, $D1DE
+;   called by: $D1BA, $D1DE, $E167
 ; ----------------------------------------------------------------------
 text_scroll_up:
     lda #$02
@@ -3202,14 +3394,32 @@ loc_D487:
     lda #$03
     jmp cursor_add_y_signed
 
-data_D496:
-    .incbin "build/assets/bank15_data.bin", $1496, $0009
+put_officer_name_slot:
+    .incbin "build/assets/bank15_data.bin", $1496, $0004
+; ----------------------------------------------------------------------
+; put_officer_name_target
+;   put_officer_name for actor text_target ($4B); nothing if negative.
+;   called by: $D2E9
+; ----------------------------------------------------------------------
+put_officer_name_target:
+    ldy text_target
+    bpl put_officer_name
+    rts
+; ----------------------------------------------------------------------
+; put_officer_name_actor
+;   put_officer_name for actor text_actor ($4A).
+;   called by: $D2E3, $E0D3
+; ----------------------------------------------------------------------
+put_officer_name_actor:
     ldy text_actor
 ; ----------------------------------------------------------------------
-; load_party_member_stats
-;   Load a party member's class/stat record from bank 12.
+; put_officer_name
+;   Write the name of officer Y ($60A8,y -> record in bank 12) into
+;   the text line buffer at X: kana tiles, or (when $AA is non-zero)
+;   the kanji name, whose glyphs (record bytes $10-$13) are streamed
+;   to plane 1 of the tiles at $A9 (+4 per kanji).
 ; ----------------------------------------------------------------------
-load_party_member_stats:
+put_officer_name:
     lda $60A8,y                 ; Party member class/officer id.
     tay
     lda #$0C
@@ -3302,7 +3512,8 @@ loc_D51E:
     jmp loc_D4D0
 
 data_D549:
-    .incbin "build/assets/bank15_data.bin", $1549, $001E
+    .incbin "build/assets/bank15_data.bin", $1549, $001C
+    ldy text_command
 ; ----------------------------------------------------------------------
 ; draw_item_name
 ;   Draw an item/equipment name from the bank 12 text tables.
@@ -3324,7 +3535,15 @@ draw_item_name:
     jmp text_put_tile
 
 data_D58A:
-    .incbin "build/assets/bank15_data.bin", $158A, $001B
+    .incbin "build/assets/bank15_data.bin", $158A, $0015
+; ----------------------------------------------------------------------
+; load_item_data_6e
+;   load_item_data for item $6E, or for $4D when $6E is negative.
+; ----------------------------------------------------------------------
+load_item_data_6e:
+    ldy party_scan
+    bpl load_item_data
+    ldy text_command
 ; ----------------------------------------------------------------------
 ; load_item_data
 ;   Load item/equipment data from bank 12.
@@ -3356,14 +3575,33 @@ loc_D5C6:
     jmp set_bank_current
 
 data_D5C9:
-    .incbin "build/assets/bank15_data.bin", $15C9, $0035
+    .incbin "build/assets/bank15_data.bin", $15C9, $0029
 ; ----------------------------------------------------------------------
-; load_party_member_record
-;   Load a party member record from the $6100 array.
+; compact_items_all
+;   Compact the item slots of actors 6..0 (compact_items_f2).
 ; ----------------------------------------------------------------------
-load_party_member_record:
+compact_items_all:
+    lda #$06
+    sta ppu_update_off
+loc_D5F6:
+    jsr compact_items_f2
+    dec ppu_update_off
+    bpl loc_D5F6
+    rts
+; ----------------------------------------------------------------------
+; compact_items_actor
+;   Compact the 8 item slots of actor text_actor ($6100 + 8 * actor):
+;   empty slots move to the end.
+; ----------------------------------------------------------------------
+compact_items_actor:
     lda text_actor
     sta ppu_update_off
+; ----------------------------------------------------------------------
+; compact_items_f2
+;   Compact the item slots of actor $F2.
+;   called by: $D5F6
+; ----------------------------------------------------------------------
+compact_items_f2:
     lda ppu_update_off
     asl a
     asl a
@@ -3424,8 +3662,7 @@ loc_D64D:
 read_inline_block_3:
     stx ppu_update_len
     sty ppu_update_off
-    jsr fetch_inline_word       ; inline pointer/data follows the JSR
-data_D659:
+    jsr fetch_inline_word
     ldy ppu_update_off
     ldx ppu_update_len
     sty ppu_update_off
@@ -3433,6 +3670,7 @@ data_D659:
 ; ----------------------------------------------------------------------
 ; read_pointer_triplet
 ;   Read three bytes through the current pointer.
+;   called by: $E213
 ; ----------------------------------------------------------------------
 read_pointer_triplet:
     lda ($00),y
@@ -3488,8 +3726,70 @@ data_D6B1:
     .incbin "build/assets/bank15_data.bin", $16B1, $0001
 
 data_D6B2:
-    .incbin "build/assets/bank15_data.bin", $16B2, $0061
-
+    .incbin "build/assets/bank15_data.bin", $16B2, $0010
+sub_D6C2:
+    txa
+    pha
+    tya
+    pha
+    jsr read_input_state
+    ldx #$00
+    stx ppu_update_ptr_lo
+loc_D6CD:
+    lda rng0,x
+    sta ppu_update_ptr_hi
+    ldy #$09
+    clc
+loc_D6D4:
+    ror ptr0_lo,x
+    lda ppu_update_ptr_lo
+    bne loc_D6E2
+    bcc loc_D6E0
+    inc ppu_update_ptr_lo
+    bne loc_D6E2
+loc_D6E0:
+    ror ppu_update_ptr_hi
+loc_D6E2:
+    dey
+    bne loc_D6D4
+    lda ppu_update_ptr_lo
+    bne loc_D6EE
+    inx
+    cpx #$03
+    bne loc_D6CD
+loc_D6EE:
+    pla
+    tay
+    pla
+    tax
+    rts
+; ----------------------------------------------------------------------
+; put_number_bottom
+;   Append the 7 decimal digits at $0104-$010A to the bottom text row
+;   ($0318,x), skipping leading zeros (the last digit is always kept).
+; ----------------------------------------------------------------------
+put_number_bottom:
+    lda #$00
+    sta ppu_update_ptr_hi
+    tay
+loc_D6F8:
+    lda $0104,y
+    bne loc_D707
+    cpy #$06
+    beq loc_D709
+    inc ppu_update_ptr_hi
+    dec ppu_update_ptr_hi
+    beq loc_D70D
+loc_D707:
+    inc ppu_update_ptr_hi
+loc_D709:
+    sta $0318,x                 ; Bottom 8x8 tiles for the four text lines.
+    inx
+loc_D70D:
+    iny
+    cpy #$07
+    bne loc_D6F8
+    rts
 ; ----------------------------------------------------------------------
 ; set_party_cursor
 ;   Position the status cursor on a party member.
@@ -3567,7 +3867,7 @@ data_D7A6:
 ; ----------------------------------------------------------------------
 ; cursor_add_x
 ;   Add A to cursor X with 15-column wrap.
-;   called by: $D817, $E4D6, $F577, $F669, $F7B2, $F7CC, $F8E1
+;   called by: $CE7C, $CEC6, $D817, $E4D6, $F577, $F669, $F7B2, $F7CC, $F8E1
 ; ----------------------------------------------------------------------
 cursor_add_x:
     ldx text_y
@@ -3599,7 +3899,7 @@ loc_D7C1:
 ; ----------------------------------------------------------------------
 ; cursor_add_y
 ;   Add A to cursor Y with 16-row wrap.
-;   called by: $D824, $E4F2, $F57F, $F670, $F7BF, $F7D1, $F8EE
+;   called by: $CE2F, $D824, $E4F2, $F57F, $F670, $F7BF, $F7D1, $F8EE
 ; ----------------------------------------------------------------------
 cursor_add_y:
     ldx text_y2
@@ -3936,7 +4236,7 @@ loc_D984:
 ;   Flush the $0400 VRAM update queue to the PPU.
 ;   Queue format: $00 terminates; otherwise PPUADDR hi, PPUADDR lo,
 ;   length (bit 7 toggles PPUCTRL bit 2), then length data bytes.
-;   called by: $C0B1, $D997, $EE9E
+;   called by: $C0B1, $D997, $E0F1, $E0F9, $EE9E
 ; ----------------------------------------------------------------------
 flush_vram_queue:
     ldx vram_queue_read         ; Read the next VRAM queue command.
@@ -3982,7 +4282,7 @@ loc_D9EA:
 ; ----------------------------------------------------------------------
 ; draw_tile_run
 ;   Draw a run of map/text tiles starting at the PPU cursor.
-;   called by: $CE06, $CE1B
+;   called by: $CE06, $CE1B, $CE5A, $CE6A, $CEA9, $CEBB
 ; ----------------------------------------------------------------------
 draw_tile_run:
     stx ppu_update_len
@@ -4469,11 +4769,10 @@ data_DD0B:
 ; ----------------------------------------------------------------------
 ; draw_string
 ;   Draw a zero-terminated string.
-;   called by: $CF91
+;   called by: $CF91, $CFA3, $E0EC, $E0F4, $E233, $E2DA
 ; ----------------------------------------------------------------------
 draw_string:
-    jsr fetch_inline_word       ; inline pointer/data follows the JSR
-data_DD17:
+    jsr fetch_inline_word
     lda #$40
     sta ppu_update_off
     ldx vram_queue_write
@@ -4595,6 +4894,7 @@ draw_window_box:
 ; ----------------------------------------------------------------------
 ; update_party_portrait
 ;   Update a party member's portrait/class bits.
+;   called by: $E1CB
 ; ----------------------------------------------------------------------
 update_party_portrait:
     lda #$0C
@@ -4716,7 +5016,7 @@ load_battle_palette:
     ldy #$10
     lda #$04
     ldx #$80
-    jsr copy_to_vram
+    jsr copy_to_vram            ; inline pointer/data follows the JSR
 
 data_DE9B:
     .incbin "build/assets/bank15_data.bin", $1E9B, $0002
@@ -4741,19 +5041,714 @@ draw_battle_panel:
     ldx #$7F
     jsr write_vram_block
     jmp set_bank_current
+; ----------------------------------------------------------------------
+; battle_sp_owner_x6
+;   Y = 6 x the SP owner of the current side: for a party slot the
+;   highest actor 0-6 whose state bits are $C0 (the strategist),
+;   for an enemy slot the slot + 2.  A = Y = $FF when the party has none.
+; ----------------------------------------------------------------------
+battle_sp_owner_x6:
+    ldy party_count
+    cpy #$05
+    bcc loc_DEC6
+    iny
+    iny
+    bne loc_DED4
+loc_DEC6:
+    ldy #$06
+loc_DEC8:
+    lda $609C,y                 ; Party member state bits.
+    cmp #$C0
+    beq loc_DED4
+    dey
+    bpl loc_DEC8
+    tya
+    rts
+loc_DED4:
+    tya
+    asl a
+    sta ppu_update_ptr_lo
+    asl a
+    adc ppu_update_ptr_lo
+    tay
+    rts
+; ----------------------------------------------------------------------
+; battle_actor_items_x8
+;   Y = 8 x the actor of the current battle slot (its item list offset).
+; ----------------------------------------------------------------------
+battle_actor_items_x8:
+    jsr battle_current_actor
+    tya
+    asl a
+    asl a
+    asl a
+    tay
+    rts
+; ----------------------------------------------------------------------
+; battle_arg_slot_actor
+;   Y = actor of battle slot $79.
+;   called by: $E203
+; ----------------------------------------------------------------------
+battle_arg_slot_actor:
+    lda $79
+    jmp battle_slot_actor
+; ----------------------------------------------------------------------
+; battle_current_actor
+;   Y = actor of the current battle slot (party_count); battle_flags =
+;   0 for a party slot (0-4), 1 for an enemy slot (5-9).
+;   called by: $DEDD, $E0A6, $E1C3
+; ----------------------------------------------------------------------
+battle_current_actor:
+    ldx #$00
+    lda party_count
+    cmp #$05
+    bcc loc_DEF4
+    inx
+loc_DEF4:
+    stx battle_flags
+; ----------------------------------------------------------------------
+; battle_slot_actor
+;   Y = actor of battle slot A: party order $6097 for slots 0-4, A + 2
+;   for the enemy slots.
+; ----------------------------------------------------------------------
+battle_slot_actor:
+    tax
+    cpx #$05
+    bcs loc_DEFF
+    ldy $6097,x                 ; Party member order (actor ids).
+    rts
+loc_DEFF:
+    txa
+    tay
+    iny
+    iny
+    rts
+; ----------------------------------------------------------------------
+; battle_setup_slots
+;   Battle setup: upload the battle CHR from bank 9, fill the enemy
+;   slots from the encounter table, then battle_setup_names draws
+;   every slot (sprite, name, troops) and battle_setup_intro
+;   prints the appearance messages.
+; ----------------------------------------------------------------------
+battle_setup_slots:
+    lda #$09
+    jsr set_bank_b
+    lda #$00
+    tay
+    ldx #$04
+    jsr copy_to_vram            ; inline pointer/data follows the JSR
 
-data_DEBC:
-    .incbin "build/assets/bank15_data.bin", $1EBC, $0143
-
+data_DF11:
+    .incbin "build/assets/bank15_data.bin", $1F11, $0002
+    ldy #$04
+    lda #$00
+loc_DF17:
+    sta $60A3,y                 ; Party member state bits.
+    sta $60AF,y                 ; Party member class/officer id.
+    dey
+    bpl loc_DF17
+    ldy #$13
+loc_DF22:
+    sta $617C,y                 ; Party member derived stats.
+    dey
+    bpl loc_DF22
+    lda #$10
+    sta screen_brightness
+    ldy #$00
+    sty ppu_update_off
+    sty $7C
+loc_DF32:
+    jsr wait_vblank_queued
+    lda #$0C
+    jsr set_bank_b
+    ldy $7C
+    lda ($6E),y
+    bne loc_DF43
+    jmp loc_E08E
+loc_DF43:
+    ldy ppu_update_off
+    sta $60AF,y                 ; Party member class/officer id.
+    tay
+    sty ppu_update_len
+    cpy #$08
+    bcc loc_DF5B
+    lda $6300,y
+    beq loc_DF58
+    cmp #$99
+    bcc loc_DF5B
+loc_DF58:
+    jmp loc_E090
+loc_DF5B:
+    lda #$06
+    jsr read_party_stat_byte
+    asl a
+    tay
+    beq loc_DF73
+    lda #$0C
+    jsr set_bank_b
+    lda #$D0
+    sta ppu_update_ptr_lo
+    lda #$BE
+    sta ppu_update_ptr_hi
+    bne loc_DF90
+loc_DF73:
+    lda $6026
+    asl a
+    asl a
+    asl a
+    sta ppu_update_ptr_lo
+    lda rng2
+    clc
+    adc rng3
+    sta rng2
+    and #$06
+    clc
+    adc ppu_update_ptr_lo
+    tay
+    lda #$AC
+    sta ppu_update_ptr_lo
+    lda #$E3
+    sta ppu_update_ptr_hi
+loc_DF90:
+    lda ppu_update_off
+    asl a
+    asl a
+    tax
+    lda ($F3),y
+    sta $60EC,x                 ; Party member stats.
+    sta $617C,x                 ; Party member derived stats.
+    iny
+    lda ($F3),y
+    sta $60ED,x                 ; Party member stats.
+    sta $617D,x                 ; Party member derived stats.
+    lda #$00
+    sta $60EE,x                 ; Party member stats.
+    sta $617E,x                 ; Party member derived stats.
+    ldy ppu_update_len
+    lda #$04
+    jsr read_party_stat_byte
+    and #$1F
+    ldy ppu_update_len
+    cpy #$08
+    bcs loc_DFCC
+    ldx $6026
+    cpy #$04
+    bcs loc_DFC9
+    lda data_E433,x
+    bne loc_DFCC
+loc_DFC9:
+    lda data_E43B,x
+loc_DFCC:
+    ldy ppu_update_off
+    sta $60C7,y
+    lda #$80
+    sta $60A3,y                 ; Party member state bits.
+    ldy ppu_update_len
+    lda #$05
+    jsr read_party_stat_byte
+    ldy ppu_update_len
+    cpy #$08
+    bcs loc_DFFB
+    ldx $6026
+    cpy #$04
+    bcs loc_DFF8
+    cpy #$03
+    beq loc_DFF3
+    lda data_E453,x
+    bne loc_DFFB
+loc_DFF3:
+    lda data_E45B,x
+    bne loc_DFFB
+loc_DFF8:
+    lda data_E44B,x
+loc_DFFB:
+    tax
+    lda data_E6D1,x
 data_DFFF:
-    .incbin "build/assets/bank15_data.bin", $1FFF, $0001
+    ldy ppu_update_off
+    sta $60BB,y
+    ldy ppu_update_len
+    cpy #$08
+    bcs loc_E085
+    lda #$F1
+    ldx #$E3
+    cpy #$04
+    bcc loc_E016
+    lda #$09
+    ldx #$E4
+loc_E016:
+    sta ppu_update_ptr_lo
+    stx ppu_update_ptr_hi
+    lda ppu_update_off
+    and #$03
+    tax
+    lda rng0,x
+    sbc rng2
+    sta rng0,x
+    pha
+    and #$0F
+    tax
+    lda data_E424,x
+    sta ppu_addr_lo
+    lda #$01
+    sta ppu_addr_hi
+    lda $6026
+    asl a
+    adc $6026
+    tay
+    ldx ppu_update_off
+    lda ($F3),y
+    sta ptr0_lo
+    lda #$00
+    sta ptr0_hi
+    jsr mul16x16_shr8
+    lda ptr0_lo
+    sta $61A3,x                 ; Party member derived stats.
+    iny
+    lda ($F3),y
+    sta ptr0_lo
+    lda #$00
+    sta ptr0_hi
+    pla
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tax
+    lda data_E424,x
+    sta ppu_addr_lo
+    ldx ppu_update_off
+    jsr mul16x16_shr8
+    lda ptr0_lo
+    sta $61AF,x                 ; Party member derived stats.
+    iny
+    lda ($F3),y
+    sta $61BB,x                 ; Party member troops/HP.
+    txa
+    asl a
+    sta ppu_update_ptr_lo
+    asl a
+    adc ppu_update_ptr_lo
+    tay
+    ldx #$06
+    lda #$00
+loc_E07C:
+    sta $65CA,y
+    iny
+    dex
+    bne loc_E07C
+    beq loc_E08E
+loc_E085:
+    lda ppu_update_off
+    clc
+    adc #$07
+    tax
+    jsr load_party_hp
+loc_E08E:
+    inc ppu_update_off
+loc_E090:
+    inc $7C
+    ldy $7C
+    cpy #$05
+    bcs battle_setup_names
+    jmp loc_DF32
+; ----------------------------------------------------------------------
+; battle_setup_names
+;   Battle setup, all 10 slots: $A9 = $10 (name kanji go to plane 1
+;   from tile $10, 4 tiles per kanji, no reuse, no bound), then per
+;   present slot the sprite, the name (put_officer_name_actor) and
+;   the troop gauge.
+; ----------------------------------------------------------------------
+battle_setup_names:
+    lda #$10
+    sta $A9
+    ldx #$00
+    stx party_count
+loc_E0A3:
+    jsr wait_vblank_queued
+    jsr battle_current_actor
+    sty text_actor
+    bmi loc_E103
+    lda $609C,y                 ; Party member state bits.
+    bpl loc_E103
+    jsr battle_slot_init_sprite
+    lda #$0C
+    jsr set_bank_b
+    ldx party_count
+    lda data_E17C,x
+    sta $0300                   ; Top 8x8 tiles for the four text lines.
+    sta $0318                   ; Bottom 8x8 tiles for the four text lines.
+    lda data_E186,x
+    sta $0301                   ; Top 8x8 tiles for the four text lines.
+    clc
+    adc #$20
+    sta $0319                   ; Bottom 8x8 tiles for the four text lines.
+    ldx #$03
+    jsr put_officer_name_actor
+    lda #$FF
+    sta $0300,x                 ; Top 8x8 tiles for the four text lines.
+    sta $0318,x                 ; Bottom 8x8 tiles for the four text lines.
+    txa
+    and #$03
+    eor #$03
+    clc
+    adc #$04
+    sta $0302                   ; Top 8x8 tiles for the four text lines.
+    sta $031A                   ; Bottom 8x8 tiles for the four text lines.
+    jsr draw_string             ; inline pointer/data follows the JSR
 
-data_E000:
-    .incbin "build/assets/bank15_data.bin", $2000, $0371
+data_E0EF:
+    .incbin "build/assets/bank15_data.bin", $20EF, $0002
+    jsr flush_vram_queue
+    jsr draw_string             ; inline pointer/data follows the JSR
 
+data_E0F7:
+    .incbin "build/assets/bank15_data.bin", $20F7, $0002
+    jsr flush_vram_queue
+    lda party_count
+    sta $79
+    jsr battle_draw_slot_troops
+loc_E103:
+    inc party_count
+    ldx party_count
+    cpx #$05
+    bne loc_E10F
+    lda #$88
+    sta screen_brightness
+loc_E10F:
+    cpx #$0A
+    beq battle_setup_intro
+    jmp loc_E0A3
+; ----------------------------------------------------------------------
+; battle_setup_intro
+;   Battle setup: music, then one appearance message per new enemy.
+; ----------------------------------------------------------------------
+battle_setup_intro:
+    jsr screen_fade_out
+    ldy #$0A
+    jsr draw_text_window_small
+    lda game_submode
+    ldy #$07
+loc_E122:
+    cmp data_E190,y
+    beq loc_E13D
+    dey
+    bpl loc_E122
+    lda #$26
+    ldx game_submode
+    bpl loc_E13F
+    lda #$24
+    ldx $60AF                   ; Party member class/officer id.
+    cpx #$08
+    bcs loc_E13F
+    lda #$23
+    bne loc_E13F
+loc_E13D:
+    lda #$25
+loc_E13F:
+    jsr sound_queue_add_once
+    jsr reset_text_engine
+    dec $AA
+    ldx #$07
+    stx party_count
+    bne loc_E15A
+loc_E14D:
+    lda $609C,x                 ; Party member state bits.
+    bpl loc_E174
+    lda $60A8,x                 ; Party member class/officer id.
+    cmp $60A7,x                 ; Party member state bits.
+    beq loc_E16C
+loc_E15A:
+    stx text_actor
+    jsr text_print_inline       ; inline pointer/data follows the JSR
+
+data_E15F:
+    .dw b10_msg_index_048    ; text index $0030 -> b10_msg_048
+    lda text_saved_line
+    cmp #$04
+    bne loc_E16C
+    jsr text_scroll_up
+    dec text_saved_line
+loc_E16C:
+    inc party_count
+    ldx party_count
+    cpx #$0C
+    bne loc_E14D
+loc_E174:
+    ldx #$0A
+    jsr wait_frames
+    jmp set_bank_current
+
+data_E17C:
+    .incbin "build/assets/bank15_data.bin", $217C, $000A
+
+data_E186:
+    .incbin "build/assets/bank15_data.bin", $2186, $000A
+
+data_E190:
+    .incbin "build/assets/bank15_data.bin", $2190, $0008
+; ----------------------------------------------------------------------
+; battle_slot_init_sprite
+;   Initialise the sprite of battle slot party_count and refresh OAM.
+;   called by: $E0B2
+; ----------------------------------------------------------------------
+battle_slot_init_sprite:
+    lda party_count
+    tax
+    sta $0516,x                 ; Per-actor state flags.
+    lda data_E1D8,x
+    sta $0506,x                 ; Per-actor state flags.
+    lda $609C,y                 ; Party member state bits.
+    bmi loc_E1B1
+    lda $0506,x                 ; Per-actor state flags.
+    and #$7F
+    sta $0506,x                 ; Per-actor state flags.
+loc_E1B1:
+    lda data_E1E2,x
+    sta $0536,x                 ; Per-actor palette/facing.
+    lda data_E1EC,x
+    sta $0546,x                 ; Per-actor tile/sprite id.
+    lda data_E1F6,x
+    sta $0556,x                 ; Per-actor animation frame.
+    jsr battle_current_actor
+    txa
+    clc
+    adc #$06
+    tax
+    jsr update_party_portrait
+    lda #$00
+    sta oam_write_index
+    jsr clear_oam_shadow
+    jmp update_oam
+
+data_E1D8:
+    .incbin "build/assets/bank15_data.bin", $21D8, $000A
+
+data_E1E2:
+    .incbin "build/assets/bank15_data.bin", $21E2, $000A
+
+data_E1EC:
+    .incbin "build/assets/bank15_data.bin", $21EC, $000A
+
+data_E1F6:
+    .incbin "build/assets/bank15_data.bin", $21F6, $000A
+; ----------------------------------------------------------------------
+; battle_draw_slot_troops
+;   Draw the troop count and gauge of battle slot $79 (gauge tiles
+;   $E0-$EE, scale $76/$77; enemy gauges fill right to left).
+;   called by: $E100
+; ----------------------------------------------------------------------
+battle_draw_slot_troops:
+    jsr wait_vblank_queued
+    jsr battle_arg_slot_actor
+    tya
+    asl a
+    asl a
+    pha
+    tay
+    lda #$D0
+    sta $00
+    lda #$60
+    sta $01
+    jsr read_pointer_triplet
+    lda data_E2E2,x
+    sta $0318                   ; Bottom 8x8 tiles for the four text lines.
+    lda data_E2EC,x
+    sta $0319                   ; Bottom 8x8 tiles for the four text lines.
+    lda #$06
+    sta $031A                   ; Bottom 8x8 tiles for the four text lines.
+    ldx #$03
+    lda #$05
+    jsr read_stack_arg
+    lda #$FF
+    sta $0318,x                 ; Bottom 8x8 tiles for the four text lines.
+    jsr draw_string             ; inline pointer/data follows the JSR
+
+data_E236:
+    .incbin "build/assets/bank15_data.bin", $2236, $0002
+    jsr wait_vblank_queued
+    ldx $79
+    lda data_E2E2,x
+    sta $0318                   ; Bottom 8x8 tiles for the four text lines.
+    lda data_E2F6,x
+    sta $0319                   ; Bottom 8x8 tiles for the four text lines.
+    lda #$08
+    sta $031A                   ; Bottom 8x8 tiles for the four text lines.
+    pla
+    tay
+    lda #$D0
+    sta ptr0_lo
+    lda #$60
+    sta ptr0_hi
+    lda $76
+    sec
+    sbc #$01
+    sta ppu_update_ptr_lo
+    lda $77
+    sbc #$00
+    sta ppu_update_ptr_hi
+    lda ($10),y
+    clc
+    adc ppu_update_ptr_lo
+    sta $00
+    iny
+    lda ($10),y
+    adc ppu_update_ptr_hi
+    sta $01
+    iny
+    lda ($10),y
+    sta $02
+    lda $76
+    sta $06
+    lda $77
+    sta $07
+    lda #$00
+    sta $08
+    jsr div24_shift
+    lda #$0A
+    ldx #$07
+loc_E28B:
+    sta $031B,x                 ; Bottom 8x8 tiles for the four text lines.
+    dex
+    bpl loc_E28B
+    lda $79
+    cmp #$05
+    bcs loc_E2B7
+    ldx #$00
+loc_E299:
+    lda $00
+    beq loc_E2D5
+    sec
+    sbc #$08
+    bcc loc_E2B0
+    sta $00
+    lda #$EE
+    sta $031B,x                 ; Bottom 8x8 tiles for the four text lines.
+    inx
+    cpx #$08
+    bne loc_E299
+    beq loc_E2D5
+loc_E2B0:
+    adc #$E7
+    sta $031B,x                 ; Bottom 8x8 tiles for the four text lines.
+    bne loc_E2D5
+loc_E2B7:
+    ldx #$07
+loc_E2B9:
+    lda $00
+    beq loc_E2D5
+    sec
+    sbc #$08
+    bcc loc_E2D0
+    sta $00
+    lda #$EE
+    sta $031B,x                 ; Bottom 8x8 tiles for the four text lines.
+    dex
+    bmi loc_E2D5
+    bpl loc_E2B9
+    beq loc_E2D5
+loc_E2D0:
+    adc #$EE
+    sta $031B,x                 ; Bottom 8x8 tiles for the four text lines.
+loc_E2D5:
+    lda #$FF
+    sta $0323                   ; Bottom 8x8 tiles for the four text lines.
+    jsr draw_string             ; inline pointer/data follows the JSR
+
+data_E2DD:
+    .incbin "build/assets/bank15_data.bin", $22DD, $0002
+    jmp battle_sprite_frame
+
+data_E2E2:
+    .incbin "build/assets/bank15_data.bin", $22E2, $000A
+
+data_E2EC:
+    .incbin "build/assets/bank15_data.bin", $22EC, $000A
+
+data_E2F6:
+    .incbin "build/assets/bank15_data.bin", $22F6, $000A
+; ----------------------------------------------------------------------
+; battle_sprite_frame
+;   One battle animation frame: step the actor sprites, then yield.
+;   called by: $E353, $E35A
+; ----------------------------------------------------------------------
+battle_sprite_frame:
+    txa
+    pha
+    lda text_busy
+    bpl loc_E31D
+    ldx #$09
+loc_E308:
+    lda $05A6,x                 ; Per-actor animation state.
+    adc #$09
+    sta $05A6,x                 ; Per-actor animation state.
+    dex
+    bpl loc_E308
+    lda controller_prev
+    and #$40
+    beq loc_E31D
+    lda #$C0
+    sta text_busy
+loc_E31D:
+    jsr loc_C0E2
+    pla
+    tax
+    rts
+; ----------------------------------------------------------------------
+; battle_effect_setup
+;   Start battle effect X (bank 1 pointers), drawn over two frames.
+; ----------------------------------------------------------------------
+battle_effect_setup:
+    tax
+    lda #$01
+    jsr set_bank_b
+    lda data_E360,x
+    sta $39
+    lda data_E363,x
+    sta $3A
+    lda data_E366,x
+    sta $0525                   ; Per-actor state flags.
+    lda $0505                   ; Per-actor state flags.
+    and #$BF
+    ldx $79
+    cpx #$05
+    bcs loc_E346
+    ora #$40
+loc_E346:
+    sta $0505                   ; Per-actor state flags.
+    lda #$00
+    sta $3C
+    lda #$80
+    sta $3B
+    sta palette_dirty
+    jsr battle_sprite_frame
+    lda #$01
+    sta palette_dirty
+    jsr battle_sprite_frame
+    jmp set_bank_current
+
+data_E360:
+    .incbin "build/assets/bank15_data.bin", $2360, $0003
+
+data_E363:
+    .incbin "build/assets/bank15_data.bin", $2363, $0003
+
+data_E366:
+    .incbin "build/assets/bank15_data.bin", $2366, $0003
+; ----------------------------------------------------------------------
+; read_actor_record_byte
+;   Read byte A of text_actor's officer record (read_party_stat_byte).
+; ----------------------------------------------------------------------
+read_actor_record_byte:
+    pha
+    ldy text_actor
+    lda $60A8,y                 ; Party member class/officer id.
+    tay
+    pla
 ; ----------------------------------------------------------------------
 ; read_party_stat_byte
 ;   Read one byte from a party member's bank 12 stat record.
+;   called by: $DF5D, $DFB2, $DFDA
 ; ----------------------------------------------------------------------
 read_party_stat_byte:
     pha
@@ -4770,12 +5765,41 @@ read_party_stat_byte:
     jsr set_bank_current
     pla
     rts
+; ----------------------------------------------------------------------
+; call_b13_9c00
+;   Call bank 13 $9C00, then map bank 14 again (flags kept).
+; ----------------------------------------------------------------------
+call_b13_9c00:
+    jsr set_bank_13
+    jsr b13_find_first_party    ; banked call target (bank must be selected first)
+    php
+    jsr set_bank_14
+    plp
+    rts
 
-data_E38B:
-    .incbin "build/assets/bank15_data.bin", $238B, $0075
+data_E397:
+    .incbin "build/assets/bank15_data.bin", $2397, $0069
 
 data_E400:
-    .incbin "build/assets/bank15_data.bin", $2400, $0064
+    .incbin "build/assets/bank15_data.bin", $2400, $0024
+
+data_E424:
+    .incbin "build/assets/bank15_data.bin", $2424, $000F
+
+data_E433:
+    .incbin "build/assets/bank15_data.bin", $2433, $0008
+
+data_E43B:
+    .incbin "build/assets/bank15_data.bin", $243B, $0010
+
+data_E44B:
+    .incbin "build/assets/bank15_data.bin", $244B, $0008
+
+data_E453:
+    .incbin "build/assets/bank15_data.bin", $2453, $0008
+
+data_E45B:
+    .incbin "build/assets/bank15_data.bin", $245B, $0009
 
 ; ----------------------------------------------------------------------
 ; copy_party_stats
@@ -4865,12 +5889,57 @@ loc_E4C7:
     rts
 
 data_E505:
-    .incbin "build/assets/bank15_data.bin", $2505, $0055
-
+    .incbin "build/assets/bank15_data.bin", $2505, $0008
+; ----------------------------------------------------------------------
+; field_party_sprites_reset
+;   Put the three field party sprites on the party position with
+;   facing $87 (actor arrays $0530/$0540/$0560).
+; ----------------------------------------------------------------------
+field_party_sprites_reset:
+    lda game_mode
+    sta $0530                   ; Per-actor palette/facing.
+    sta $0531                   ; Per-actor palette/facing.
+    sta $0532                   ; Per-actor palette/facing.
+    sta party_active
+    ldx #$00
+    ldy #$00
+loc_E51E:
+    lda text_x,x
+    sta $0560,y                 ; Per-actor map/world X.
+    sta $0561,y                 ; Per-actor map/world X.
+    sta $0562,y                 ; Per-actor map/world X.
+    tya
+    clc
+    adc #$10
+    tay
+    inx
+    cpx #$04
+    bne loc_E51E
+    lda #$04
+    sta party_flags
+    sta party_prev
+    lda #$6E
+    sta $0540                   ; Per-actor tile/sprite id.
+    lda party_index
+    bne loc_E545
+    inc $0540                   ; Per-actor tile/sprite id.
+loc_E545:
+    ldx #$00
+loc_E547:
+    lda $0540,x                 ; Per-actor tile/sprite id.
+    sta $0541,x                 ; Per-actor tile/sprite id.
+    sta $0542,x                 ; Per-actor tile/sprite id.
+    txa
+    clc
+    adc #$10
+    tax
+    cpx #$60
+    bne loc_E547
+    rts
 ; ----------------------------------------------------------------------
 ; dialogue_sequence
 ;   Run a dialogue/event sequence and restore the previous screen.
-;   called by: $F351
+;   called by: $F222, $F351
 ; ----------------------------------------------------------------------
 dialogue_sequence:
     ldx #$25
@@ -4897,7 +5966,7 @@ loc_E572:
     sta ptr0_hi
     lda #$64
     sta ptr1_hi
-    jsr mul16x8_shift
+    jsr div16_by_u8
     lda ptr0_lo
     ora ptr0_hi
     bne loc_E596
@@ -4905,8 +5974,10 @@ loc_E572:
 loc_E596:
     lda #$00
     sta ptr1_lo
-    jsr load_battle_tiles
-    bne loc_E5FF
+    jsr sub24_inline_clamped_y  ; inline pointer/data follows the JSR
+
+data_E59D:
+    .incbin "build/assets/bank15_data.bin", $259D, $0002
     bcs loc_E5DF
     lda #$00
     sta $609C,x                 ; Party member state bits.
@@ -4924,6 +5995,12 @@ data_E5B2:
 
 data_E5BF:
     .dw b10_msg_index_037    ; text index $0025 -> b10_msg_037
+; ----------------------------------------------------------------------
+; battle_defeat
+;   Defeat: reset the stack, wait for a key, window $0A, bank 13
+;   $A0F3, then game_mode_switch.
+; ----------------------------------------------------------------------
+battle_defeat:
     ldx #$30
     txs
     jsr wait_keypress
@@ -4947,22 +6024,21 @@ data_E5E4:
     .incbin "build/assets/bank15_data.bin", $25E4, $0010
 
 data_E5F4:
-    .incbin "build/assets/bank15_data.bin", $25F4, $000B
-loc_E5FF:
-    inc $00
-
-data_E601:
-    .incbin "build/assets/bank15_data.bin", $2601, $005F
+    .incbin "build/assets/bank15_data.bin", $25F4, $006C
 
 data_E660:
     .incbin "build/assets/bank15_data.bin", $2660, $0008
 
 data_E668:
-    .incbin "build/assets/bank15_data.bin", $2668, $00A9
+    .incbin "build/assets/bank15_data.bin", $2668, $0069
+
+data_E6D1:
+    .incbin "build/assets/bank15_data.bin", $26D1, $0040
 
 ; ----------------------------------------------------------------------
 ; load_party_hp
 ;   Load a party member's troops/HP from bank 12.
+;   called by: $E08B
 ; ----------------------------------------------------------------------
 load_party_hp:
     lda #$0C
@@ -4997,7 +6073,7 @@ loc_E749:
     sta ppu_addr_lo
     lda data_E79C,y
     sta ppu_addr_hi
-    jsr rng_next
+    jsr mul16x16_shr8
 loc_E759:
     lda ptr0_lo
     sta $61B4,x                 ; Party member troops/HP.
@@ -5027,7 +6103,7 @@ loc_E77E:
 loc_E781:
     lda #$0E
     jsr set_bank_b
-    jsr b14_officer_status_screen; banked call target (bank must be selected first)
+    jsr b14_build_member_tactic_list; banked call target (bank must be selected first)
     jmp set_bank_current
 
 data_E78C:
@@ -5211,7 +6287,18 @@ nop_return:
     rts
 
 data_E8CA:
-    .incbin "build/assets/bank15_data.bin", $28CA, $0336
+    .incbin "build/assets/bank15_data.bin", $28CA, $006D
+
+; ----------------------------------------------------------------------
+; jmp_b13_b3cb
+;   Map bank 13 and jump to $B3CB.
+; ----------------------------------------------------------------------
+jmp_b13_b3cb:
+    jsr set_bank_13
+    jmp $B3CB                   ; banked call target (bank must be selected first)
+
+data_E93D:
+    .incbin "build/assets/bank15_data.bin", $293D, $02C3
 
 b15_text_data:
     .incbin "build/assets/bank15_data.bin", $2C00, $01A1
@@ -5598,7 +6685,7 @@ loc_F0EE:
     jsr screen_refresh
     lda $7C
     beq loc_F11E
-    jsr b14_copy_active_party   ; banked call target (bank must be selected first)
+    jsr b14_refill_present_troops; banked call target (bank must be selected first)
     jsr reset_text_engine
     jsr text_print_inline       ; inline pointer/data follows the JSR
 
@@ -5628,7 +6715,7 @@ load_game:
     ldy $6011
     lda $6012,y
     sta party_index
-    jsr b14_get_item_category   ; banked call target (bank must be selected first)
+    jsr b14_field_get_area_tileset; banked call target (bank must be selected first)
     ldy #$03
 loc_F140:
     lda $6016,y
@@ -5693,7 +6780,7 @@ loc_F19B:
     pla
     and #$80
     bne loc_F1A6
-    jmp b14_field_transition_a  ; banked call target (bank must be selected first)
+    jmp b14_army_status_screen  ; banked call target (bank must be selected first)
 loc_F1A6:
     lda #$0A
     jsr sound_queue_add
@@ -5754,11 +6841,12 @@ loc_F20E:
     sta ptr1_lo
     lda $607D
     sta ptr0_lo
-    jsr load_battle_graphics
-    adc $B060,y
+    jsr sub24_inline_clamped    ; inline pointer/data follows the JSR
 
-data_F221:
-    .incbin "build/assets/bank15_data.bin", $3221, $0004
+data_F21E:
+    .incbin "build/assets/bank15_data.bin", $321E, $0002
+    bcs loc_F225
+    jsr dialogue_sequence
 loc_F225:
     lda battle_flags2
     and #$40
@@ -5826,12 +6914,12 @@ loc_F294:
     lda $86
     cmp #$0E
     bne loc_F2A6
-    jsr b14_scan_bank7_table_a  ; banked call target (bank must be selected first)
+    jsr b14_field_enter_location; banked call target (bank must be selected first)
     jmp loc_F2AD
 loc_F2A6:
     cmp #$0F
     bne loc_F2AD
-    jsr b14_scan_bank7_table_b  ; banked call target (bank must be selected first)
+    jsr b14_field_transfer_or_exit; banked call target (bank must be selected first)
 loc_F2AD:
     jsr set_bank_13
     lda #$15
@@ -6129,7 +7217,7 @@ loc_F486:
     sta battle_flags2
     pla
     pla
-    jmp b14_field_transition_b  ; banked call target (bank must be selected first)
+    jmp b14_battle_entry        ; banked call target (bank must be selected first)
 loc_F4C3:
     dex
     bpl loc_F486
@@ -6182,7 +7270,7 @@ loc_F4FF:
     sta game_submode
     pla
     pla
-    jmp b14_field_transition_b  ; banked call target (bank must be selected first)
+    jmp b14_battle_entry        ; banked call target (bank must be selected first)
 
 data_F517:
     .incbin "build/assets/bank15_data.bin", $3517, $0006
@@ -6223,7 +7311,7 @@ data_F54A:
 ; ----------------------------------------------------------------------
 ; draw_party_window
 ;   Draw the party window headers.
-;   called by: $CDF4, $D98B
+;   called by: $CDF4, $CE4D, $CE97, $D98B
 ; ----------------------------------------------------------------------
 draw_party_window:
     lda map_x
@@ -6240,7 +7328,7 @@ draw_party_window:
 ; ----------------------------------------------------------------------
 ; draw_party_status
 ;   Draw the party status list.
-;   called by: $CDF1, $D988
+;   called by: $CDF1, $CE4A, $CE94, $D988
 ; ----------------------------------------------------------------------
 draw_party_status:
     ldy game_mode
@@ -6379,7 +7467,7 @@ draw_party_column_b:
 ; ----------------------------------------------------------------------
 ; draw_party_header
 ;   Draw the party header/name row.
-;   called by: $CDEE, $D985, $F394
+;   called by: $CDEE, $CE47, $CE91, $D985, $F394
 ; ----------------------------------------------------------------------
 draw_party_header:
     lda game_mode
@@ -6406,7 +7494,7 @@ draw_party_header:
 ; ----------------------------------------------------------------------
 ; draw_party_footer
 ;   Draw the party window footer.
-;   called by: $CE09, $D991
+;   called by: $CE09, $CE5D, $D991
 ; ----------------------------------------------------------------------
 draw_party_footer:
     ldx #$0A
@@ -6969,22 +8057,25 @@ loc_FA0E:
     clc
     rts
 ; ----------------------------------------------------------------------
-; read_inline_offset
-;   Read an inline pointer and add a caller-supplied offset.
+; add24_inline
+;   Add the 24-bit amount $10-$12 to the 24-bit variable at the
+;   inline pointer (Y = 0).  X/Y preserved.
 ; ----------------------------------------------------------------------
-read_inline_offset:
+add24_inline:
     stx ppu_update_ptr_lo
     sty ppu_update_ptr_hi
-    jsr fetch_inline_word       ; inline pointer/data follows the JSR
-data_FA17:
+    jsr fetch_inline_word
     ldy #$00
     beq loc_FA24
+; ----------------------------------------------------------------------
+; add24_inline_y
+;   add24_inline with the caller's Y as the byte offset.
+; ----------------------------------------------------------------------
+add24_inline_y:
     stx ppu_update_ptr_lo
     sty ppu_update_ptr_hi
-    jsr fetch_inline_word       ; inline pointer/data follows the JSR
-
-data_FA22:
-    .incbin "build/assets/bank15_data.bin", $3A22, $0002
+    jsr fetch_inline_word
+    ldy ppu_update_ptr_hi
 loc_FA24:
     clc
     lda ($00),y
@@ -7002,30 +8093,28 @@ loc_FA24:
     ldy ppu_update_ptr_hi
     rts
 ; ----------------------------------------------------------------------
-; load_battle_graphics
-;   Load battle graphics.
+; sub24_inline_clamped
+;   Subtract the 24-bit amount $10-$12 from the 24-bit variable
+;   at the inline pointer (Y = 0), clamped at zero: a larger
+;   amount is first cut to the variable.  X/Y preserved.
 ;   called by: $F21B
 ; ----------------------------------------------------------------------
-load_battle_graphics:
+sub24_inline_clamped:
     stx ppu_update_ptr_lo
     sty ppu_update_ptr_hi
-    jsr fetch_inline_word       ; inline pointer/data follows the JSR
-
-data_FA45:
-    .incbin "build/assets/bank15_data.bin", $3A45, $0002
+    jsr fetch_inline_word
+    ldy #$00
     beq loc_FA52
 ; ----------------------------------------------------------------------
-; load_battle_tiles
-;   Load battle tile sets.
+; sub24_inline_clamped_y
+;   sub24_inline_clamped with the caller's Y as the byte offset.
 ;   called by: $E59A
 ; ----------------------------------------------------------------------
-load_battle_tiles:
+sub24_inline_clamped_y:
     stx ppu_update_ptr_lo
     sty ppu_update_ptr_hi
-    jsr fetch_inline_word       ; inline pointer/data follows the JSR
-
-data_FA50:
-    .incbin "build/assets/bank15_data.bin", $3A50, $0002
+    jsr fetch_inline_word
+    ldy ppu_update_ptr_hi
 loc_FA52:
     iny
     iny
@@ -7082,7 +8171,7 @@ loc_FA81:
 ; ----------------------------------------------------------------------
 ; read_input_state
 ;   Read controller state with repeat/edge handling.
-;   called by: $C043
+;   called by: $C043, $D6C6
 ; ----------------------------------------------------------------------
 read_input_state:
     ldx #$AC

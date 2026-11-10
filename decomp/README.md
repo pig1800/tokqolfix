@@ -117,11 +117,11 @@ Current coverage:
 
 | Bank | CPU window | Role | Code bytes |
 |---:|---|---|---:|
-| 7 | `$8000-$BFFF` | party/list screen and event code | 796 |
-| 8 | `$8000-$BFFF` | sound driver + music data | 2,278 |
-| 13 | `$8000-$BFFF` | officer status / name entry + dictionary | 2,557 |
-| 14 | `$8000-$BFFF` | gameplay/menu code + tables | 2,311 |
-| 15 | `$C000-$FFFF` | fixed bank: main loop, text engine, NMI, bank switching | 10,446 |
+| 7 | `$8000-$BFFF` | party/list screen and event code | 882 |
+| 8 | `$8000-$BFFF` | sound driver + music data | 2,327 |
+| 13 | `$8000-$BFFF` | officer status / name entry + dictionary | 2,663 |
+| 14 | `$8000-$BFFF` | field menus, info screen, battle engine + tables | 11,761 |
+| 15 | `$C000-$FFFF` | fixed bank: main loop, text engine, NMI, bank switching | 12,004 |
 
 Banks 0-6 and 9-12 are graphics/text/table banks and are represented as
 resources.  Execution-backed coverage is concentrated in the five code banks;
@@ -141,7 +141,8 @@ python decomp\build.py
 ```
 
 Human-maintained names and comments live in `tools/symbols.py`; the CDL input
-is `out/cdl_combined.bin`.  Editing the generated `.asm` files directly is
+is `out/cdl_combined3.bin` (`out/cdl_combined.bin` plus the step-A battle /
+info-screen capture of 2026-11-11, see below).  Editing the generated `.asm` files directly is
 fine for experiments, but a regeneration overwrites those edits.  Permanent
 naming/comment changes should go into `tools/symbols.py` (or be made after the
 last regeneration).
@@ -162,6 +163,21 @@ Example merge:
 ```powershell
 python tools\merge_cdl.py out\cdl_original.bin out\cdl_status\cdl.bin -o out\cdl_combined.bin
 ```
+
+Step A (2026-11-11) captured the battle and info-screen paths on the kanji
+build, where the user's save states are: `tools/lua/cdl_run.lua` (load a
+state, play an input path, dump the 512 KiB PRG CDL) and
+`tools/map_kanji_cdl.py` (map it onto the original PRG: banks 0-14 at the same
+offsets, the fixed bank from bank 31; only the code bits, only where the bytes
+equal the original).  `out/cdl_combined3.bin` = `cdl_combined.bin` OR the
+mapped capture.
+
+The tracer also knows the game's inline-argument calls: every routine that
+starts with `fetch_inline_word` takes a word after its JSR (`INLINE_WORD_JSR`),
+`dispatch_return_table` (`$C10C`) is followed by a jump table and does not
+return (`DISPATCH_TABLES` lists tables the CDL does not size), and a
+`call_inline_block` block is decoded by its own control flow inside the 255
+copied bytes, each `jsr return_inline_block` being followed by its resume word.
 
 For Mesen tests, use a copied ROM filename (for example
 `out/cdlprobe/tokqol_cdl.nes`).  Mesen keys battery saves by ROM name, so this
