@@ -96,6 +96,20 @@ the code and the traces say (kanji ROM `5449ff00...`; traces and dumps in
    kanji); `$F4-$F7` and `$F8-$FB` keep the bars and S.P.
 5. Every tactic starts with 2 kanji: the first 2 kanji of each tactic
    line take fixed plane-1 slots.  An officer without tactics: skip.
+6. Battle gauge palette: P2 colour 1 = `$0F`, colour 3 = colour 2 (the
+   gauge colour), so the gauges show plane 1 only and plane 0 of their
+   tiles is free.  The gauge colour changes with the HP tier (late-game
+   five-digit HP: light green); see "Gauge colour" below.
+7. All window borders move down by one tile, on the info screen and in
+   battle, so 16-pixel kanji lines sit on the attribute grid.  Done in the
+   coding phase.
+8. Battle item subwindow worst case: 23 distinct kanji (the user's count).
+9. In battle, `$EF-$F4` and `$F9-$FA` are unused, and `$F5-$F8` appear
+   only in the tactic subwindow, never with the items.  Battle shows only
+   "SP" (`$F6` `$F7`); M (`$F5`) and the dot (`$F8`) are info-screen only.
+   S and P move to plane 1, so plane 0 of all of `$A4-$FF` (23 groups)
+   becomes the battle's kanji area.
+10. `kanjiwordlist.csv`: めいば is 名馬 (fixed by the user).
 
 ## Plan: info screen
 
@@ -117,8 +131,10 @@ the code and the traces say (kanji ROM `5449ff00...`; traces and dumps in
 - Exits:
   - info -> map: nothing to revert (the map reloads `$80-$FE` and the
     whole font page).
-  - info -> battle: rewrite plane 1 of every battle name slot; clear what
-    was written to the pool and to `$E0-$EE` plane 0 (see question 1).
+  - info -> battle: rewrite plane 1 of every battle name slot.  Plane 0
+    of `$A4-$FF` is the battle's volatile kanji area (decisions 6 and 9);
+    the battle restores its involatile command kanji when the panel
+    returns.
 
 ## Plan: battle screen (user, in progress)
 
@@ -130,6 +146,17 @@ the code and the traces say (kanji ROM `5449ff00...`; traces and dumps in
   round.  The item subwindow covers the whole command panel; the tactic
   window leaves only 道具 visible.
 - "Usable kanji slots may be surprisingly low" (user).
+- Kanji area in battle: plane 0 of `$A4-$FF`, 23 groups of 4 tiles
+  (decisions 6 and 9): the pool `$A4-$DF`, the gauge tiles `$E0-$EE`
+  (their plane 0 hidden by the new P2), and `$EF-$FF`.  It holds the 15
+  involatile command kanji, the messages and the subwindows.  The
+  revision-18 pool logic (blank check, `$A4-$DF` only) gives way to one
+  managed slot table for the whole area.
+- S and P in plane 1 of `$F6`/`$F7`; their 16x16 cell must use a palette
+  that shows plane 1 and must hold no plane-0 glyph.  The info screen
+  uploads the same block, so its "S.P" label (`$F6 $F8 $F7`, row 12,
+  columns 10-12) needs a P1 cell too, and the dot then has to be in plane 1
+  as well (M likewise, wherever "MSP" is shown).
 
 ## Verified
 
@@ -167,6 +194,31 @@ CHR tiles `$E0-$FF`:
   that immediate, and the two patterns in bank 9's `$1E00` block.
 - Exit to map reloads `$1800-$1FEF` (tiles `$80-$FE`; bank 4 in the
   town) and the whole font page.  `$FF` is not reloaded.
+
+Gauge colour (bank 14 `$AE10-$AE45`, in the `$AC00` data blob):
+- The max HP is compared with 500, 2001, 5001, 10001, 15001 (tables
+  `$AE58` high / `$AE5D` low bytes, `jsr $FA3E` / `$FA10` with inline
+  arguments); tier X 0-5 picks units per gauge segment (`$AE4C`/`$AE52`:
+  10, 40, 100, 200, 300, 400 -> `$76`/`$77`) and the colour (`$AE46`:
+  `25 27 38 31 21 2A`; `$2A` green for 15001 and up), stored to `$03EA`
+  (P2 colour 2) and `$3D` at `$AE40`.
+- The base comes from `load_text_graphics` set 8 (hack bank copy at
+  `$BF00`): P2 = `0F 17 0F 17`.  The same set serves the info screen,
+  whose bars `$F3`/`$F4` are plane 0 in P2 (brown `$17`).
+- The battle -> info exit wrapper saves and restores only `$03EA`
+  (`$AA1F` / `$AA53`).
+- For decision 6: `$AE40` must also store colour 3 and clear colour 1,
+  and the exit wrapper must restore all three.  P2 colour 1/3 is used by
+  nothing else in battle (every P2 cell held a gauge tile or blank).
+
+Tactic subwindow title (bank 15 `$EB46`, a `text_init` window template in
+`data_E8CA`): `6D 0C 0C 0C | 23 14 32 (のこり) 0A | F6 F7 (SP) | 0A x4 |
+0C x5 6E`, 20 tiles.  This のこり is the 残 of the 15 command kanji.  S and
+P sit at offsets 8 and 9 from the left corner: their 16x16 cell holds
+only S and P when the window's left column is even; the remaining-SP
+digits follow (digits have both planes, any palette shows them).  Bank 14
+`$976A` holds two more strings, "SP" and "MSP" (`$22` + a 16-bit
+position); not yet traced to a screen.
 
 Battle palettes and layout:
 - Battle P2 = `0F 17 25 17` in every battle frame sampled (normal, boss,
@@ -222,19 +274,14 @@ kanji map (about 16 x 2 bytes) plus a battle-name record (28 x 2) fit.
 
 ## Questions for the user
 
-1. Battle P2: change it from `0F 17 25 17` to `0F 0F 25 25`?  The gauges
-   look the same, and plane 0 of `$E0-$EE` becomes invisible in battle:
-   free for kanji with nothing to revert, in battle and after the info
-   screen.  Otherwise plane 0 of those tiles must be cleared on every
-   return to the battle, and the battle itself cannot use them.
-2. The info screen's 策略 and 装備 windows grow by one row each (bottom
-   borders to rows 28 and 26) so the aligned title and lines fit.  OK?
-3. Battle item subwindow worst case: 8 items x 3 kanji = 24 distinct
-   kanji.  Battle room is the pool (15) plus the `$E0-$FF` groups (at
-   most 8, the gauge groups only with question 1).  That is 23, before
-   the kanji map's reuse.
-4. Word list: めいば -> 名簿 (名馬?); 竜 in 青竜刀 / 土竜の剣 / 青竜の鎧 /
-   飛竜の兜 but 龍 in 水龍の計 - intended?
+1. With S, P (and the dot, M) in plane 1, the info screen's only plane-0
+   tiles in `$E0-$FF` are the bars `$F3`/`$F4`, which block two groups
+   wherever `$F3` sits, so the `$F3` -> `$FB` move no longer gains
+   anything.  In battle those groups are volatile anyway.  Options: drop
+   the move; or also put the info bars in plane 1 (info P2 = `0F 0F 17
+   17`), which frees all 8 plane-0 groups of `$E0-$FF` on the info screen.
+   The info screen needs at most 10 plane-0 kanji of the 21 it has, so
+   this is only tidiness.
 
 ## Work order (after compaction)
 
@@ -242,12 +289,17 @@ kanji map (about 16 x 2 bytes) plus a battle-name record (28 x 2) fit.
    hash-check the bytes to patch).
 2. Font: add the 32 missing kanji (kanji font build).
 3. Path flag (map entry `$84F8` vs battle wrapper `$8518`).
-4. Info screen renderer (hack bank) in place of the driver's window
+4. CHR block (bank 9 `$1E00`, tiles `$E0-$FE`): S, P, dot, M to plane 1
+   (and the bars, per question 1).  Gauge palette: `$AE40` and the exit
+   wrapper (decision 6).
+5. Info screen renderer (hack bank) in place of the driver's window
    sequence (`$8531-$8578`): fixed label slots, tactic slots, kanji map,
-   plane-0 groups, the window geometry above, `$F3` -> `$FB`.
-5. Battle exit: re-stream every battle name slot (plane 1); clear the
-   pool and (without question 1) `$E0-$EE` plane 0.
-6. Gates: battle -> info -> battle CHR equal (256 BG tiles, as the
-   original); map -> info -> map; the stack and RAM gates.
-7. Battle screen (command panel, subwindows, involatile tracking): after
-   the info screen.
+   plane-0 groups, borders one tile down (decision 7).
+6. Battle exit: re-stream every battle name slot (plane 1); the pool and
+   `$E0-$FF` plane 0 need no clearing (the battle's managed slot table
+   restores its involatile kanji when the command panel returns).
+7. Gates: battle -> info -> battle: plane 1 of all BG tiles equal (as
+   the original), plane 0 of `$A4-$FF` restored where the command panel
+   shows it; map -> info -> map; the stack and RAM gates.
+8. Battle screen (command panel, subwindows, involatile tracking, the
+   23-group slot table): after the info screen.
