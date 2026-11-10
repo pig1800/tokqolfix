@@ -69,6 +69,10 @@ def main() -> int:
         n += 1
         idxs.add(int(idx, 16))
         want = expected(fixed, int(idx, 16), int(a5, 16), bytes.fromhex(before))
+        if int(idx, 16) == 8 and not int(a5, 16) & 0x04:
+            # Step B, decision 11: set 8's P2 shows plane 1 only (the UI
+            # glyphs moved to plane 1; kanji_build.PAL_SET8_P2).
+            want = want[:8] + bytes((0x0F, 0x0F, 0x17, 0x17)) + want[12:]
         if want != bytes.fromhex(after):
             bad += 1
             print(f"frame {frame} index {idx}: got {after} want {want.hex().upper()}")

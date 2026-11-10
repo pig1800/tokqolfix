@@ -113,7 +113,42 @@ def inventory() -> list[tuple[str, int]]:
             order += 1
     # Stable order: frequency desc, first appearance asc.
     chars = sorted(counts, key=lambda ch: (-counts[ch], first.get(ch, 10**9), ord(ch)))
-    return [(ch, counts[ch]) for ch in chars]
+    inv = [(ch, counts[ch]) for ch in chars]
+    # The UI kanji (screen labels, battle commands, item and tactic names)
+    # follow the message kanji, so adding them moves no message code.
+    have = set(chars)
+    for ch in ui_kanji():
+        if ch not in have:
+            have.add(ch)
+            inv.append((ch, 0))
+    return inv
+
+
+# Kanji of the screen labels (info screen) and the battle command panel, in
+# slot order; the item and tactic names come from kanjiwordlist.csv.
+UI_LABELS = "武力知攻撃装度兵士数備策略"
+UI_COMMANDS = "戦策略防御道具総攻撃退却武将残"
+WORDLIST = ROOT / "kanjiwordlist.csv"
+
+
+def wordlist() -> list[tuple[str, str, str]]:
+    """kanjiwordlist.csv (cp932, tab-separated): (type, kana, kanji)."""
+    rows = []
+    for line in WORDLIST.read_text(encoding="cp932").splitlines()[1:]:
+        parts = line.split("	")
+        if len(parts) >= 3 and parts[0].strip():
+            rows.append((parts[0].strip(), parts[1].strip(), parts[2].strip()))
+    return rows
+
+
+def ui_kanji() -> list[str]:
+    """Every UI kanji in first-use order: labels, commands, word list."""
+    out: list[str] = []
+    text = UI_LABELS + UI_COMMANDS + "".join(k for _, _, k in wordlist())
+    for ch in KANJI_RE.findall(text):
+        if ch not in out:
+            out.append(ch)
+    return out
 
 
 GLYPHS_PER_BANK = 359          # glyphs per hack bank (32 tables x 359)

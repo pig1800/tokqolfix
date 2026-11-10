@@ -186,7 +186,7 @@ Name kanji (original engine):
   would land in plane 1 of the portrait tiles `$80-$87` (the next
   portrait upload overwrites them).
 - Info screen: `$A9` = `$10` (bank 14 `$8545`).
-- Exit to battle: `b14_battle_officer_info` (bank 14 `$AA1A-$AA5E`, the
+- Exit to battle: `b14_battle_officer_info` (bank 14 `$AA1A-$AA60`, the
   battle-side wrapper; it runs the info screen `b14_officer_info_screen`,
   `$8518`).  Afterwards `$A9` = `$10` and the
   names of battle slots 0 and 1 are re-streamed (`put_officer_name_actor` `$D49F`, `put_officer_name` `$D4A1`): 4-6
@@ -380,6 +380,120 @@ Facts found on the way:
   `$80-$FF` from bank 3.  Its `$EF-$F9` are picture tiles, not the bank-9
   glyphs: decision 11 does not touch it.
 
+## Step B result: the info screen (2026-11-11)
+
+Work order items 1-6 are done; item 7 (the battle screen) is not started.
+The original 256 KiB build is still byte-identical (`40f19e17...`).
+
+What the screen looks like now (map path, 劉備, and battle path):
+- The labels are kanji in plane 1: 武力 知力 攻撃 武装度 (rows 4-11),
+  兵士数 (rows 14-15).  S.P stays at row 12, in plane 1.  Values and bars sit
+  in the lower row of each 16-pixel line.  Digits are at columns 16-18
+  (武装度 needs columns 10-15), and the bars start at column 20.
+- 装備 and 策略 are 16x16 titles on the windows' top borders.  Each line is
+  two rows, and the bottom borders moved down one row (decision 7).  Tactic
+  line n has its first two kanji in plane 1 (`$50+8n` and `$54+8n`), の in
+  the lower row, and 計 in plane 0.  Equipment names are plane-0 kanji, with
+  の in the lower row.
+- Nothing switches CHR, and no IRQ is enabled while the screen is up
+  (measured: 0 writes to `$E001` on both paths and on the army status
+  screen).
+
+How it works:
+- **UI bank 28** (`tools/asm/ui.asm`) holds the renderer, its own copy of
+  the 100 UI glyphs, and the item and tactic kanji tables.  The tables and
+  glyphs come from `ui_data.inc`, which `kanji_build.build_ui_data`
+  generates from `kanjiwordlist.csv`, the game's bank-12 names, the
+  こうげき table (bank 14 `$8602`) and the attribute layout
+  `INFO_ATTR_CELLS`.
+- **`call_ui`** (fixed bank `$C48D`, in the free gap `$C489-$C49D`) maps
+  bank 28 under the lock protocol and calls `$8000` with X = function.
+  `call_ui_army` is at `$C489`.
+- **`UIF_INFO_DRAW`** runs in bank 14's info driver right after
+  `battle_intro_screen`, while rendering is still off.  It uses busy mode,
+  as the game's own `copy_to_vram` does.  It uploads the 13 label kanji, the
+  tactic kanji and the plane-0 kanji, and writes the whole layout and the
+  attribute table directly.  Plane-0 kanji take the pool `$A4-$DF`, one
+  group per distinct kanji, so 鉄 is shared, for example.  The game then
+  draws only the portrait (`status_message`) and the two name windows
+  (`$1B`, `$08`).  Windows `$2D`, `$09`, `$0B`, `$0A` and the attribute and
+  dakuten strings are no longer called.
+- **`UIF_INFO_LATE`** runs after the kanji name window and queues 兵士数 and
+  the troop maximum.  Window `$08`'s empty second line clears rows 14-15,
+  columns 2-9, which is why the original drew window `$2D` after it.
+- **The battle path** saves and restores CHR instead of re-streaming the
+  names.
+  - `UIF_BINFO_ENTER` sets the path flag (`$7FC0`), sets `text_busy` = 0
+    and keeps P2 colours 1-3.
+  - `UIF_INFO_DRAW` first copies plane 1 of `$1C-$7F` and plane 0 of the
+    pool to spare CHR RAM (1 KiB banks 12/13, mapped through R2/R3 for the
+    copy).
+  - `UIF_BINFO_EXIT` (rendering off) copies them back and restores the three
+    colours.
+  - The original re-streaming of the slot 0/1 names still runs.  The battle
+    CHR after battle → info → battle equals the original build's.
+- **Hack state:** the screen clears `KANJI_BAND` and cancels the pool check
+  that set 8 posts.  It marks the pool unchecked, so the next battle message
+  checks it again.
+- **Decision 11:** the kanji target's copy of the bank-9 block,
+  `bank09_ui_b_k.bin`, has `$EF-$FA` in plane 1.  Palette set 8 P2 is
+  `0F 0F 17 17`.
+- **Decision 6:** the gauge colour goes to P2 colours 2 and 3 (bank 14
+  `b14_k_gauge_colour` at `$BFD8`).  A fresh battle's P2 is `0F 0F 25 25`.
+- **Font (item 1):** the 31 UI kanji missing from the font are appended
+  after the message kanji, so no message code moved.  The font now has 864
+  glyphs.  簿 from the old count is no longer in the word list.
+
+Two more places show the moved glyphs, and both are now handled:
+- **Battle tactic subwindow:** の こ り S P sits at row 18, columns 18-19.
+  `b14_k_tactic_window` queues P1 for that cell (`$27E4` = `$4A`) when the
+  window opens, and puts back `$0A` when it returns.  When the window is
+  cancelled, S P blank out for the ~10 frames before the command panel
+  covers the window.
+- **Army status screen (Select on the map)** shows SP and MSP (rows 20 and
+  22, columns 23-25): decision 12's MSP.  `UIF_ARMY` replaces that screen's
+  `jsr wait_vblank` after its attribute string: it flushes, then sets
+  `$23ED` = `$44` and `$23EE` = `$11` (P1).
+
+Bank 14 hand edits (all `.ifdef KANJI_TARGET`, same addresses).  The
+decomp regeneration must keep them, as it keeps `SAVE_SLOTS` and
+`BATTLE_SHAKE`:
+
+| Where | What |
+|---|---|
+| `b14_officer_info_screen` `$8518-$857A` | the new driver (`call_ui` x2), padded to `$857B` |
+| `b14_battle_officer_info` `$AA1A-$AA60` | `call_ui` enter/exit; the original wrapper is 71 bytes, not `$AA5E` |
+| `$AE3C` (`b14_loc_AE33` tail) | `jmp b14_k_gauge_colour` |
+| `b14_battle_tactic_subwindow` `$9EB0` | `jsr b14_k_tactic_window` |
+| army status `$95C4` | `jsr CALL_UI_ARMY` |
+| `$BFD8-$BFFF` | the helpers.  This was the MMC1 reset stub and vectors, dead in the MMC3 target.  `b14_data_BFD9` stays as an equate for bank 15's MMC1 register writes |
+
+Bank 9 has one more hand edit: `b09_ui_graphics2` uses the kanji copy.
+`decomp/build.py` now allows bank 9 to differ.  `tools/palette_check.py`
+expects set 8's new P2.
+
+Gates (kanji ROM `b476b5b6...`):
+- **Map → info → map:** CHR (all pages), palettes and the visible map equal
+  the previous build's after the return.
+- **Battle → info → battle:** page 1 `$00-$7F` and the pool equal the
+  previous build's.  Every name is intact, and the command panel comes back
+  as before.  `$EF-$FA` differ only by the plane move.
+- **Stack:** UI-bank min SP `$13` (battle path) and `$19` (map path).
+  `ram_gate` 0 / 0 / 0, min SP `$14`.
+- **Standard suite** (`run_gates.sh`, states `out/user/m5`, results in
+  `out/test/stepB_g`):
+  - `band_check` +1: 1,254, 0 mismatches; `garble_run` 0.
+  - `garble_state`: bb, bt, nb, lv and sv 0.  Shop n1 and p1-p4 are 42 / 85 /
+    44 / 90 / 123, as before.
+  - `vblank_deadline` 0; `taint_check` 0 / 0; `zp`, `mask` 0.
+  - `palette_check`: set 8's P2 was the only difference before the tool was
+    told about it.
+- **Tactic subwindow** after the info screen (new block in CHR): SP visible,
+  cell P1.
+- **Army status screen:** SP / MSP visible.
+
+Next: work order item 7, the battle screen.
+
 ## Questions for the user
 
 None open.  The strategist battle state is the user's slot 1 (copy:
@@ -411,7 +525,7 @@ None open.  The strategist battle state is the user's slot 1 (copy:
 4. Name the routines, update this file with the new labels, run the
    original-build check and `bank15_lint`, commit.  Then compact.
 
-### Step B (next, after the compaction): implement
+### Step B: items 1-6 done 2026-11-11 (see "Step B result"); item 7 next
 
 1. Font: add the 32 missing kanji (kanji font build).
 2. Path flag (map entry `$84F8` vs battle wrapper `$8518`).

@@ -307,7 +307,25 @@ irq_off_tail:
     pla
     rti
 
+; ----------------------------------------------------------------------
+.base $C489
+; ----------------------------------------------------------------------
 ; ($C489-$C49D: free since map-canvas step 3; IRQ stage 0 is cv_irq.)
+; call_ui (step B): X = UI function.  Map the UI bank (main thread, the
+; game's lock protocol), run its $8000 dispatcher, map the bank that was
+; current.  Bank 14 calls it (the info screen, its battle wrapper, the army
+; status screen).  A is lost; X and Y are the UI function's.
+call_ui_army:
+    ldx #UIF_ARMY               ; (not zero: the branch is always taken)
+    bne call_ui
+call_ui:
+    lda current_prg_bank
+    pha
+    lda #UI_BANK
+    jsr SET_BANK_LOCK
+    jsr $8000
+    pla
+    jmp SET_BANK_LOCK
 
 ; ----------------------------------------------------------------------
 .base $C2AB

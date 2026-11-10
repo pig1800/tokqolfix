@@ -854,6 +854,42 @@ b14_party_status_update:
 ;   called by: $AA27
 ; ----------------------------------------------------------------------
 b14_officer_info_screen:
+.ifdef KANJI_TARGET
+    ; Step B (INFO_SCREEN.md): the UI bank draws the screen while rendering
+    ; is still off (after battle_intro_screen): the kanji labels, values and
+    ; bars, the equipment and tactic windows with kanji, the attributes.
+    ; The game draws the portrait and the two name windows; windows $2D,
+    ; $09, $0B, $0A and the attribute and dakuten strings are not used.
+    jsr compact_items_actor
+    jsr battle_intro_screen
+    ldx #UIF_INFO_DRAW
+    jsr CALL_UI
+    jsr status_message
+    jsr wait_vblank
+    lda #$A1
+    sta input_buttons
+    dec $AA
+    ldx #$1B
+    jsr text_init
+    ldx text_actor
+    lda $609C,x                 ; Party member state bits.
+    bmi b14_k_info_kanji_name
+    jsr draw_string             ; inline pointer/data follows the JSR
+    .dw $85F3                   ; (the original's b14_data_853E)
+    jsr wait_vblank
+b14_k_info_kanji_name:
+    inc $AA
+    lda #$10
+    sta $A9
+    ldx #$08
+    jsr text_init
+    ldx #UIF_INFO_LATE          ; 兵士数 and the troops (after window $08,
+    jsr CALL_UI                 ; whose second line clears rows 14-15)
+    lda #$80                    ; as the original leaves it
+    sta input_buttons
+    jmp loc_D44C
+    .pad $857B
+.else
     jsr compact_items_actor
     jsr battle_intro_screen
     jsr status_message
@@ -902,6 +938,7 @@ b14_data_8569:
     ldx #$0A
     jsr text_init
     jmp loc_D44C
+.endif
 ; ----------------------------------------------------------------------
 ; b14_wincb_stat_value_bar
 ;   Window 9 CALL: one stat (ぶりょく $619C, ちりょく $61A8, こうげき, ぶそうど $60B4,
@@ -2247,7 +2284,11 @@ b14_data_95BD:
 
 b14_data_95C2:
     .incbin "build/assets/bank14_data.bin", $15C2, $0002
+.ifdef KANJI_TARGET
+    jsr CALL_UI_ARMY            ; step B: wait_vblank, then SP / MSP cells P1
+.else
     jsr wait_vblank
+.endif
     lda #$10
     sta $A9
     jsr find_party_member
@@ -3549,7 +3590,11 @@ b14_loc_9EA8:
 b14_battle_tactic_subwindow:
     jsr wait_vblank
     ldx #$17
+.ifdef KANJI_TARGET
+    jsr b14_k_tactic_window     ; step B: S and P are plane 1 (decision 11)
+.else
     jsr b14_battle_open_list_window
+.endif
     bcs b14_battle_cmd_retry
     lda text_menu_index
     asl a
@@ -5031,6 +5076,41 @@ b14_data_AA15:
 ;   called by: $9DDF
 ; ----------------------------------------------------------------------
 b14_battle_officer_info:
+.ifdef KANJI_TARGET
+    ; Step B: UIF_BINFO_ENTER sets the battle-path flag and text_busy = 0
+    ; and keeps the P2 colours 1-3; UIF_BINFO_EXIT (rendering off) puts the
+    ; battle's CHR back (every name's plane 1, the pool's plane 0) and the
+    ; three colours (decision 6).  The rest is the original.
+    jsr battle_slot_actor
+    sty text_actor
+    ldx #UIF_BINFO_ENTER
+    jsr CALL_UI
+    jsr b14_officer_info_screen
+    jsr ppu_bg_sprites_off
+    ldx #UIF_BINFO_EXIT
+    jsr CALL_UI
+    inc text_busy
+    jsr text_hide
+    lda #$91
+    sta ppu_ctrl_shadow
+    lda #$10
+    sta $A9
+    lda #$00
+    jsr battle_slot_actor
+    sty text_actor
+    jsr put_officer_name_actor
+    lda #$01
+    sta text_menu_sub
+    jsr battle_slot_actor
+    jsr put_officer_name
+    lda #$00
+    sta $AA
+    jsr load_actor_portrait
+    jsr screen_fade_in_step
+    ldy #$03
+    jmp draw_text_window_small
+    .pad $AA61
+.else
     jsr battle_slot_actor
     sty text_actor
     lda $03EA                   ; Small VRAM upload buffer.
@@ -5061,6 +5141,7 @@ b14_battle_officer_info:
     jsr screen_fade_in_step
     ldy #$03
     jmp draw_text_window_small
+.endif
 ; ----------------------------------------------------------------------
 ; b14_battle_target_has_troops
 ;   Z = 1 when target slot $79's troops $60D0-$60D2 are zero; X
@@ -5726,9 +5807,18 @@ b14_loc_AE33:
     lda b14_data_AE52,x
     sta $77
     lda b14_data_AE46,x
+.ifdef KANJI_TARGET
+    ; Step B, decision 6: P2 colour 3 = colour 2 as well (colour 1 is $0F
+    ; in palette set 8), so the gauges show plane 1 only.
+    jmp b14_k_gauge_colour
+    nop
+    nop
+    nop
+.else
     sta $03EA                   ; Small VRAM upload buffer.
     sta vram_dma_pending
     rts
+.endif
 
 b14_data_AE46:
     .incbin "build/assets/bank14_data.bin", $2E46, $0006
@@ -7962,9 +8052,41 @@ b14_loc_BF8D:
 b14_data_BF91:
     .incbin "build/assets/bank14_data.bin", $3F91, $0007
 
+.ifdef KANJI_TARGET
+b14_data_BF98:
+    .incbin "build/assets/bank14_data.bin", $3F98, $0040
+    ; $BFD8-$BFFF held the MMC1 reset stub and vectors, dead in the MMC3
+    ; kanji target (bank 14 is only ever mapped at $8000): step B helpers.
+; b14_k_gauge_colour: the gauge colour A to P2 colours 2 and 3 (decision 6).
+b14_k_gauge_colour:
+    sta $03EA
+    sta $03EB
+    sta vram_dma_pending
+    rts
+; b14_k_tactic_window: the tactic subwindow (window X = $17) with the cell of
+; its S P (rows 18-19, columns 18-19) in P1 while it is open: S and P are
+; plane 1 (decision 11).  Carry as b14_battle_open_list_window returns it.
+b14_k_tactic_window:
+    jsr draw_string             ; inline pointer/data follows the JSR
+    .dw b14_k_sp_p1
+    ldx #$17
+    jsr b14_battle_open_list_window
+    php
+    jsr draw_string             ; inline pointer/data follows the JSR
+    .dw b14_k_sp_p0
+    plp
+    rts
+b14_k_sp_p1:
+    .db $27, $E4, $01, $4A, $FF ; rows 16-19, columns 16-19: P2 P2 / P0 P1
+b14_k_sp_p0:
+    .db $27, $E4, $01, $0A, $FF ; the battle's own value: P2 P2 / P0 P0
+    .pad $C000
+b14_data_BFD9 = $BFD9           ; (bank 15's MMC1 register writes name it)
+.else
 b14_data_BF98:
     .incbin "build/assets/bank14_data.bin", $3F98, $0041
 
 b14_data_BFD9:
     .incbin "build/assets/bank14_data.bin", $3FD9, $0027
+.endif
 
