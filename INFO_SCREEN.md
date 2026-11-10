@@ -110,6 +110,19 @@ the code and the traces say (kanji ROM `5449ff00...`; traces and dumps in
    S and P move to plane 1, so plane 0 of all of `$A4-$FF` (23 groups)
    becomes the battle's kanji area.
 10. `kanjiwordlist.csv`: めいば is 名馬 (fixed by the user).
+11. Every UI glyph of the `$E0-$FE` block goes to plane 1: the bars
+    `$F3`/`$F4`, M `$F5`, S `$F6`, P `$F7`, dot `$F8`.  Done in the ROM
+    data (the kanji target's copy of the bank-9 block), not by code.  The
+    info screen's P2 becomes `0F 0F 17 17` (palette data).  One layout for
+    both screens.  This supersedes decision 4 (`$F3` -> `$FB` is dropped):
+    plane 0 of all of `$E0-$FF` is then free on the info screen too.
+12. "MSP" has not been seen anywhere; only "S.P" on the info screen.
+    Deal with MSP if it ever shows up.
+13. After this work, the battle and the info screen use no scanline IRQ
+    at all (no band page, no split).  The IRQ glitches seen there now are
+    expected to go away with it; do not chase them separately.
+14. Two-step execution: step A (after the next compaction) decompiles the
+    code still held in data blobs; then compact again; step B implements.
 
 ## Plan: info screen
 
@@ -274,32 +287,53 @@ kanji map (about 16 x 2 bytes) plus a battle-name record (28 x 2) fit.
 
 ## Questions for the user
 
-1. With S, P (and the dot, M) in plane 1, the info screen's only plane-0
-   tiles in `$E0-$FF` are the bars `$F3`/`$F4`, which block two groups
-   wherever `$F3` sits, so the `$F3` -> `$FB` move no longer gains
-   anything.  In battle those groups are volatile anyway.  Options: drop
-   the move; or also put the info bars in plane 1 (info P2 = `0F 0F 17
-   17`), which frees all 8 plane-0 groups of `$E0-$FF` on the info screen.
-   The info screen needs at most 10 plane-0 kanji of the 21 it has, so
-   this is only tidiness.
+None open.  For step A, a battle save state where the tactic subwindow
+opens (a party with a strategist) would let the CDL capture and the later
+gates cover it; the test states so far have none (軍師がおりません).
 
-## Work order (after compaction)
+## Work order
 
-1. Disassemble bank 15 `$E000-$E370` and bank 14 `$A800-$ABFF` (or
-   hash-check the bytes to patch).
-2. Font: add the 32 missing kanji (kanji font build).
-3. Path flag (map entry `$84F8` vs battle wrapper `$8518`).
-4. CHR block (bank 9 `$1E00`, tiles `$E0-$FE`): S, P, dot, M to plane 1
-   (and the bars, per question 1).  Gauge palette: `$AE40` and the exit
-   wrapper (decision 6).
-5. Info screen renderer (hack bank) in place of the driver's window
+### Step A (after the next compaction): decompile what is still data
+
+1. Capture a CDL on the original ROM (`tools/lua/cdl_*.lua`,
+   `tools/merge_cdl.py`): battle start, command panel, item subwindow,
+   tactic subwindow (needs a strategist state), ぶしょう -> info -> back
+   in battle and on the map, messages, a battle end.  The existing
+   `out/cdl_combined2.bin` never ran this code (0 code bytes in the bank
+   14/15 blobs).
+2. Turn the executed parts of these blobs into source, the original build
+   still byte-identical (`40f19e17...`) and the kanji build unchanged:
+   - bank 15 `$E000-$E370` (`data_E000`): battle setup, name allocation
+     (`$E060-$E098`, `$E09B` `$A9` = `$10`);
+   - bank 14 `$A800-$ABFF`: the battle-side info wrapper `$AA1A-$AA5E`;
+   - bank 14 `$AC00-$AFFF`: the gauge colour `$AE10-$AE45` and its tables
+     (keep the kanji target's `$ACBF` battle-shake patch and its hash
+     check in `kanji_build.py`);
+   - whatever else on these paths the CDL shows as code in a blob
+     (window templates such as bank 15 `$EB46` stay data).
+3. Check bank 13 `$986A` (a tile arrangement using `$EF-$F9`): which
+   screen, which CHR.  If it shows the bank-9 block's `$F3-$F8` through
+   plane-0 palettes, decision 11 must keep it working.
+4. Name the routines, update this file with the new labels, run the
+   original-build check and `bank15_lint`, commit.  Then compact.
+
+### Step B (after the second compaction): implement
+
+1. Font: add the 32 missing kanji (kanji font build).
+2. Path flag (map entry `$84F8` vs battle wrapper `$8518`).
+3. CHR block (bank 9 `$1E00`, tiles `$E0-$FE`): bars, M, S, P, dot to
+   plane 1 in the ROM data; info P2 `0F 0F 17 17` in the palette data
+   (decision 11).  Gauge palette: `$AE40` and the exit wrapper store
+   colour 1 = `$0F` and colour 3 = colour 2 (decision 6; the one code
+   change here).
+4. Info screen renderer (hack bank) in place of the driver's window
    sequence (`$8531-$8578`): fixed label slots, tactic slots, kanji map,
    plane-0 groups, borders one tile down (decision 7).
-6. Battle exit: re-stream every battle name slot (plane 1); the pool and
+5. Battle exit: re-stream every battle name slot (plane 1); the pool and
    `$E0-$FF` plane 0 need no clearing (the battle's managed slot table
    restores its involatile kanji when the command panel returns).
-7. Gates: battle -> info -> battle: plane 1 of all BG tiles equal (as
+6. Gates: battle -> info -> battle: plane 1 of all BG tiles equal (as
    the original), plane 0 of `$A4-$FF` restored where the command panel
    shows it; map -> info -> map; the stack and RAM gates.
-8. Battle screen (command panel, subwindows, involatile tracking, the
+7. Battle screen (command panel, subwindows, involatile tracking, the
    23-group slot table): after the info screen.
