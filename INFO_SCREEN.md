@@ -69,142 +69,185 @@ BG pattern tables while the screen is up is gone on return.  Not checked:
 whether the screen can be opened from a battle, and what that exit
 reloads.
 
-# SITREP (2026-11-11): kanji on the info screen without CHR switching
+# SITREP / instruction book: kanji without CHR switching (info screen, battle)
 
-Work starts after the compaction of 2026-11-11.  The plan below is the
-user's; "Cross-reference" is what the code and the traces say about it
-(kanji ROM `5449ff00...`, traces in `out/test/cinfo/`: `jt1`/`jt2` map
-path, `jt4` battle path, dumps `info_230`, `bi_dump_260/470/600`, `bb_*`).
+Updated 2026-11-11 (second round).  No code yet; work starts after the
+compaction.  "Decisions" and "Plan" are the user's; "Verified" is what
+the code and the traces say (kanji ROM `5449ff00...`; traces and dumps in
+`out/test/cinfo/`: `jt1`/`jt2` map path, `jt4` battle -> info -> battle,
+`info_230`, `bi_dump_260/470/600`, `bb_*` (boss and r16c battles),
+`bs_dump_410` (battle item subwindow), `glyph_check.txt`).
 
-## Plan (user)
+## Decisions (user)
 
-- Plane 1 of the font tiles `$10-$7F` gives 28 kanji slots (4 tiles each,
-  shown through P1 cells, 16x16 aligned):
-  - `$10-$1B`: the officer's name, up to 3 kanji, left to the original
-    engine (`$A9` = `$10`).
-  - `$1C-$4F`: the 13 fixed label kanji 武 力 知 攻 撃 装 度 兵 士 数 備
-    策 略 (武力 知力 攻撃 武装度 兵士数 装備 策略; S.P stays).
-  - `$50-$7F`: the first 2 kanji of each tactic line (every tactic starts
-    with 2 kanji; at most 6 lines x 2 = 12 slots, fixed per line).  An
-    officer without tactics: skip.
-- Every other panel kanji goes to plane 0 of free scene tiles, in P0
-  cells: equipment names (they may start with a single kanji) and the
-  rest of each tactic (e.g. 計 after の).  Worst case per the user: 13
-  distinct kanji in the 策略 panel, 9 in the 装備 panel.
-- A kanji map in WRAM: reuse a kanji already in CHR instead of writing
-  every occurrence.
-- Two paths:
-  - map -> info: overwrite `$E0-$EE` freely, no plane merge (the map
-    reloads its tiles on exit).
-  - battle -> info: on exit, rewrite plane 1 of every battle name kanji.
-- Move the half-bar tile `$F3` to `$FC` to free one more 4-tile group.
+1. On the battle path the info screen uses the battle pool `$A4-$DF`
+   for its plane-0 kanji.  The next battle message overwrites the pool
+   anyway.
+2. Kanji names for items and tactics: `kanjiwordlist.csv` (repo root;
+   cp932, tab-separated: type, kana, kanji; types weapon, armor, helmet,
+   tactic, consumable, keyitem).  Items get their kanji only after the
+   main text routine is overhauled (the current one would break).
+3. A 16x16 kanji is 4 consecutive tiles in 8x16 order: `t` top-left,
+   `t+1` bottom-left, `t+2` top-right, `t+3` bottom-right (the original
+   name layout, e.g. `10 12 / 11 13`).
+4. Move the half-bar tile `$F3` to `$FB` (not `$FC`).  `$FC-$FF` stays a
+   whole group: one more kanji in battle.  On the info screen the groups
+   `$E0`, `$E4`, `$E8`, `$EC`, `$F0`, `$FC` become fully volatile (6
+   kanji); `$F4-$F7` and `$F8-$FB` keep the bars and S.P.
+5. Every tactic starts with 2 kanji: the first 2 kanji of each tactic
+   line take fixed plane-1 slots.  An officer without tactics: skip.
 
-## Cross-reference
+## Plan: info screen
 
-Confirmed:
-- Name kanji: `load_party_member_stats` `loc_D4C9` (fixed bank).  The
-  officer record (`$F3`, bank 12): byte `$10` = per-kanji bank bits,
-  `$11-$13` = up to 3 glyph indices (`$FF` ends).  Source: bank 1 or 2,
-  `$8000 + index * 32`.  CHR stream (`flush_palette` ->
-  `write_vram_block`) mode 2: `vram_put_run` with C set reads 8 bytes
-  (plane 0 kept), then 8 bytes are written to plane 1.  Destination:
-  bump pointer `$A9`, +4 tiles per kanji; it also writes the tile numbers
-  into the line buffers `$0300`/`$0318`.
-- The info screen sets `$A9` = `$10` (bank 14 `$8545`).
-- Entering the info screen uploads `$E0-$FE` (bank 9, 496 bytes;
-  `battle_intro_screen`).  Leaving it for the battle does not.  The
-  content is the battle's own, so the upload is redundant on the battle
-  path.  Battle CHR before the info screen and after it: all 256 BG tiles
-  equal.
-- `$E0-$EE` hold only plane 1.  `$EF-$FA` hold only plane 0.  `$FB`,
-  `$FC`, `$FE` are blank; `$FD` is plane 1 only; `$FF` varies.  The info
-  screen shows `$F3 $F4 $F6 $F7 $F8` from this block.  The battles show
-  `$E0 $E1 $E2 $E8 $EA $EC $EE` (HP gauges).
-- `$F3` is referenced once: bank 14 `$85CE` `lda #$F3` (the half bar;
-  full bar `$F4` per 26 points).  `$FC` is not used as a tile in code.  The
-  move = that immediate plus the two patterns in bank 9's `$1E00` block.
+- Plane 1 of the font tiles `$10-$7F` = 28 kanji slots (P1 cells,
+  16x16 aligned):
+  - `$10-$1B`: the officer's name, up to 3 kanji (original engine, `$A9`
+    = `$10`).
+  - `$1C-$4F`: 13 fixed label kanji 武 力 知 攻 撃 装 度 兵 士 数 備 策 略
+    (武力 知力 攻撃 武装度 兵士数 装備 策略; S.P stays).
+  - `$50-$7F`: tactic line n (0-5) -> slots `$50+8n` (first kanji) and
+    `$54+8n` (second).
+- Plane 0 (P0 cells, no alignment needed): equipment names, and 計 of
+  the tactics.  Room: the 6 volatile groups in `$E0-$FF` plus the pool
+  `$A4-$DF` (15) = 21 kanji.  Worst case need: 9 equipment kanji + 計 =
+  10.  On the map path `$A4-$DF` hold leftover map tiles that the screen
+  does not show, and the map reloads them on exit, so the same room
+  exists there.
+- A kanji map (WRAM) so a kanji already in CHR is reused, not rewritten.
+- Exits:
+  - info -> map: nothing to revert (the map reloads `$80-$FE` and the
+    whole font page).
+  - info -> battle: rewrite plane 1 of every battle name slot; clear what
+    was written to the pool and to `$E0-$EE` plane 0 (see question 1).
 
-Corrections and new facts:
-- **28 vs 30 name kanji: the original has no guard.**  Battle setup
-  `$E09B` `lda #$10 / sta $A9`, then every name is streamed in order, no
-  deduplication (兵士 x3 took 6 slots).  Kanji 29 and 30 would land on
-  `$80-$87`: plane 1 of the portrait tiles.  The next portrait upload
-  (full 2bpp) overwrites them, so those names would show portrait data.
-- **Exit to battle**: bank 14 `$AA1A-$AA5E` (called from the battle; it
-  runs the info screen through `$8518`).  Afterwards it sets `$A9` =
-  `$10` and re-streams the names of battle slots 0 and 1 (`$D49F`,
-  `$D4A1`), 4-6 kanji, which always cover `$10-$1B`.  So the original
-  re-streams the first two party names, not "as many as the info officer
-  had".  For the plan, every allocated slot must be re-streamed: record
-  (glyph index, bank) per slot when the battle allocates, or replay the
-  battle's allocation loop (`$E060-$E098`).
-- **Exit to map** reloads `$1800-$1FEF` (tiles `$80-$FE`, bank 4 in the
-  town, 2,032 bytes) and the whole font page `$00-$7F` (the hack's font
-  writer).  `$FF` is not reloaded.
-- **`$E0-$EE` plane 0 is not free on the battle path.**  The battle
-  draws its gauges `$E0-$EE` with P2 = `0F 17 25 17`.  Plane 1 alone gives
-  colour 2 (`$25`); a plane-0 bit turns a pixel into colour 1 or 3 (`$17`).
-  Kanji written into plane 0 there must be cleared on the way back to the
-  battle (zero 8 bytes per tile, or rerun the bank-9 `$1E00` upload,
-  rendering off).
-- **`$A4-$DF` on the battle path is the hack's battle pool** (revision 18,
-  `POOL_FIRST`..`POOL_LAST`, 15 slots): battle-message kanji in plane 0,
-  used once the hack has read the tiles back blank (`WINCOL_POOL_OK`), and
-  restored to blank in later NMIs (`KANJI_STALE_HI`).  The battle never
-  shows them otherwise (normal battle: 56 of 60 blank; a boss message
-  used `$A4-$B7`).  The info screen sets `text_graphics_index` 8
-  (= `POOL_SET`), so the hack treats it as the battle set.  If the info
-  renderer uses `$A4-$DF` on the battle path, it must start after the
-  hack's pending pool restores, and zero the tiles on exit.
-- **Plane-0 room on the battle path without the pool**: `$E0-$FE` minus
-  the 5 tiles the info screen shows = 26 tiles (27 with `$FF`), i.e. 6
-  kanji.  That covers it only if the worst case (9 equipment kanji + 計 =
-  10) shrinks through the kanji map.  The `$F3`->`$FC` move gains a group
-  only if each kanji must use 4 consecutive tiles; if the renderer writes
-  its own nametable cells, any 4 free tiles do.
-- **Band page bookkeeping**: font tiles `$00-$7F` exist twice (page 1,
-  and page 2 = the band page; `KANJI_STALE` marks the differences).  On
-  the battle -> info entry the hack copied tile `$18` page 1 -> page 2
-  (`restore_tile`).  A copy made while the info screen's plane-1 labels
-  are in page 1 would leave them in page 2 after the revert.  That is
-  invisible in the band (kana cells use P0, which ignores plane 1), but
-  writes are best made after the hack's pending restores.
-- **Not in the decomp as code**: bank 15 `$E000-$E370` (`data_E000`, the
-  battle name setup) and bank 14 `$A800-$ABFF` (the battle-side wrapper
-  at `$AA1A`).  Patching them needs disassembly first or hash-checked
-  byte patches, as for the four-screen regions.
-- **Window geometry**: 装備 has 3 interior lines (rows 20/22/24),
-  策略 6 (rows 16-26); all text starts on even columns (labels 10,
-  windows 4 and 18, name 2).  The two window titles sit in the top border
-  rows (14 and 18, even).  へいしすう is on row 15 (odd): 兵士数 as 16x16
-  needs rows 14-15.
-- **Name lists**: `decomp/text/kanji_plan/item_table_kanji.txt` is an
-  unreviewed machine plan (丹剣 for たんけん, 麦野の剣 for ばくやのけん);
-  the tactic names (bank 12, `draw_string_from_pointer`) have no kanji
-  list in the repo.  The user's counts (13 / 9, every tactic starts with
-  2 kanji, items may have 1) are not yet checked against a reviewed list.
-- **WRAM**: 141 bytes free at `$7F73-$7FFF` (canvas code installed).
-  Enough for a panel kanji map (about 16 entries x 2 bytes) plus a
-  battle-name record (28 x 2).
+## Plan: battle screen (user, in progress)
 
-## Open questions for the user
+- The command panel needs 15 fixed (involatile) kanji:
+  戦 策 略 防 御 道 具 総 攻 撃 退 却 武 将 残.
+- Subwindows (tactics, items) and messages may borrow involatile slots.
+  Track which involatile slots were changed; restore them when a
+  subwindow closes and when the command panel is shown again after a
+  round.  The item subwindow covers the whole command panel; the tactic
+  window leaves only 道具 visible.
+- "Usable kanji slots may be surprisingly low" (user).
 
-1. Use the battle pool `$A4-$DF` on the battle path (with the pool
-   coordination above), or stay inside `$E0-$FF`?
-2. The source of truth for the item and tactic kanji names.
-3. Does a 4-tile kanji have to be 4 consecutive tiles (then `$F3`->`$FC`
-   matters)?
+## Verified
+
+Name kanji (original engine):
+- `load_party_member_stats` `loc_D4C9` (fixed bank).  Officer record
+  (`$F3`, bank 12): byte `$10` = per-kanji bank bits, `$11-$13` = up to 3
+  glyph indices (`$FF` ends).  Source bank 1 or 2, `$8000 + index * 32`.
+  CHR stream mode 2 (`vram_put_run` with C set reads 8 bytes, so plane 0
+  is kept; then 8 bytes go to plane 1).  Destination: bump pointer `$A9`,
+  +4 tiles per kanji; the tile numbers also go into `$0300`/`$0318`.
+- Battle setup `$E09B`: `$A9` = `$10`, then every name in order, no
+  deduplication (兵士 x3 = 6 slots), no bound check.  Kanji 29 and 30
+  would land in plane 1 of the portrait tiles `$80-$87` (the next
+  portrait upload overwrites them).
+- Info screen: `$A9` = `$10` (bank 14 `$8545`).
+- Exit to battle: bank 14 `$AA1A-$AA5E` (the battle-side wrapper; it runs
+  the info screen through `$8518`).  Afterwards `$A9` = `$10` and the
+  names of battle slots 0 and 1 are re-streamed (`$D49F`, `$D4A1`): 4-6
+  kanji, which always cover `$10-$1B`.  The new plan needs every slot
+  re-streamed: record (glyph index, bank) per slot when the battle
+  allocates, or replay its loop (`$E060-$E098`).
+- Map path: the map entry runs `$84F8` -> `b14_party_status_update`
+  (`$84FE`); the battle wrapper calls `$8518` directly.
+
+CHR tiles `$E0-$FF`:
+- `$E0-$EE` plane 1 only (battle HP gauges).  `$EF-$FA` plane 0 only
+  (`$F3` half bar, `$F4` full bar, `$F5`-`$F8` "M S P .", others).
+  `$FB`, `$FC`, `$FE` blank; `$FD` plane 1 only; `$FF` blank in battle.
+- Entering the info screen uploads `$E0-$FE` (bank 9, 496 bytes); leaving
+  for the battle does not, and the battle's own tiles are the same data.
+  Battle CHR before and after the info screen: all 256 BG tiles equal.
+- `$F3` is referenced once, bank 14 `$85CE` `lda #$F3` (bar loop: `$F4`
+  per 26 points, `$F3` for a remainder of 13 or more).  `$FB` is not used
+  as a tile in code (`lda #$FB` in bank 7 is a palette value).  The move:
+  that immediate, and the two patterns in bank 9's `$1E00` block.
+- Exit to map reloads `$1800-$1FEF` (tiles `$80-$FE`; bank 4 in the
+  town) and the whole font page.  `$FF` is not reloaded.
+
+Battle palettes and layout:
+- Battle P2 = `0F 17 25 17` in every battle frame sampled (normal, boss,
+  r16c).  P2 cells hold only blank and gauge tiles (`$E0-$EE`).  Gauges
+  are plane 1 (colour 2 = `$25`); a plane-0 bit would show colour 1 or 3
+  (`$17`).  So plane 0 of `$E0-$EE` is visible in battle as it stands.
+- Command panel: window columns 10-24, rows 18-27; text columns 12 and
+  18; kana rows 20/22/24/26 with dakuten rows 19/21/23/25.  P0 cells.
+- Item subwindow: columns 10-29, rows 18-27 (covers the command panel);
+  two columns of names (12 and 21), kana rows 20/22/24/26: up to 8 items
+  (8 item slots per officer).  Seen with たんけん / けん.
+- Tactic subwindow: not seen; the state's party has no strategist
+  (軍師がおりません).
+- Battle message kanji (hack, revision 18 battle pool): plane 0 of
+  `$A4+4k..+3`, used once the hack has read the tiles back blank
+  (`WINCOL_POOL_OK`), restored to blank in later NMIs (`KANJI_STALE_HI`).
+  The info screen sets `text_graphics_index` 8 = `POOL_SET`.  The new
+  design replaces the blank check with the managed slot table.
+
+Band page: font tiles `$00-$7F` exist twice (page 1 and the band page 2,
+differences in `KANJI_STALE`).  On battle -> info the hack copied tile
+`$18` page 1 -> page 2 (`restore_tile`).  Plane-1 writes are best made
+after the hack's pending copies (a copy of a label tile would stay in page
+2 after the revert; invisible in P0 band cells).
+
+Word list (`kanjiwordlist.csv`, 83 entries; `glyph_check.txt`):
+- 30 tactics, all "XXの計" (2 kanji + の + 計); 43 distinct leading kanji.
+- Equipment (19 weapons, 7 armor, 8 helmets): all start with a kanji,
+  at most 3 kanji, at most 7 cells wide (fits both info windows).
+- Only non-kanji besides の: 守りの煙り (consumable).
+- 133 distinct kanji with the labels and commands; 32 are not in the
+  current kanji font (`assets/fonts/kanji_index.tsv`):
+  棍斧槍矛叉弩蛇槌竜皮胴銅甲鉢帽兜鋼練仙炎熱柔倍洪路還丹招魂煙札簿.
+  The font build must add them.
+
+Info screen layout with aligned plane-1 kanji (attribute cells start on
+even rows):
+- Labels at rows 4-5, 6-7, 8-9, 10-11 (column 10); S.P stays at row 12;
+  兵士数 moves from row 15 to rows 14-15.
+- 策略 title in the top border at rows 14-15; 6 tactic lines at rows
+  16-17 ... 26-27.  The bottom border (now row 27) moves to row 28.
+- 装備 title at rows 18-19; equipment lines at rows 20-21, 22-23,
+  24-25.  The bottom border (now row 25) moves to row 26.
+- Kana in a 16-pixel line go in the lower row (as in the battle
+  messages: kanji rows 19-20, kana row 20).
+
+Not in the decomp as code: bank 15 `$E000-$E370` (`data_E000`, the
+battle name setup) and bank 14 `$A800-$ABFF` (the wrapper at `$AA1A`).
+Disassemble first, or hash-check the bytes to patch.
+
+WRAM: 141 bytes free at `$7F73-$7FFF` (canvas code installed): the panel
+kanji map (about 16 x 2 bytes) plus a battle-name record (28 x 2) fit.
+
+## Questions for the user
+
+1. Battle P2: change it from `0F 17 25 17` to `0F 0F 25 25`?  The gauges
+   look the same, and plane 0 of `$E0-$EE` becomes invisible in battle:
+   free for kanji with nothing to revert, in battle and after the info
+   screen.  Otherwise plane 0 of those tiles must be cleared on every
+   return to the battle, and the battle itself cannot use them.
+2. The info screen's 策略 and 装備 windows grow by one row each (bottom
+   borders to rows 28 and 26) so the aligned title and lines fit.  OK?
+3. Battle item subwindow worst case: 8 items x 3 kanji = 24 distinct
+   kanji.  Battle room is the pool (15) plus the `$E0-$FF` groups (at
+   most 8, the gauge groups only with question 1).  That is 23, before
+   the kanji map's reuse.
+4. Word list: めいば -> 名簿 (名馬?); 竜 in 青竜刀 / 土竜の剣 / 青竜の鎧 /
+   飛竜の兜 but 龍 in 水龍の計 - intended?
 
 ## Work order (after compaction)
 
 1. Disassemble bank 15 `$E000-$E370` and bank 14 `$A800-$ABFF` (or
    hash-check the bytes to patch).
-2. Path flag: the map entry runs `$84F8`/`$84FE`; the battle wrapper
-   calls `$8518` directly.
-3. Renderer for the info screen (hack bank), replacing the driver's
-   window sequence (`$8531-$8578`): fixed label slots, tactic slots, the
-   panel kanji map, plane-0 allocation.
-4. Battle exit: re-stream all battle name slots (plane 1), clear what was
-   written to `$E0-$EE` plane 0 (and the pool, if used).
-5. Gates: battle -> info -> battle CHR equal (all 256 BG tiles, as the
-   original); map -> info -> map; the stack/RAM gates.
+2. Font: add the 32 missing kanji (kanji font build).
+3. Path flag (map entry `$84F8` vs battle wrapper `$8518`).
+4. Info screen renderer (hack bank) in place of the driver's window
+   sequence (`$8531-$8578`): fixed label slots, tactic slots, kanji map,
+   plane-0 groups, the window geometry above, `$F3` -> `$FB`.
+5. Battle exit: re-stream every battle name slot (plane 1); clear the
+   pool and (without question 1) `$E0-$EE` plane 0.
+6. Gates: battle -> info -> battle CHR equal (256 BG tiles, as the
+   original); map -> info -> map; the stack and RAM gates.
+7. Battle screen (command panel, subwindows, involatile tracking): after
+   the info screen.
