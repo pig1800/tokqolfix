@@ -238,6 +238,7 @@ ARM_CLI_MIN       = 40
 REPLAY_MAX        = 27      ; max queued bytes for a page-1 CHR replay
 ARM_FORCE_MAX     = 103
 CV_FORCE_MAX      = 103     ; cv_nmi's force: 104-byte flushes end it at pre-render dot ~262
+CV_QWAIT          = 32      ; cv_sm: queued bytes that make a new canvas metarow wait for a flush
 CV_TOP            = 18      ; the canvas's first tile row on screen
 CV_BANK           = 27      ; PRG bank with the RAM image at $A000
 CV_RAM            = $7900   ; the RAM code (MAP_ATTR is $7800-$78FF)

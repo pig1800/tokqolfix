@@ -571,3 +571,53 @@ canvas state (a state saved with a canvas up).
 A state saved by an earlier build carries that build's RAM code in its
 battery RAM: convert it (`tools/mss_canvas.py <in> <out> --keep`) before
 loading it on this build.
+
+### Item-menu sub-window fix (2026-11-11)
+
+**Report**: menu, どうぐ, a character, an item: the sub-window (つかう / わたす /
+そうび / すてる) did not appear; the screen showed stale canvas rows and junk
+columns that depended on old nametable contents.
+
+**Cause**: a queue overrun.  A new canvas metarow (`cv_sm` -> `cv_flanks`)
+queues 91 bytes: two 32-cell rows and the attribute run.  The original's
+window rows for the same line are 20-60 bytes.  The game's text loop yields
+after every line only for windows 13 or more cells wide (`loc_CB24`);
+narrower windows draw two or three lines per yield.  The sub-window drew
+three metarows between flushes, 277 bytes in the 256-byte queue at `$0400`.
+The write position lapped the read position, the next flush parsed data
+as entries (a 10-byte write at `$320A`, a 96-byte one at `$3000`), and the
+window's rows never arrived.  The dialogue is 13 or more cells wide, so it
+never hit this.
+
+**Fix**: `cv_sm` checks the queue before a new metarow.  With `CV_QWAIT`
+(32) or more bytes already queued it calls `wait_vblank` first, the game's
+own yield, as at `loc_CB3B`.  So there is one metarow per flush, as in the
+dialogue.  A narrow window in the canvas now opens one line per frame
+instead of two or three.  On the item path the queue peaks at 95 bytes;
+each flush is 91-95 bytes.  The wait runs at SP `$2C` (the menu task's
+stack, `$0100-$0130`); the path's minimum SP is `$16`, as before.
+
+**Gates** (kanji ROM `5449ff00...`; original still `40f19e17...`; states in
+`out/user/m5/` regenerated): `canvas_check` on std, town, village,
+overworld, r16b, shop n1 and persuasion, plus the item path (both
+sub-windows, from a state with the menus closed): 0 splits off, 0 missing,
+0 flank mismatches, no force or reload late.  A/B against `cc0afb33` over
+3,400 frames of boot, town and dialogue: picture identical (the dialogue
+never waits).  `band_check` +1: 1,254; `garble_run` 0; `garble_state` bb,
+bt, nb, lv, sv 0, shop n1 and p1-p4 42 / 85 / 44 / 90 / 123 (as before);
+`vblank_deadline` 0; `taint_check` 0 / 0, min SP `$0F` / `$12` / `$0F`;
+`ram_gate` 0 / 0 / 0, min SP `$14` (rerun alone; it crashes when too many
+Mesen instances run at once); `zp_check`, `mask_restore`,
+`palette_check` 0.
+
+## User direction (2026-11-11): one text renderer, not per-window splits
+
+The user inspected the whole game.  Menu boxes, menu sub-boxes, dialogues,
+selections, and the ration and cold-box windows all overlap and mix on
+screen.  So the scheme of one scanline split per window (the band, the
+dialogue canvas) is to be dropped.  What's needed is one unified text
+rendering routine that every kind of box goes through.  A raster split may
+still be needed, but only because the kanji on screen can outgrow the font
+buffer (CHR space), not as the way windows are drawn.  Step 3b as planned
+(a kanji page for the canvas) is on hold.  The user has other work queued
+first.

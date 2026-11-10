@@ -753,6 +753,14 @@ cv_ti:
 ; the dialogue).  A canvas metarow already set up gets scroll_map's own
 ; window rows and attribute bytes (moved into the canvas).  The canvas
 ; shows it from the next frame on.
+; A new metarow is 91 queued bytes (the original's window rows: 20-60).
+; The game yields after every text line only for windows 13 or more cells
+; wide (loc_CB24); narrower ones draw two or three lines per yield, which
+; overran the 256-byte queue (the item menu's status window: 277 bytes,
+; the read position lapped, the flush lost its entries) and would overrun
+; vblank too.  So with CV_QWAIT or more bytes already queued, wait_vblank
+; first (the game's own yield, as at loc_CB3B): one metarow per flush, as
+; in the dialogue (window frames 76-95 bytes).
 ; ----------------------------------------------------------------------
 cv_sm:
     ldx CV_CUR
@@ -762,6 +770,13 @@ cv_sm:
     bne @plain                  ; a gap below the canvas: not shown
     lda input_buttons
     bne @plain                  ; (map windows have none)
+    lda vram_queue_write
+    sec
+    sbc vram_queue_read
+    cmp #CV_QWAIT
+    bcc @room
+    jsr WAIT_VBLANK             ; flush first
+@room:
     jsr cv_flanks
     inc CV_MROWS
     jmp @shown
