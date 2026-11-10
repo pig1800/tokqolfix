@@ -70,6 +70,8 @@ FOURSCREEN_REGIONS = (
     (0xCB80, 0xCB82, "74dd75f2c35246dd03d1cadfc82249f80c94c339b89e416da509441ba48ea980"),
     # the reset vector's "jmp reset_init": early_reset (MMC3 + hack_init first)
     (0xFFDC, 0xFFDE, "4ef378f055abd7aab3b9e59192722bf57c2c54102b0b6b4feadf944e2718a88e"),
+    # the nametable fill set_ppu_scroll: "jmp cv_fill" (the lower twin too)
+    (0xC2AB, 0xC2AD, "d6ef7c6f987cda6bf37ed124b7b52c2980e37eb3d0c54d4ce308136289188b49"),
 )
 HOOK_RANGES = HOOK_RANGES + tuple((lo, hi) for lo, hi, _ in FOURSCREEN_REGIONS)
 
@@ -89,10 +91,11 @@ PAL_DATA = 0xBF00                           # KANJI_PAL_DATA in kanji.inc
 # for the fixed bank and the hack bank.
 CV_BANK = 27
 CV_RAM = 0x7900
-CV_RAM_PAGES = 5
+CV_RAM_PAGES = 7
 CV_LABELS = ("cv_irq", "cv_ctp", "cv_ti", "cv_sm", "cv_nmi", "cv_split",
              "cv_w1", "cv_w2", "cv_stage", "cv_flanks", "cv_force",
-             "cv_force_end", "cv_reload", "cv_irq_end", "cv_ram_end")
+             "cv_force_end", "cv_reload", "cv_irq_end", "cv_ram_end",
+             "cv_stream", "cv_sforce", "cv_sreload", "cv_fill")
 
 # The reset code's mapper writes and RAM-clear setup ($F004-$F039) are
 # rewritten by the fixed-bank source; these are the original bytes.
@@ -371,7 +374,11 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     apply_patch(bank, 0xD1C8, bytes((0x20, labels["page_flip"] & 0xFF,
                                      labels["page_flip"] >> 8)))
 
-    # Block-writer hook.
+    # Block-writer hook.  The canvas RAM code's cv_stream calls its plain
+    # body at a fixed address (canvas_ram.asm C343_PLAIN).
+    if labels["c343_plain"] != 0xFFE0:
+        raise SystemExit(f"c343_plain moved to ${labels['c343_plain']:04X}: "
+                         "update C343_PLAIN in canvas_ram.asm")
     apply_patch(bank, 0xC343, bytes((0x4C, labels["c343_hook"] & 0xFF,
                                      labels["c343_hook"] >> 8)))
 

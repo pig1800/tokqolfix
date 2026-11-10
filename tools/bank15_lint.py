@@ -22,7 +22,7 @@ OVERLAY_SIZE = 0x800
 PATCHES = [
     (0xC460, 0xC47D),   # dead mmc1_reset/mmc1_init: render_ctl, IRQ tail
     (0xC486, 0xC488),   # set_bank_lock: jmp main_prg (MMC3)
-    (0xC489, 0xC49D),   # dead rest of set_bank_lock: IRQ middle
+    (0xC489, 0xC49D),   # dead rest of set_bank_lock: free
     (0xC4AA, 0xC4AC),   # restore_bank_after_nmi: jmp nmi_prg (MMC3)
     (0xC4AD, 0xC4B9),   # dead rest of restore_bank_after_nmi: chr1_scene
     (0xC5A6, 0xC6D1),   # load_text_graphics (tables moved), MMC3 switches, call_hack, block hook

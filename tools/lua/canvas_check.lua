@@ -15,8 +15,10 @@
 -- frame CC_START.  CC_FRAMES, CC_OUT.
 local A_W1 = 0x7952  -- @cv_w1@
 local A_W2 = 0x798F  -- @cv_w2@
-local A_FORCE_END = 0x79DF  -- @cv_force_end@
-local A_RELOAD = 0x79EC  -- @cv_reload@
+local A_FORCE_END = 0x7ADF  -- @cv_force_end@
+local A_RELOAD = 0x7AEC  -- @cv_reload@
+local A_SFORCE_END = 0x7A61  -- @cv_sforce_end@
+local A_SRELOAD = 0x7A66  -- @cv_sreload@
 local CV_ROWS = 0x0783
 local OUT = os.getenv("CC_OUT")
 local FRAMES = tonumber(os.getenv("CC_FRAMES") or "3000")
@@ -123,6 +125,26 @@ emu.addMemoryCallback(function()
     note(string.format("f=%d canvas reload at %d.%d", frame, sl, dot))
   end
 end, emu.callbackType.exec, A_RELOAD, A_RELOAD, emu.memType.nesMemory, emu.cpuType.nes)
+-- The same two deadlines on the CHR-stream path (cv_stream: right after
+-- the game's stream step, the game's NMI goes on past the pre-render line).
+local n_sforce = 0
+emu.addMemoryCallback(function()
+  local s = emu.getState()
+  local sl, dot = s["ppu.scanline"], s["ppu.cycle"]
+  n_sforce = n_sforce + 1
+  if (sl >= 0 and sl < 241) or ((sl < 0 or sl > 260) and dot > 256) then
+    n_force_late = n_force_late + 1
+    note(string.format("f=%d stream force ends at %d.%d", frame, sl, dot))
+  end
+end, emu.callbackType.exec, A_SFORCE_END, A_SFORCE_END, emu.memType.nesMemory, emu.cpuType.nes)
+emu.addMemoryCallback(function()
+  local s = emu.getState()
+  local sl, dot = s["ppu.scanline"], s["ppu.cycle"]
+  if (sl >= 0 and sl < 241) or ((sl < 0 or sl > 260) and dot > 300) then
+    n_reload_late = n_reload_late + 1
+    note(string.format("f=%d stream reload at %d.%d", frame, sl, dot))
+  end
+end, emu.callbackType.exec, A_SRELOAD, A_SRELOAD, emu.memType.nesMemory, emu.cpuType.nes)
 -- Bytes the game's flush wrote in the frame's NMI (flush_vram_queue $D9A1..$D9EC).
 local q0, qbytes = 0, 0
 emu.addMemoryCallback(function() q0 = rd(0x41) end, emu.callbackType.exec, 0xD9A1, 0xD9A1, emu.memType.nesMemory, emu.cpuType.nes)
@@ -200,7 +222,7 @@ emu.addEventCallback(function()
   if f >= FRAMES then
     log:write(string.format("canvas frames %d, missing splits %d, stage 1 off %d, stage 2 off %d\n", n_frames, n_missing, n_w1_bad, n_w2_bad))
     log:write(string.format("canvas map cells %d, unlike the visible map %d; window tiles in the visible band rows %d\n", n_flank, n_flank_bad, n_vis_win))
-    log:write(string.format("cv_nmi forces %d, late %d (latest in the pre-render line: %s); canvas reloads late %d\n", n_force, n_force_late, force_last, n_reload_late))
+    log:write(string.format("cv_nmi forces %d, stream forces %d, late %d (latest in the pre-render line: %s); canvas reloads late %d\n", n_force, n_sforce, n_force_late, force_last, n_reload_late))
     for _, e in ipairs(ex) do log:write("  " .. e .. "\n") end
     log:close(); emu.stop(0)
   end

@@ -493,3 +493,81 @@ per frame), and everything after is shifted by those frames.
 States for this build: `python -I tools/mss_canvas.py <m4 state> <out>`
 installs the build's RAM code and clears the canvas state (`out/user/m5/`;
 redo after every build: the RAM code moves).
+
+### Step 3a play-test fixes (2026-11-10)
+
+Three glitches from the user's play-test, reproduced from their save
+states (`rom_kanji_1`: a battle, `rom_kanji_2`: before the はい that
+persuades an officer to join):
+
+1. **Battle: the picture one line up for a frame** (when a message box
+   goes).  `cv_nmi` forced the PPU address (v = `$1000`) in every long
+   frame, canvas or not.  Battle NMIs run longer than the map's for the
+   same flush size; the force's second `$2006` write landed at pre-render
+   dots 281-313, during or after the vertical copy, and the frame started
+   from v = `$1000`: fine Y 1.  Step 2b forced only with the band shown.
+   Now the force comes only when a split follows (`CV_ROWS | CV_PEND |
+   KANJI_BAND`); battles and scenes never force.
+2. **Battle shake: the old map in the top 3 lines.**  The battle clears
+   `$2000` and `$2400` with the game's fill (`set_ppu_scroll`, `$C2AB`);
+   on the original's mirrored VRAM that also cleared `$2800`/`$2C00`.
+   With four screens the twins kept the map, and the shake's `scroll_y =
+   $ED` shows the lower twin's row 29 in the top 3 lines.  The fill now
+   writes both twins (`cv_fill`, RAM), unrolled: both tables take ~9.4k
+   cycles against the original's ~9.8k for one, so screens still set up
+   at the original's pace (the A/B boot is frame-identical; a plain
+   second fill made it one frame late).
+3. **Persuasion: a few frames of a scrolled picture.**  The officer
+   joining streams sprite tiles (`flush_palette`: 4 tiles per frame,
+   `($39)` to `$0100+`).  The game's step ends at line 260 and its NMI
+   goes on (scroll, PPUMASK, task timers) to `ef08_gate` in line 0, so
+   `cv_nmi`'s force wrote `$2006` in lines 0-1, mid-picture.  The force
+   now comes from `cv_stream`, the step's tail (`c343_hook`'s NMI path
+   jumps there), right after the game's last PPU data write, followed by
+   the counter reload and `cv_nmi`'s bookkeeping with IRQs enabled, so
+   stage 0 still comes at the pre-render clock; `ef08_gate`'s call then
+   returns at once.  That work would push the game's PPUMASK store (it
+   turns rendering back on after the step) past pre-render dot 257 and
+   lose the frame's vertical copy, so in map mode `cv_stream` also runs
+   the step's plain-tile copy itself in one unrolled loop: ~650 cycles
+   less, and rendering is back on in line 257 instead of 260 (pre-render
+   dot 139 in the worst frame before).  Other stream modes, and every
+   non-map NMI (the title's cycle-timed raster), keep the game's routine.
+
+Also: the band alone (no canvas) is now armed by `cv_nmi` / `cv_stream`
+right after the force in long and stream frames (as `irq_arm0` would,
+which `FLAG_ARMED` then makes a no-op); after 92-byte flushes the hack
+NMI's arm came past the pre-render clock (switches 2-3 lines into the
+border row).  The map-mode check (`input_buttons` bit 7) moved after the
+arm, so after a flush of more than `CV_FORCE_MAX` bytes the canvas
+reloads at pre-render dot ~269 (step 3a: ~287; the clock is at ~325).
+
+**Code**: RAM code 1,639 bytes, 7 pages (`$7900-$7FFF`, the rest of the
+freed save record; the reset copy is still absorbed by the PPU warm-up);
+fixed bank: `$C2AB` `jmp cv_fill`, `c343_hook`'s NMI path `jmp
+cv_stream`; `$C489-$C49D` stays free.  `tools/mss_canvas.py --keep`
+installs the RAM code into a canvas build's state without clearing the
+canvas state (a state saved with a canvas up).
+
+**Gates** (kanji ROM `cc0afb33...`; original still `40f19e17...`; states
+`out/user/m5/` regenerated; the user's two states with `--keep`):
+
+| Gate | Result |
+|---|---|
+| user's battle state, 3,300 frames of fighting | no 1-line jumps, no hack PPU write in the picture |
+| battle from `r17_pre_battle_normal` | `$2800`/`$2C00` blank after the setup; 48 shake frames, the top 3 lines blank |
+| user's persuasion state | splits in lines 143/223 on every frame; the stream frames' only change is the cursor |
+| `canvas_check` std, town, village, overworld, r16b, shop n1, persuasion | 0 off, 0 missing, 0 flank mismatches; no force or reload late (persuasion: 18 stream-path forces) |
+| A/B against step 3a, battery save, 3,400 frames | picture identical (lines 8-231); the twins differ while rendering is off (town load, frames 626-648) |
+| `band_check` | +1: 1,254 (step 3a: +1: 1,246, +2: 8); 0 mismatches; 0 kana over kanji |
+| `garble_run` (6 offsets) | 0 episodes |
+| `garble_state` bb, bt, nb, lv, sv | 0 frames |
+| `garble_state` partner shop n1, p1-p4 | 42 / 85 / 44 / 90 / 123 (the state's opening episode, as before) |
+| `vblank_deadline` standard, bt, nb, bb | 0 |
+| `taint_check` bb, bt, nb | 0 / 0, min SP `$0F` / `$12` / `$0F` (the RAM fill and the stream copy are game code for the gates) |
+| `ram_gate` | 0 / 0 / 0, min SP `$14` |
+| `zp_check`, `mask_restore`, `palette_check` | 0, 0, 0 wrong |
+
+A state saved by an earlier build carries that build's RAM code in its
+battery RAM: convert it (`tools/mss_canvas.py <in> <out> --keep`) before
+loading it on this build.

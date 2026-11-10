@@ -3,7 +3,7 @@
 dialogue-canvas build (map-canvas step 3).
 
 Usage:
-    python -I tools/mss_canvas.py <in.mss> <out.mss>
+    python -I tools/mss_canvas.py <in.mss> <out.mss> [--keep]
 
 The canvas build runs code from battery RAM at $7900 (canvas_ram.asm,
 installed at reset) and keeps its state in internal RAM $0780-$07FF.  A
@@ -12,6 +12,10 @@ build's image (decomp/build/kanji/canvas_ram.bin) into the state's
 battery RAM and clears $0780-$07FF (no canvas shown).  A state with an
 open window keeps the window in the visible nametable, as the earlier
 build drew it; the canvas starts with the next window.
+
+--keep: a state saved by a canvas build (same canvas state layout, older
+RAM code): install the image and keep $0780-$07FF, so an open canvas
+stays up.
 """
 from __future__ import annotations
 
@@ -30,7 +34,7 @@ _spec.loader.exec_module(_m)
 FOUR_SCREENS = 4
 
 
-def convert(src: str, dst: str) -> None:
+def convert(src: str, dst: str, keep: bool = False) -> None:
     head, recs = _m.read(src)
     d = {k: v for k, v in recs}
     mirror, = struct.unpack("<i", d["mapper.mirroringType"])
@@ -41,7 +45,8 @@ def convert(src: str, dst: str) -> None:
     base = CV_RAM - 0x6000
     sram[base:base + len(image)] = image
     ram = bytearray(d["memoryManager.internalRam"])
-    ram[0x780:0x800] = bytes(0x80)
+    if not keep:
+        ram[0x780:0x800] = bytes(0x80)
     out = []
     for k, v in recs:
         if k == "mapper.saveRam":
@@ -50,10 +55,12 @@ def convert(src: str, dst: str) -> None:
             v = bytes(ram)
         out.append([k, v])
     _m.write(dst, head, out)
-    print(f"{dst}: canvas RAM code ({len(image)} bytes) installed, canvas state cleared")
+    print(f"{dst}: canvas RAM code ({len(image)} bytes) installed, canvas state "
+          + ("kept" if keep else "cleared"))
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    args = [a for a in sys.argv[1:] if a != "--keep"]
+    if len(args) != 2:
         raise SystemExit(__doc__)
-    convert(sys.argv[1], sys.argv[2])
+    convert(args[0], args[1], keep="--keep" in sys.argv[1:])

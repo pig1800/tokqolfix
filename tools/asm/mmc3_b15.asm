@@ -9,7 +9,7 @@
 ;                bank), the MMC3 bank switches, call_hack/map_hack,
 ;                block-writer hook
 ;   $C460-$C47D  dead mmc1_reset / mmc1_init: render_ctl, IRQ tail
-;   $C489-$C49D  dead rest of set_bank_lock: IRQ middle
+;   $C489-$C49D  dead rest of set_bank_lock: free
 ;   $C4AD-$C4B9  dead rest of restore_bank_after_nmi: chr1_scene
 ;   $C4BA-$C4CA  NMI hook at loc_EF08 (dead original write_prg_bank body)
 ;   $D291-$D2B6  NMI epilogue hook at loc_EF31 (dead original $EF-$F7
@@ -208,14 +208,16 @@ window_done:
 ; NMI: the only block write there is flush_palette's CHR-animation step,
 ; which already ends near the bottom of vblank; select the scene page with
 ; a few register writes (no bank switching) and let the NMI hook mark the
-; tiles stale afterwards (it sees $39 move).
+; tiles stale afterwards (it sees $39 move).  cv_stream (RAM) runs the
+; step and forces the PPU address for a split right after it (the game's
+; NMI goes on into the pre-render line before ef08_gate).
 c343_hook:
     lda nmi_busy
     bne @main
     lda ppu_ctrl_shadow
     bpl @main
     jsr chr1_scene
-    jmp c343_plain
+    jmp CV_STREAM               ; the step, then a split's address force
 @main:
     lda #FN_BLOCK_PRE
     jsr call_hack
@@ -306,6 +308,12 @@ irq_off_tail:
     rti
 
 ; ($C489-$C49D: free since map-canvas step 3; IRQ stage 0 is cv_irq.)
+
+; ----------------------------------------------------------------------
+.base $C2AB
+; ----------------------------------------------------------------------
+; The nametable fill set_ppu_scroll: both vertical twins (cv_fill, RAM).
+    jmp CV_FILL                 ; set_ppu_scroll's "sta $00 / stx $01"
 
 ; ----------------------------------------------------------------------
 .base $C4AD

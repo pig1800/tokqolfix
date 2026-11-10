@@ -26,6 +26,7 @@
 ;             jsr tile_address")
 ;   cv_sm     text_init's "jsr scroll_map" (both sites)
 ;   cv_nmi    NMI, normal frames, after the game's flush
+;   cv_stream NMI, the game's CHR-stream step (c343_hook)
 ;   cv_split  irq_arm0, canvas frames: the split's PPU addresses
 ; ======================================================================
 .include "../../decomp/include/hardware.inc"
@@ -44,6 +45,7 @@ ROW_BOTTOM        = $DBC8       ;   and for row 1
 LINE_OFFSET       = $DD0B       ; text_draw_line's row-buffer offset by text_line
 ROW_BUFFER        = $0300
 QUEUE             = $0400
+C343_PLAIN        = $FFE0       ; c343_plain (mmc3_b15.asm; checked by kanji_build.py)
 
 ; IRQ delays (calibrated: the second $2006 write lands at dots 257-320).
 CV_D1             = 1
@@ -138,50 +140,202 @@ cv_w2:                          ; (label for the timing probe)
 cv_irq_end:
 
 ; ----------------------------------------------------------------------
+; NMI, the game's CHR-stream step (flush_palette: 4 tiles per frame from
+; ($39), c343_hook's NMI path with the scene page selected).  The step
+; ends near the bottom of vblank, and the game's NMI goes on (scroll,
+; task timers) into the pre-render line or line 0 before ef08_gate: too
+; late there for a split's PPU-address force and for the reload before
+; the pre-render line's clock.  The game's PPUMASK store comes after it
+; too (the pre-render line's copies need rendering on by dot 257), so
+; the step's plain copy runs here, faster.  In map mode both come here, right after
+; the game's last PPU data write (t restored at once: the game's own
+; scroll writes may land after the pre-render line's copies now), then
+; cv_nmi's bookkeeping and the split's stage settings, with IRQs enabled
+; at its end; FLAG_ARMED makes the hack's irq_arm0 a no-op in this NMI.
+; ef08_gate's call returns at once (CV_STRM bit 7).
+; ----------------------------------------------------------------------
+cv_stream:
+    lda nmi_mode
+    beq cvs_map
+    jmp C343_PLAIN              ; title / scenes: the game's body, as before
+cvs_map:
+    lda $04
+    and #$0F
+    bne cvs_plain               ; (read-back / fill modes: the game's body)
+    ldx $02
+    beq cvs_plain
+    cpx #16
+    bcc cvs_fast
+cvs_plain:
+    jsr C343_PLAIN              ; the step (write_vram_block's body)
+    jmp cvs_split
+cvs_fast:
+    ; Mode 0 (plain tiles), as the game's body but in one loop: $02 tiles
+    ; of 16 bytes from ($00) to PPU $0304; ~650 cycles less for the
+    ; stream's 4 tiles, so the step ends ~6 lines earlier.
+    lda PPUSTATUS
+    lda $03
+    sta PPUADDR
+    lda $04
+    sta PPUADDR
+    ldy #0
+cvs_copy:
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    dex
+    bne cvs_copy
+    tya                         ; the body's exit state: the pointer past
+    clc                         ; the data, count and fill byte 0, X = Y = 0
+    adc $00
+    sta $00
+    bcc cvs_c1
+    inc $01
+cvs_c1:
+    lda #0
+    sta $02
+    sta $03
+    tay
+    tax
+cv_scopy_end:                   ; (cv_stream-cv_scopy_end: game code for the RAM gates)
+cvs_split:
+    lda ppu_mask_shadow
+    and #$18
+    beq cvs_body                ; rendering off: no split
+    lda CV_ROWS
+    ora CV_PEND
+    ora KANJI_BAND
+    beq cvs_body                ; no split this frame
+cv_sforce:                      ; (label for the gates)
+    lda PPUSTATUS
+    lda #$10
+    sta PPUADDR
+    lda #$00
+    sta PPUADDR                 ; v = $1000
+    lda ppu_ctrl_shadow
+    sta PPUCTRL
+    lda scroll_x
+    sta PPUSCROLL
+    lda scroll_y
+    sta PPUSCROLL
+cv_sforce_end:                  ; (label for the gates)
+    lda #0
+    sta MMC3_IRQ_LATCH
+cv_sreload:                     ; (label for the gates)
+    sta MMC3_IRQ_RELOAD         ; stage 0 at the pre-render line's clock
+    sta MMC3_IRQ_OFF
+    sta MMC3_IRQ_ON
+    lda KANJI_NFLAGS
+    ora #FLAG_ARMED
+    sta KANJI_NFLAGS
+cvs_body:
+    lda #$40
+    sta CV_STRM                 ; bit 6: cv_nmi called from here
+    jsr cvn_live
+    lda #$80
+    sta CV_STRM                 ; bit 7: cv_nmi done in this NMI
+cvs_rts:
+    rts
+
+; ----------------------------------------------------------------------
 ; NMI, normal frames (ef08_gate: after the game's PPU work and its
-; nmi_mode branch, so the game's own split loops keep their timing).
-; CV_ROWS takes CV_PEND: growing once the queue is empty (the rows were
-; queued before CV_PEND grew), shrinking once the flush passed the closing
-; redraw's row.  In a long frame (the hack's NMI does no PPU work after
-; this) the PPU-address force (v = $1000: A12 high when vblank ends, the
-; pre-render line's first BG fetch is no MMC3 clock; t restored) and a
-; canvas's arm come here at once: stage 0 at the pre-render line's clock,
-; stage 1 (KANJI_IRQ_ST 2 -> $80) at line 142's clock; a dialogue
-; window's frames push the hack's NMI past vblank.  In a light frame
-; irq_arm0 does both after the hack's own PPU work, as for the band.
+; nmi_mode branch, so the game's own split loops keep their timing), or
+; cv_stream.  CV_ROWS takes CV_PEND: growing once the queue is empty (the
+; rows were queued before CV_PEND grew), shrinking once the flush passed
+; the closing redraw's row.  In a long frame (the hack's NMI does no PPU
+; work after this) the PPU-address force (v = $1000: A12 high when vblank
+; ends, the pre-render line's first BG fetch is no MMC3 clock; t restored)
+; and a canvas's arm come here at once: stage 0 at the pre-render line's
+; clock, stage 1 (KANJI_IRQ_ST 2 -> $80) at line 142's clock; a dialogue
+; window's frames push the hack's NMI past vblank.  The force only when a
+; split comes (canvas or band): none in battles and scenes.  In a light
+; frame irq_arm0 does both after the hack's own PPU work, as for the band.
 ; Stage 0's handler computes the split's addresses (cv_split).
-; Fixed-position screens (title, battle, scenes) have no canvas.  A only.
+; Fixed-position screens (title, battle, scenes) have no canvas.  The
+; path to the reload after a flush of more than CV_FORCE_MAX bytes is
+; the shortest: it ends near the pre-render line's clock.  A only.
 ; ----------------------------------------------------------------------
 cv_nmi:
     lda nmi_busy
+    ora CV_STRM
     beq cvn_live
-    rts                         ; the main thread owns the PPU
-cvn_live:
-    lda input_buttons
-    bpl cvn_class
     lda #0
-    sta CV_REDIR
-    sta CV_PEND
-cvn_class:
+    sta CV_STRM                 ; (cv_stream ran it in this NMI, or busy)
+    rts
+cvn_live:
     ; A long frame (nmi_ef08 arms first thing, no hack unit or replay
     ; follows): the force and the canvas's arm come first, before the
     ; bookkeeping below.  A light frame: irq_arm0 does both after the
     ; hack's own PPU work.
     lda ppu_mask_shadow
     and #$18
-    beq cvn_pend                ; rendering off
+    bne cvn_on
+    jmp cvn_pend                ; rendering off
+cvn_on:
     lda vram_queue_read
     sec
     sbc KANJI_QPOS              ; bytes the game flushed this frame
-    cmp #REPLAY_MAX+1
-    bcs cvn_long
-    lda $39
-    cmp KANJI_LAST39
-    beq cvn_pend
-    lda #0                      ; (a CHR-animation step: a short flush)
-cvn_long:
     cmp #CV_FORCE_MAX+1
     bcs cvn_arm                 ; the game's NMI ran late: no PPU access
+    bit CV_STRM
+    bvc cvn_nstrm
+    jmp cvn_sarm                ; after the stream step: forced, reloaded
+cvn_nstrm:
+    cmp #REPLAY_MAX+1
+    bcs cvn_need                ; a long frame
+    lda $39
+    cmp KANJI_LAST39
+    beq cvn_pend                ; a light frame
+cvn_need:                       ; ($39 moved outside an NMI step: short)
+    lda CV_ROWS
+    ora CV_PEND
+    ora KANJI_BAND
+    beq cvn_pend                ; no split this frame: no PPU access
 cv_force:                       ; (label for the gates)
     lda PPUSTATUS
     lda #$10
@@ -198,13 +352,31 @@ cv_force_end:
 cvn_arm:
     lda CV_ROWS
     ora CV_PEND
-    beq cvn_pend                ; no canvas shown or coming
+    beq cvn_barm
     lda #0
     sta MMC3_IRQ_LATCH
 cv_reload:                      ; (label for the gates)
     sta MMC3_IRQ_RELOAD
     sta MMC3_IRQ_OFF            ; acknowledge anything pending
     sta MMC3_IRQ_ON
+    jmp cvn_cvst
+cvn_barm:
+    lda KANJI_BAND
+    beq cvn_pend                ; no split this frame
+    ; The band alone: armed here, right after the force, as irq_arm0
+    ; would after the hack NMI's entry (past the pre-render line's clock
+    ; after the longest flushes); FLAG_ARMED makes that a no-op.
+    lda #0
+    sta MMC3_IRQ_LATCH
+cv_breload:                     ; (label for the gates)
+    sta MMC3_IRQ_RELOAD
+    sta MMC3_IRQ_OFF
+    sta MMC3_IRQ_ON
+    lda KANJI_NFLAGS
+    ora #FLAG_ARMED
+    sta KANJI_NFLAGS
+    jmp cvn_band
+cvn_cvst:
     lda #2
     sta KANJI_IRQ_ST
     lda #CV_TOP*8-2
@@ -212,6 +384,15 @@ cv_reload:                      ; (label for the gates)
     lda #$80
     sta CV_ARMED                ; (stage 0 waits for the cli below)
 cvn_pend:
+    ; Out of map mode (input_buttons bit 7): no canvas comes, the redirect
+    ; ends.  (After the arm: the shortest path to the reload; a canvas
+    ; armed on a stale CV_PEND is cancelled below.)
+    lda input_buttons
+    bpl cvn_rows
+    lda #0
+    sta CV_REDIR
+    sta CV_PEND
+cvn_rows:
     lda CV_PEND
     cmp CV_ROWS
     beq cvn_done
@@ -250,6 +431,101 @@ cvn_cancel:                     ; no canvas rows this frame after all
     sta KANJI_IRQ_ST
 cvn_rts:
     rts
+
+; After the stream step (cv_stream forced v and reloaded the counter when
+; a split comes): the stage settings.  The canvas as in cvn_arm; the band
+; alone as irq_arm0's band path (cvn_band, also cvn_arm's); nothing (the
+; input check above dropped the coming canvas): the IRQ off again.
+cvn_sarm:
+    lda CV_ROWS
+    ora CV_PEND
+    bne cvn_cvst
+    lda KANJI_BAND
+    beq cvb_cancel_p
+cvn_band:                       ; (the band's stage settings, cvn_arm too)
+    lda #1
+    sta KANJI_IRQ_ST            ; stage 0, then the band stage
+    lda KANJI_WIN_ROW
+    asl a
+    asl a
+    asl a
+    sec
+    sbc scroll_y
+    bcs cvb_row
+    sbc #15                     ; borrow: wrap modulo 240
+cvb_row:
+    cmp #16
+    bcc cvb_cancel_p
+    cmp #209
+    bcs cvb_cancel_p
+    sta KANJI_IRQ_N
+    cmp #ARM_CLI_MIN
+    bcc cvb_pend                ; near the top: stage 0 waits for the NMI's end
+    cli
+cvb_pend:
+    jmp cvn_pend
+cvb_cancel_p:
+    lda #0
+    sta KANJI_IRQ_ST
+    sta MMC3_IRQ_OFF
+    jmp cvn_pend
+
+; ----------------------------------------------------------------------
+; The nametable fill set_ppu_scroll ($C2AB, patched "jmp cv_fill"): A =
+; table ($20 / $24), X = tile, Y = attribute byte; rendering off.  On the
+; original's two mirrored tables the fill also filled the lower twin ($28
+; / $2C); with four screens the twin kept the previous screen's map, which
+; the battle shake (scroll_y $ED: row 29 of the lower half in the top 3
+; lines) brought into view.  Both tables here, unrolled: ~9.4k cycles,
+; a little under the original's one table (~9.8k), so the screens set up
+; at the original's pace.  The original's exit state ($00-$02 = A/X/Y,
+; A = $C0, X = tile, Y = attribute).  Game code for the RAM gates.
+; ----------------------------------------------------------------------
+cv_fill:
+    sta $00
+    stx $01
+    sty $02
+    ldy #1                      ; two tables (no subroutine: the original
+    ora #$08                    ; is flat, the stack stays as deep): the
+cvf_table:                      ; lower twin first
+    bit PPUSTATUS
+    sta PPUADDR
+    lda #0
+    sta PPUADDR
+    lda $01
+    ldx #64                     ; 64 x 16 bytes
+cvf_loop:
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    dex
+    beq cvf_tdone
+    cpx #4
+    bne cvf_loop
+    lda $02                     ; the last 64: the attribute bytes
+    jmp cvf_loop
+cvf_tdone:
+    lda $00                     ; then the table
+    dey
+    bpl cvf_table
+    ldy $02
+    lda #$C0
+    ldx $01
+    rts
+cv_fill_end:                    ; (label for the RAM gates)
 
 ; ----------------------------------------------------------------------
 ; IRQ stage 0 of a canvas frame (line 0, or late in the NMI it preempts):

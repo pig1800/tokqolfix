@@ -224,6 +224,11 @@ CV_I2             = $07E2
 CV_Q              = $07E3   ; the queue's write index when the canvas last shrank
 CV_SROWS          = $07E4   ; CV_ROWS that CV_V1H-CV_LATCH were computed for
 CV_ARMED          = $07E5   ; cv_nmi: bit 7 = armed in this NMI (cli pending)
+CV_STRM           = $07E6   ; cv_stream: bit 6 = cv_nmi called from the stream step, bit 7 = done in this NMI
+; IRQs are enabled inside the NMI (so stage 0 preempts a long NMI tail) only
+; when the band's switch line is this low: the longest NMI tail measured
+; ends in line 25, and the band stage writes $8000.
+ARM_CLI_MIN       = 40
 
 ; NMI frame classes (hack.asm's nmi_ef08 and the canvas's cv_nmi agree on
 ; them).  A frame whose game flush exceeded REPLAY_MAX bytes, or that
@@ -236,5 +241,5 @@ CV_FORCE_MAX      = 103     ; cv_nmi's force: 104-byte flushes end it at pre-ren
 CV_TOP            = 18      ; the canvas's first tile row on screen
 CV_BANK           = 27      ; PRG bank with the RAM image at $A000
 CV_RAM            = $7900   ; the RAM code (MAP_ATTR is $7800-$78FF)
-CV_RAM_PAGES      = 5       ; 1280 bytes copied at reset ($7900-$7DFF)
+CV_RAM_PAGES      = 7       ; 1792 bytes copied at reset ($7900-$7FFF)
 HACK_INIT         = $800C   ; hack bank entry, reset: clear the hack state, install CV_RAM

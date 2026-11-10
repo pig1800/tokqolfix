@@ -28,10 +28,7 @@ LIGHT_QUEUE  = 8            ; max queued bytes for a light frame
 ; line 260.6 after flushes up to 87 bytes, by pre-render dot 24 after
 ; 88-103 (the force then ends by dot ~150: harmless, the PPU reloads v
 ; from t at dots 257 and 280-304), and in line 0 after 104 or more.
-; IRQs are enabled inside the NMI (so stage 0 preempts a long NMI tail) only
-; when the switch line is this low: the longest NMI tail measured ends in
-; line 25, and stage 1 writes $8000.
-ARM_CLI_MIN   = 40
+; (ARM_CLI_MIN: kanji.inc, shared with the canvas RAM code.)
 ; NMI scratch in the read-back buffer (free outside restore_tile; the main
 ; thread uses the buffer only while the NMI is in busy mode or disabled).
 MS_TMP       = KANJI_BUF+15
@@ -1338,6 +1335,10 @@ hack_init:
     sta CV_RAM+$300,x
     lda $A400,x
     sta CV_RAM+$400,x
+    lda $A500,x
+    sta CV_RAM+$500,x
+    lda $A600,x
+    sta CV_RAM+$600,x
     inx
     bne @cp
     lda #KANJI_HACK_BANK*2+1
