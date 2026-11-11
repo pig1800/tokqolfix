@@ -1136,7 +1136,7 @@ Baseline: `26999aa`.
 ## 2026-11-07 — kanji-target implementation pass
 
 
-Baseline: `81d7307` (byte-identical 256 KiB reconstruction).
+Baseline: `feab698` (byte-identical 256 KiB reconstruction; commit ids changed when the ROM data was removed from the history on 2026-11-11).
 
 ### Build targets
 
