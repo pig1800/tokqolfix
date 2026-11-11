@@ -2208,6 +2208,26 @@ b14_wincb_food_line:
 ; b14_wincb_exp_line
 ;   Window $22 CALL: けいけんち, then experience ($6070).
 ; ----------------------------------------------------------------------
+.ifdef KANJI_TARGET
+; Step B item 8: the reward window $22's template (kanji_build points
+; data_EDA1/EDD1 + $22 here; REWARD_TPL): four lines of one UI-bank CALL
+; each (cv_wincb, ui_battle.asm; no parameter byte: the UI bank, mapped
+; over this bank then, takes the line from $54), rows 3-10 at columns
+; 18-29; the last row pair adds rows 11-12.  Only $22 called
+; b14_wincb_exp_line.
+b14_k_reward_tpl:
+    .db $FA,$01,$0C                         ; as the original: x -6, y +1, width 12
+    .db $FA,$F8,<CV_WINCB,>CV_WINCB         ; 金
+    .db $FA,$F8,<CV_WINCB,>CV_WINCB         ; gold, 兵糧 (upper half)
+    .db $FA,$F8,<CV_WINCB,>CV_WINCB         ; 兵糧 (lower half), food
+    .db $FA,$F8,<CV_WINCB,>CV_WINCB         ; 経験値
+    .db $FF
+    .dsb 8, $FF
+.if b14_k_reward_tpl != $923C
+    .error "b14_k_reward_tpl moved: update REWARD_TPL in kanji_build.py"
+.endif
+.else
+b14_k_reward_tpl:                       ; (asm6f evaluates the .if above here too)
 b14_wincb_exp_line:
     lda #$13
     sta $0332                   ; Saved text tile rows for window redraw.
@@ -2220,6 +2240,7 @@ b14_wincb_exp_line:
     lda #$1B
     sta $0336                   ; Saved text tile rows for window redraw.
     jmp b14_print_exp
+.endif
 
 b14_data_9258:
     .incbin "build/assets/bank14_data.bin", $1258, $01A8

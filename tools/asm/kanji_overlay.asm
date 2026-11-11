@@ -701,17 +701,33 @@ KANJI_EC:
 @found:
     bit KANJI_PAGES_LEFT
     bvc @record
-    lda KANJI_UPLOADED+1        ; pool: entry k -> slot (first + k) mod 15,
-    and #$0F                    ; tiles $A4+4*slot..+3
-    clc
-    adc KANJI_M2
-    cmp #POOL_SLOTS
-    bcc @slot
-    sbc #POOL_SLOTS
+    ldy KANJI_M2                ; pool: entry k -> the k-th slot not blocked
+    ldx #0                      ; for this page (KANJI_PMASK), tiles
+@walk:                          ; $A4+4*slot..+3
+    lda slot_lo,x
+    and KANJI_PMASK
+    bne @blocked
+    lda slot_hi,x
+    and KANJI_PMASK+1
+    bne @blocked
+    dey
+    bmi @slot_x
+@blocked:
+    inx
+    cpx #POOL_SLOTS
+    bne @walk
+    ldx #0                      ; (pool_choose leaves n slots free)
+    beq @walk
+@slot_x:
+    txa
 @slot:
     tax                         ; step B: the battle screen's slot table
-    lda #$FE                    ; (UI bank): a message kanji, maybe shown
-    sta UI_SLOT,x
+    lda #$FE                    ; (UI bank): a message kanji, maybe shown,
+    sta UI_SLOT,x               ; and its code (the reward window uses a
+    lda KANJI_CODE_LO           ; kanji a message left in the pool)
+    sta UI_MC_LO,x
+    lda KANJI_CODE_HI
+    sta UI_MC_HI,x
     txa
     asl a
     asl a                       ; C clear (slot < 64)
@@ -947,20 +963,26 @@ record_n:
     rts
 
 ; ----------------------------------------------------------------------
-; Battle pool slots for a page of A entries (revision 20).  The window
-; scrolls on, so the page's slots must avoid every pool tile still in the
-; text lines of this window ($0300 + $30 per line, lines 0 to text_line:
-; the lines below hold rows of earlier windows; at text_line 0 all four,
-; the last window may still be on screen).  The page takes slots
-; first .. first+n-1 (mod 15), the lowest first with all of them free.
-; C clear: A = first.  C set: none fits (A = 0).
-; KANJI_M0/M1 = on-screen slots (bit per slot), KANJI_M2 = n, Y = first.
+; Battle pool slots for a page of A entries (revision 20; step B item 8).
+; The window scrolls on, so the page's slots must avoid every pool tile
+; still in the text lines of this window ($0300 + $30 per line, lines 0 to
+; text_line: the lines below hold rows of earlier windows; at text_line 0
+; all four, the last window may still be on screen), and while UI_BATTLE is
+; set the reward window's (UI_PRES).  KANJI_PMASK = the blocked slots:
+; entry k takes the k-th free slot (KANJI_EC).  C clear: n slots are free
+; beside both.  C set: fewer; KANJI_PMASK then gives up the lines' slots,
+; and if that is not enough the reward window's too (the callers that
+; cleared the window use it; page_flip clears the window instead).  A = 0
+; (the old first-slot nibble of KANJI_UPLOADED+1).
+; KANJI_M0/M1 = the blocked slots being tried (bit per slot), KANJI_M2 = n.
 ; ----------------------------------------------------------------------
 pool_choose:
     sta KANJI_M2                ; n
     lda #0
     sta KANJI_M0
     sta KANJI_M1
+    sta KANJI_PMASK
+    sta KANJI_PMASK+1
     ldx text_line
     cpx #4
     bcc @lines
@@ -990,40 +1012,61 @@ pool_choose:
 @next:
     dex
     bne @scan
-    ldy #0                      ; first
-@first:
-    tya
-    tax                         ; X = slot
-    lda KANJI_M2                ; slots still to check
-@slot:
-    beq @fits
+    lda UI_BATTLE               ; KANJI_PMASK = the reward window's slots
+    beq @try
+    lda UI_PRES
+    sta KANJI_PMASK
+    ora KANJI_M0
+    sta KANJI_M0
+    lda UI_PRES+1
+    sta KANJI_PMASK+1
+    ora KANJI_M1
+    sta KANJI_M1
+    lda #0                      ; (first try)
     pha
+@try:
+    ldy #0                      ; free slots
+    ldx #POOL_SLOTS-1
+@count:
     lda slot_lo,x
     and KANJI_M0
-    bne @taken
+    bne @cnext
     lda slot_hi,x
     and KANJI_M1
-    bne @taken
-    inx
-    cpx #POOL_SLOTS
-    bcc @nowrap
-    ldx #0
-@nowrap:
-    pla
-    sec
-    sbc #1
-    jmp @slot
-@taken:
-    pla
+    bne @cnext
     iny
-    cpy #POOL_SLOTS
-    bne @first
+@cnext:
+    dex
+    bpl @count
+    cpy KANJI_M2
+    bcs @fits
+    pla
+    lda #1                      ; (a fallback)
+    pha
+    lda KANJI_M0                ; too few: without the lines' slots, then
+    cmp KANJI_PMASK             ; without the reward window's
+    bne @nolines
+    lda KANJI_M1
+    cmp KANJI_PMASK+1
+    bne @nolines
     lda #0
-    sec
-    rts
+    sta KANJI_M0
+    sta KANJI_M1
+    beq @fits                   ; (all 15 free)
+@nolines:
+    lda KANJI_PMASK
+    sta KANJI_M0
+    lda KANJI_PMASK+1
+    sta KANJI_M1
+    jmp @try
 @fits:
-    tya
-    clc
+    lda KANJI_M0
+    sta KANJI_PMASK
+    lda KANJI_M1
+    sta KANJI_PMASK+1
+    pla
+    cmp #1                      ; C set: a fallback
+    lda #0
     rts
 
 ; Slot bit in KANJI_M0 (slots 0-7) and KANJI_M1 (slots 8-14).

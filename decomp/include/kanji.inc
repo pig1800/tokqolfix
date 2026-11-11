@@ -260,7 +260,19 @@ UIF_INFO_ENTER    = 4       ; info screen, before battle_intro_screen
 UIF_BSTART        = 5       ; battle start, rendering off: the fixed kanji
 UIF_WINCB         = 6       ; battle window line (template CALL, X in UI_X)
 UIF_SM            = 7       ; battle window metarow drawn (canvas cv_sm)
-UI_RAM            = $7FC0   ; battery RAM after the canvas RAM code
+; The reward window (victory) and the message pool (step B item 8).
+UI_RAM2           = $7F9E   ; battery RAM after the canvas RAM code (below UI_RAM)
+UI_MC_LO          = UI_RAM2+0 ; 15: text code of the message kanji in pool slot k
+                            ; (kanji_overlay, with UI_SLOT's $FE)
+UI_MC_HI          = UI_RAM2+15 ; 15: its high byte; $FF: no message kanji there
+                            ; (the UI bank wrote the group, or a battle start)
+UI_PRES           = UI_RAM2+30 ; 2: pool slots the reward window shows (bit per
+                            ; slot as pool_choose's KANJI_M0/M1); the messages
+                            ; take other slots while UI_BATTLE is set
+KANJI_PMASK       = UI_RAM2+32 ; 2: the current pool page's blocked slots (same
+                            ; bits): entry k takes the k-th slot whose bit is
+                            ; clear (kanji_overlay pool_choose, KANJI_EC)
+UI_RAM            = $7FC0   ; battery RAM after UI_RAM2
 UI_PATH           = UI_RAM+0 ; 1 = the info screen was opened from a battle
 UI_P2             = UI_RAM+1 ; 3 bytes: the battle's P2 colours 1-3
 UI_BUSY           = UI_RAM+4 ; nmi_busy around the renderer's PPU access

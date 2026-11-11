@@ -38,6 +38,8 @@ PATCHES = [
     (0xEAC8, 0xEADF),   # window $12 template
     (0xEB23, 0xEB3A),   # window $16 template (battle items)
     (0xEB43, 0xEB6C),   # window $17 template (battle tactics; title 残り)
+    (0xEDC3, 0xEDC3),   # window $22's template pointer, low (reward window: bank 14 $923C)
+    (0xEDF3, 0xEDF3),   # its high byte
     (0xEF0B, 0xEF0F),   # jmp ef08_gate + nop nop
     (0xEF31, 0xEF33),   # jmp ef31_gate
     (0xF004, 0xF039),   # reset: MMC3 registers + hack RAM clear (rewritten)

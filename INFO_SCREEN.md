@@ -617,7 +617,8 @@ metarow is the lower row of one line and the upper row of the next.
 Moving the windows down one row would need the engine's row mapping
 changed for battle windows, and the dialogue line addresses too (`$D170`,
 `$D39E`, the overlay's `window_geometry`).  The battle's kanji are plane 0
-in P0 cells and need no attribute alignment.  Open question for the user.
+in P0 cells and need no attribute alignment.  The user (item 8): not
+needed; a kanji's upper half next to the border is the expected result.
 
 RAM: `UI_RAM` `$7FC0-$7FFE` (63 bytes, `kanji.inc`).  The canvas RAM code
 ends at `$7F93`.
@@ -668,12 +669,114 @@ states with the new canvas image):
   (frames 126-127, as in step B).  Two glyph uploads per NMI overran by up
   to two lines; one per NMI is what the code does.
 
+## Step B item 8: the reward window (2026-11-11)
+
+The user's request: the window after a won battle (top right: 金 / gold,
+兵ろう / food, けいけんち / experience, 8x8 tiles) grows three rows down,
+and its words become 16x16 kanji 金, 兵糧, 経験値.  The command window's
+kanji are volatile now (it is not shown again).  Kanji already in CHR are
+used from there, not uploaded again: 金 and 経験値 are almost always in
+the pool from the victory message (msg 062), 兵糧 too when the enemy left
+food (msg 061).  Decision 7 is not applied here (the user: a kanji's upper
+half next to the border is the expected result).
+
+**Layout** (window $22, columns 18-29, rows 2-12; the original rows 2-9):
+
+| Rows | Content | Drawn by |
+|---|---|---|
+| 2 | top border | the engine |
+| 3-4 | 金 (column 20) | line 0 |
+| 5 | gold, 7 digits at columns 21-27 | line 1, top row |
+| 6-7 | 兵糧 | line 1 bottom row, line 2 top row |
+| 8 | food | line 2, bottom row |
+| 9-10 | 経験値 | line 3 |
+| 11 | experience | `reward_tail` (UIF_SM) |
+| 12 | bottom border | `reward_tail` |
+
+The engine draws windows in row pairs, so its height is even.  The four
+lines give rows 2-11 with the bottom border on row 11.  With that last row
+pair (same flush) `reward_tail` writes row 11 again (the experience), row
+12 (the border), and `$27DC` = `$A2`: rows 12-13 columns 18-19 P0.  The
+battle has `$AA` there (P2), and the victory routine clears only the
+attributes of columns 20-31 below row 11.
+
+**Template.**  Four lines of `$F8 cv_wincb` are 20 bytes; the original
+template has 19.  It lives in bank 14 at `$923C` now (`b14_k_reward_tpl`,
+in place of `b14_wincb_exp_line`, which only `$22` called), and
+`kanji_build` points `data_EDA1/EDD1 + $22` there (`REWARD_TPL`; bank 14
+is mapped while `text_init` reads a template, as its CALLs need).  The
+line CALLs have no parameter byte: `ui_wincb` runs with the UI bank mapped
+over bank 14, so for `$22` it takes the line from `$54`.
+
+**Kanji** (`wg_reward`, `ui_battle.asm`), for each of 金 兵 糧 経 験 値:
+1. a group holding its UI glyph (`UI_SLOT`; 8x16 order);
+2. else a pool slot a message left it in: `kanji_overlay` now records the
+   text code of each pool slot it prints into (`UI_MC_LO/HI`; `q_glyph`
+   and the battle start mark a slot as no message kanji).  The slot keeps
+   the message routine's order (TL, TR, BL, BR), and the window draws it
+   that way;
+3. else an upload into groups 15-22 (the command window's), one per NMI.
+
+A pool slot the window uses is reserved (`UI_PRES`): the messages after
+the victory (level-up, prisoners) print into the other slots, until the
+next battle start.
+
+**Message pool slots** (`pool_choose`, `KANJI_EC`).  A page used to take
+consecutive slots `first .. first+n-1`.  With reserved slots in the middle
+the level-up messages found no run long enough, and the fallback (slot 0
+on) overwrote 経験値.  Now a page takes any free slots: `KANJI_PMASK`
+holds the page's blocked slots, and entry k takes the k-th free one.  If
+too few are free, the on-screen lines' slots are given up first, then the
+reward window's.  `page_flip` keeps its rule: C set (the page does not fit
+beside the lines and the reward window) still means clear the window.
+Pages fit beside the lines more often now, so the window scrolls on more
+often instead of being cleared (the victory message runs on as four
+lines).
+
+**The prisoner window.**  In a random battle with a captured officer the
+game opens window `$21` (なかまにいれる / にがす), rows 12-17 columns
+20-29, while the reward window is still shown.  Its top border now lies
+on the reward window's bottom row: columns 20-29 of row 12 show `$21`'s
+top border, so the two boxes share an edge.  The original had two rows
+between them.  The message window starts at row 18, so `$21` cannot move
+down.  Open question for the user.
+
+RAM: `UI_RAM2` `$7F9E-$7FBF` (34 bytes: `UI_MC_LO`, `UI_MC_HI`, `UI_PRES`,
+`KANJI_PMASK`; `kanji.inc`).  The canvas RAM code still ends at `$7F93`
+(its image is unchanged, so the converted states stay valid).
+
+Hand edit for item 8 (bank 14, `.ifdef KANJI_TARGET`): `$923C-$9257`
+`b14_k_reward_tpl` (the original `b14_wincb_exp_line` in the `.else`).
+Fixed bank: `$EDC3`, `$EDF3` (`$22`'s template pointer; `PATCH_SITES`,
+`bank15_lint`).
+
+Gates (kanji ROM `b08870ac...`; the original still byte-identical, bank-15
+lint OK; results in `out/test/stepD_g1`, states `out/user/m7`):
+- Standard suite: `band_check` +1: 1,253, 0 mismatches; `garble_run` 0
+  (all six offsets); `vblank_deadline` 0 (standard path, bt, nb, bb);
+  `zp`, `mask`, `palette` 0; `canvas_check` (item path) as before (152
+  canvas frames, 0 missing, 0 unlike, 0 late).
+- `garble_state`: bt, nb, bb, sv 0, and lv (a victory with level-ups:
+  the reward window and the messages after it) 0.  Item 7's custom path
+  (tactic window, 21-kanji item window, info screen and back) 0.  Town and
+  shop paths unchanged (42 / 85 / 44 / 90 / 123).
+- Victory paths from `out/test/stepC/nb.mss` (enemy troops poked to 1,
+  総攻撃): plain, with level-ups, with food (msg 061: all six kanji from
+  the pool, no upload), with a prisoner.  `garble_state` 0 on two of them.
+  On item 8's first build (consecutive slots) the same path gave 28 cells
+  `battle_glyph_changed`.
+- `taint_check` 0 / 0, min SP `$15` / `$0D` / `$0D` (item 7 `$12` /
+  `$0D` / `$0D`).  `ram_gate` (alone) 0 / 0 / 0, min SP `$14`.
+- PPU write timing (`out/test/stepD/vbtime.lua`): the reward window's
+  frames end their writes by line 254 (its last row pair with rows 11-12
+  in one flush: 64 bytes).  The victory routine's own clears reach line
+  257-259, the same on item 7's build.
+
 ## Questions for the user
 
-- Decision 7 in battle (window borders one row down) needs the window
-  engine's row mapping changed; see "Not done" in the battle screen's
-  result.  Wanted?  The strategist battle state is the user's slot 1 (copy:
-`out/test/stepA/user_slot1.mss`).
+- The reward window and the prisoner window `$21` share row 12 now (see
+  "Step B item 8").  Keep that, or move the reward window up one row
+  (rows 1-11, the top border on row 1), which leaves `$21` clear?
 
 ## Work order
 
@@ -701,7 +804,7 @@ states with the new canvas image):
 4. Name the routines, update this file with the new labels, run the
    original-build check and `bank15_lint`, commit.  Then compact.
 
-### Step B: done 2026-11-11 (items 1-6: "Step B result: the info screen"; item 7: "Step B result: the battle screen")
+### Step B: done 2026-11-11 (items 1-6: "Step B result: the info screen"; item 7: "Step B result: the battle screen"; item 8: "Step B item 8: the reward window")
 
 1. Font: add the 32 missing kanji (kanji font build).
 2. Path flag (map entry `$84F8` vs battle wrapper `$8518`).
@@ -721,3 +824,5 @@ states with the new canvas image):
    shows it; map -> info -> map; the stack and RAM gates.
 7. Battle screen (command panel, subwindows, involatile tracking, the
    23-group slot table): after the info screen.
+8. The reward window after a victory (user, added after item 7): three
+   rows taller, 金 兵糧 経験値 as 16x16 kanji, kanji in CHR reused.

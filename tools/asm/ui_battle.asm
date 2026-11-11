@@ -22,6 +22,7 @@
 ;
 ; Window templates (fixed bank, patched by kanji_build): "$F8 cv_wincb n"
 ; per line; n = 0-3 command window line, $10 tactic line, $20 item line.
+; The reward window $22 (bank 14's template): "$F8 cv_wincb", line $54.
 ; The canvas code's cv_sm hook calls UIF_SM after every row pair.
 ; ======================================================================
 B_TOP       = $08           ; 2: row-buffer pointer, top row
@@ -137,6 +138,14 @@ battle_state_reset:
     sta UI_WIN
     sta B_MODE
     sta B_Q
+    sta UI_PRES
+    sta UI_PRES+1
+    ldx #POOL_SLOTS-1
+    lda #$FF
+@mc:
+    sta UI_MC_HI,x              ; no message kanji known in the pool
+    dex
+    bpl @mc
     lda KANJI_CODE_HI           ; load_text_graphics posted a pool check
     cmp #POOL_CHECK_CODE
     bne @nocheck
@@ -184,6 +193,11 @@ glyph_ptr:
 q_glyph:
     sta UI_SLOT,x
     pha
+    cpx #POOL_SLOTS
+    bcs @nopool
+    lda #$FF
+    sta UI_MC_HI,x              ; (no message kanji there any more)
+@nopool:
     txa
     asl a
     asl a
@@ -330,6 +344,10 @@ win_glyphs:
     bne @not16
     jmp wg_items
 @not16:
+    cmp #$22
+    bne @not22
+    jmp wg_reward
+@not22:
     cmp #$17
     bne @panel
     jmp wg_tactics
@@ -537,9 +555,17 @@ item_of:
 ; and uploaded before any of its rows is drawn.
 ; ----------------------------------------------------------------------
 ui_wincb:
+    lda text_mode
+    cmp #$22
+    bne @param
+    lda $54                     ; the reward window: its template is in
+    ora #$30                    ; bank 14 (not mapped now), line = $54
+    bne @kind
+@param:
     ldy text_col
     lda ($16),y                 ; n
     inc text_col
+@kind:
     sta ZP_C
     lda UI_BATTLE
     bne @live
@@ -562,16 +588,21 @@ ui_wincb:
     lda ZP_C
     cmp #$10
     beq @tactic
-    bcs @item
+    bcc @panel
+    cmp #$30
+    bcs @reward
+    lda battle_anim
+    jsr draw_item_pair
+    jmp @out
+@panel:
     jsr draw_panel_line
     jmp @out
 @tactic:
     lda battle_anim
     jsr draw_tactic_pair
     jmp @out
-@item:
-    lda battle_anim
-    jsr draw_item_pair
+@reward:
+    jsr draw_reward_line
 @out:
     sty UI_X
     ldx UI_X
@@ -913,6 +944,11 @@ ui_sm:
     lda UI_SMRET
     cmp #$82
     bne @rts
+    lda text_mode
+    cmp #$22
+    bne @end
+    jsr reward_tail             ; (the same flush as the row pair)
+@end:
     jmp win_end
 @rts:
     rts
@@ -1114,4 +1150,420 @@ redraw_line:
     sta $0400,x
     sta ZP_J
     inx
+    rts
+
+; ----------------------------------------------------------------------
+; Reward window $22 (victory: gold, food, experience; step B item 8).  The
+; original's eight rows (2-9, columns 18-29) grow by three: 16x16 kanji,
+; each word with its number in the row below.  The template (bank 14
+; $923C, data_EDA1/EDD1 patched by kanji_build) has four lines, rows 3-10;
+; its last row pair also writes rows 11 and 12 (reward_tail).
+;   rows 3-4    金            line 0
+;   row 5       gold          line 1, top row
+;   rows 6-7    兵糧          line 1 bottom row, line 2 top row
+;   row 8       food          line 2, bottom row
+;   rows 9-10   経験値        line 3
+;   row 11      experience    reward_tail
+;   row 12      border        reward_tail
+; Kanji from column 20 (index 2), 7 digits at columns 21-27 (index 3-9).
+; A kanji already in CHR is used from there: a group with its UI glyph
+; (8x16 order), or a pool slot a message left it in (UI_MC_LO/HI; the
+; message routine's order TL, TR, BL, BR), whose slot the later messages
+; then leave alone (UI_PRES).  The rest go to groups 15-22: the command
+; window does not come back after a victory.
+; ----------------------------------------------------------------------
+RW_BASE     = ZP_C          ; the row pair's base ($00 / $30), after the line
+RW_DIG      = $0650         ; 7: digit tiles (the $0600 page, within a call)
+RW_NUM      = $0657         ; 3: the number
+RW_GOLD     = $06           ; offsets from $6070: gold $6076, food $6079,
+RW_FOOD     = $09           ; experience $6070
+RW_EXP      = $00
+RW_N        = 6             ; ui_reward_g: 金 兵 糧 経 験 値
+RW_ROW12_AT = $27DC         ; rows 12-15, columns 16-19: the battle's $AA (P2)
+RW_ROW12_V  = $A2           ;   with rows 12-13 columns 18-19 P0
+T_LSIDE     = $7D
+T_RSIDE     = $7E
+T_BL        = $0B
+T_BOT       = $0D
+T_BR        = $6F
+
+wg_reward:
+    lda #0
+    sta ZP_K
+@k:
+    ldy ZP_K
+    lda ui_reward_g,y
+    sta ZP_G
+    ldx #NGROUPS-1              ; a group with its UI glyph
+@find:
+    lda UI_SLOT,x
+    cmp ZP_G
+    beq @have
+    dex
+    bpl @find
+    ldx #POOL_SLOTS-1           ; a pool slot with it from a message
+@pool:
+    lda UI_MC_LO,x
+    cmp ui_reward_clo,y
+    bne @pnext
+    lda UI_MC_HI,x
+    cmp ui_reward_chi,y
+    beq @have
+@pnext:
+    dex
+    bpl @pool
+    ldx #15                     ; else a command group
+@alloc:
+    lda UI_GF,x
+    and #GF_NREF
+    beq @up
+    inx
+    cpx #NGROUPS
+    bne @alloc
+    beq @next                   ; (8 groups for 6 kanji: not reached)
+@up:
+    jsr set_nref
+    lda ZP_G
+    jsr q_glyph
+    jmp @next
+@have:
+    jsr set_nref
+    cpx #POOL_SLOTS
+    bcs @next
+    txa                         ; a pool slot: the messages keep off it
+    lsr a
+    lsr a
+    lsr a
+    tay
+    txa
+    and #7
+    tax
+    lda bit_of,x
+    ora UI_PRES,y
+    sta UI_PRES,y
+@next:
+    inc ZP_K
+    lda ZP_K
+    cmp #RW_N
+    bne @k
+    rts
+bit_of:
+    .db $80, $40, $20, $10, $08, $04, $02, $01
+
+; Line ZP_C & 3 of the reward window, Y = UI_X (the pair's base in bits
+; 4-5).  Y returns at index 10.
+draw_reward_line:
+    lda ZP_C
+    and #3
+    tax
+    tya
+    and #$30
+    sta RW_BASE
+    txa
+    beq @l0
+    cmp #2
+    beq @l2
+    bcs @l3
+    ldx #RW_GOLD                ; line 1: gold, 兵糧's upper half
+    jsr rw_top_num
+    lda #1
+    ldx #2
+    ldy #0
+    jsr rw_bot_word
+    jmp @out
+@l0:
+    lda #0                      ; line 0: 金
+    ldx #1
+    jsr rw_both
+    jmp @out
+@l2:
+    lda #1                      ; line 2: 兵糧's lower half, food
+    ldx #2
+    ldy #1
+    jsr rw_top_word
+    ldx #RW_FOOD
+    jsr rw_bot_num
+    jmp @out
+@l3:
+    lda #3                      ; line 3: 経験値
+    ldx #3
+    jsr rw_both
+@out:
+    lda RW_BASE
+    ora #10
+    tay
+    rts
+
+; Words: X kanji from reward kanji A at index 2, half Y (0 upper, 1
+; lower), in the top / bottom row; rw_both: the upper half in the top row,
+; the lower in the bottom row.
+rw_both:
+    stx ZP_T
+    pha
+    ldy #0
+    jsr rw_top_word
+    pla
+    ldx ZP_T
+    ldy #1
+rw_bot_word:
+    pha
+    lda B_BOT
+    sta ZP_A
+    lda B_BOT+1
+    bne rw_word                 ; (always: $03)
+rw_top_word:
+    pha
+    lda B_TOP
+    sta ZP_A
+    lda B_TOP+1
+rw_word:
+    sta ZP_A+1
+    sty ZP_J
+    stx ZP_N
+    pla
+    sta ZP_K
+    lda RW_BASE
+    ora #2
+    tay
+@k:
+    jsr rw_half
+    inc ZP_K
+    dec ZP_N
+    bne @k
+    rts
+
+; Numbers: the 24-bit number at $6070 + X, 7 digits at index 3.
+rw_bot_num:
+    lda B_BOT
+    sta ZP_A
+    lda B_BOT+1
+    bne rw_num                  ; (always: $03)
+rw_top_num:
+    lda B_TOP
+    sta ZP_A
+    lda B_TOP+1
+rw_num:
+    sta ZP_A+1
+    jsr num7
+    lda RW_BASE
+    ora #3
+    tay
+    ldx #0
+@d:
+    lda RW_DIG,x
+    sta (ZP_A),y
+    iny
+    inx
+    cpx #7
+    bne @d
+    rts
+
+; Half ZP_J (0 upper, 1 lower) of reward kanji ZP_K at (ZP_A),y; Y += 2.
+; This window's group for it (GF_NREF), else blank (not reached).
+rw_half:
+    sty ZP_X
+    ldy ZP_K
+    lda ui_reward_g,y
+    sta ZP_G
+    ldx #NGROUPS-1
+@find:
+    lda UI_SLOT,x
+    cmp ZP_G
+    bne @no
+    lda UI_GF,x
+    and #GF_NREF
+    bne @col
+@no:
+    dex
+    bpl @find
+    ldx #POOL_SLOTS-1
+@pool:
+    lda UI_MC_LO,x
+    cmp ui_reward_clo,y
+    bne @pn
+    lda UI_MC_HI,x
+    cmp ui_reward_chi,y
+    bne @pn
+    lda UI_GF,x
+    and #GF_NREF
+    bne @row
+@pn:
+    dex
+    bpl @pool
+    ldy ZP_X
+    lda #T_BLANK
+    sta (ZP_A),y
+    iny
+    sta (ZP_A),y
+    iny
+    rts
+@col:                           ; 8x16 order: upper t, t+2; lower t+1, t+3
+    txa
+    asl a
+    asl a
+    adc #$A4
+    ldy ZP_J
+    beq @c0
+    adc #1
+@c0:
+    ldy ZP_X
+    sta (ZP_A),y
+    iny
+    adc #2
+    sta (ZP_A),y
+    iny
+    rts
+@row:                           ; the message's order: upper t, t+1; lower
+    txa                         ; t+2, t+3
+    asl a
+    asl a
+    adc #$A4
+    ldy ZP_J
+    beq @r0
+    adc #2
+@r0:
+    ldy ZP_X
+    sta (ZP_A),y
+    iny
+    adc #1
+    sta (ZP_A),y
+    iny
+    rts
+
+; RW_DIG = the 24-bit number at $6070 + X as 7 digit tiles, leading zeros
+; blank (as the original's read_stack_arg).
+num7:
+    lda $6070,x
+    sta RW_NUM
+    lda $6071,x
+    sta RW_NUM+1
+    lda $6072,x
+    sta RW_NUM+2
+    ldy #0
+    sty ZP_N                    ; a digit was shown
+@digit:
+    ldx #0
+@sub:
+    lda RW_NUM
+    sec
+    sbc pow7_lo,y
+    sta ZP_PTR
+    lda RW_NUM+1
+    sbc pow7_mid,y
+    sta ZP_PTR+1
+    lda RW_NUM+2
+    sbc pow7_hi,y
+    bcc @emit
+    sta RW_NUM+2
+    lda ZP_PTR+1
+    sta RW_NUM+1
+    lda ZP_PTR
+    sta RW_NUM
+    inx
+    bne @sub
+@emit:
+    txa
+    ora ZP_N
+    bne @show
+    lda #T_BLANK
+    bne @put
+@show:
+    sta ZP_N
+    txa
+@put:
+    sta RW_DIG,y
+    iny
+    cpy #6
+    bne @digit
+    lda RW_NUM
+    sta RW_DIG+6
+    rts
+pow7_lo:                        ; 1000000, 100000, 10000, 1000, 100, 10
+    .db $40, $A0, $10, $E8, $64, $0A
+pow7_mid:
+    .db $42, $86, $27, $03, $00, $00
+pow7_hi:
+    .db $0F, $01, $00, $00, $00, $00
+
+; The window's last row pair (rows 10-11) is queued: row 11 again with the
+; experience, row 12 the bottom border, and row 12's cells at columns
+; 18-19 P0, in the same flush.  The ppu_addr shadow is row 11 at the
+; window's left column.
+reward_tail:
+    ldx #RW_EXP
+    jsr num7
+    ldx vram_queue_write
+    lda ppu_addr_hi_shadow
+    sta $0400,x
+    inx
+    lda ppu_addr_lo_shadow
+    sta $0400,x
+    inx
+    lda #12
+    sta $0400,x
+    inx
+    lda #T_LSIDE
+    sta $0400,x
+    inx
+    lda #T_BLANK
+    sta $0400,x
+    inx
+    sta $0400,x
+    inx
+    ldy #0
+@d:
+    lda RW_DIG,y
+    sta $0400,x
+    inx
+    iny
+    cpy #7
+    bne @d
+    lda #T_BLANK
+    sta $0400,x
+    inx
+    lda #T_RSIDE
+    sta $0400,x
+    inx
+    lda ppu_addr_lo_shadow      ; row 12
+    clc
+    adc #$20
+    sta ZP_T
+    lda ppu_addr_hi_shadow
+    adc #0
+    sta $0400,x
+    inx
+    lda ZP_T
+    sta $0400,x
+    inx
+    lda #12
+    sta $0400,x
+    inx
+    lda #T_BL
+    sta $0400,x
+    inx
+    ldy #10
+    lda #T_BOT
+@b:
+    sta $0400,x
+    inx
+    dey
+    bne @b
+    lda #T_BR
+    sta $0400,x
+    inx
+    lda #>RW_ROW12_AT
+    sta $0400,x
+    inx
+    lda #<RW_ROW12_AT
+    sta $0400,x
+    inx
+    lda #1
+    sta $0400,x
+    inx
+    lda #RW_ROW12_V
+    sta $0400,x
+    inx
+    lda #0
+    sta $0400,x
+    stx vram_queue_write
     rts

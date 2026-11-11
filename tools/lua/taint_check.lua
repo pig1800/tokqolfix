@@ -51,7 +51,7 @@ local protocol = {[0x51]=true, [0x52]=true, [0x53]=true, [0x56]=true, [0x46]=tru
   [0x68]=true, [0x69]=true, [0x40]=true, [0x14]=true, [0x15]=true, [0x6A]=true, [0x6C]=true, [0x42]=true}
 for a = 0x0400, 0x04FF do protocol[a] = true end
 for a = 0x7800, 0x78FF do protocol[a] = true end   -- the canvas half's attribute shadow
-for a = 0x7FC0, 0x7FFF do protocol[a] = true end   -- UI_RAM: the UI bank's state (step B), shared with the canvas hook and the overlay; no game data
+for a = 0x7F9E, 0x7FFF do protocol[a] = true end   -- UI_RAM2, UI_RAM: the UI bank's state (step B), shared with the canvas hook and the overlay; no game data
 local game_val, hack_dirty = {}, {}
 local reads, nread, gw, ngw = {}, 0, {}, 0
 local minsp, deep = 0xFF, 0

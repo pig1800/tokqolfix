@@ -96,7 +96,9 @@ CV_RAM_PAGES = 7
 # renderer, its own copy of the UI kanji glyphs and the item / tactic kanji
 # tables (ui_data.inc, generated here).
 UI_BANK = 28
-UI_RAM = 0x7FC0                 # kanji.inc UI_RAM: the UI bank's battery-RAM state
+UI_RAM = 0x7F9E                 # kanji.inc UI_RAM2 (then UI_RAM): the UI bank's battery-RAM state
+REWARD_KANJI = "金兵糧経験値"   # the reward window $22 (ui_battle.asm ui_reward_g)
+REWARD_TPL = 0x923C             # its template in bank 14 (bank14.asm b14_k_reward_tpl)
 UI_ITEM_TYPES = ("weapon", "armor", "helmet", "consumable", "keyitem")
 # The battle command window's 15 fixed kanji in group order 8-22 (step B
 # item 7, ui_battle.asm): filled from the back, 道具 last, 残 before them.
@@ -154,6 +156,9 @@ PATCH_SITES = {
     0xEAC8: bytes.fromhex("02fd08fa1a1a103ffa1512323912fae13f913bfa9e3f92ff"),
     0xEB23: bytes.fromhex("02fd14faf89186f89186faf89186f89186faf89186f89186"),
     0xEB43: bytes.fromhex("02fd146d0c0c0c2314320af6f70a0a0a0a0c0c0c0c0c6efaf88a96f823b7f823b7faf823b7f823b7faf8"),
+    # window $22's template pointer (data_EDA1 / data_EDD1 + $22): $EC34
+    0xEDC3: bytes((0x34,)),
+    0xEDF3: bytes((0xEC,)),
 }
 
 
@@ -239,6 +244,9 @@ def write_hook_constants(labels: dict[str, int]) -> None:
         m = re.match(r"^(UIF_[A-Z_]+|UI_RAM|UI_NOMIR)\s*=\s*(\S+)", line)
         if m:
             lines.append(f"{m.group(1)} = {m.group(2)}")
+    # The canvas RAM code's battle window CALL (bank 14's reward template).
+    cv = read_labels(OUT / "canvas_ram.lst")
+    lines.append(f"CV_WINCB = ${cv['cv_wincb']:04X}")
     text = "".join(line + "\n" for line in lines)
     (OUT / "fixed_hooks.inc").write_text(text, encoding="utf-8")
 
@@ -408,6 +416,19 @@ def build_ui_data() -> int:
     lines.append("ui_fixed_g:")
     lines.append(".db " + ",".join(f"${gid(ch):02X}" for ch in UI_FIXED)
                  + "  ; " + UI_FIXED)
+    # The reward window: each kanji's UI glyph and its text code (the code a
+    # message's pool slot records in UI_MC_LO/HI).
+    codes = kanji_common.code_map()
+    missing = [ch for ch in REWARD_KANJI if ch not in codes]
+    if missing:
+        raise SystemExit(f"reward kanji without a text code: {''.join(missing)}")
+    lines.append("ui_reward_g:")
+    lines.append(".db " + ",".join(f"${gid(ch):02X}" for ch in REWARD_KANJI)
+                 + "  ; " + REWARD_KANJI)
+    lines.append("ui_reward_clo:")
+    lines.append(".db " + ",".join(f"${codes[ch] & 0xFF:02X}" for ch in REWARD_KANJI))
+    lines.append("ui_reward_chi:")
+    lines.append(".db " + ",".join(f"${codes[ch] >> 8:02X}" for ch in REWARD_KANJI))
     # Items: bank 12 $A3C8/$A438 -> name at +2.  Equipment with a word-list
     # entry: its kanji (glyph ids; kana as $FE <game code>), else the kana
     # name; $FF ends.
@@ -619,6 +640,13 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     cb = bytes((0xF8, cv["cv_wincb"] & 0xFF, cv["cv_wincb"] >> 8))
     for addr, data in battle_templates(cb).items():
         apply_patch(bank, addr, data)
+    # The reward window $22 (victory) has four lines now, one byte more
+    # than its 19-byte template holds: its pointer (data_EDA1/EDD1 + $22)
+    # goes to bank 14's b14_k_reward_tpl, in place of the original's
+    # b14_wincb_exp_line (only $22 called it; bank 14 is mapped while
+    # text_init reads a template, as its CALLs need).
+    apply_patch(bank, 0xEDA1 + 0x22, bytes((REWARD_TPL & 0xFF,)))
+    apply_patch(bank, 0xEDD1 + 0x22, bytes((REWARD_TPL >> 8,)))
 
 
     write_bank("bank15.bin", bytes(bank))
