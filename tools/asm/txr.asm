@@ -99,7 +99,7 @@ cvn_map:
     sta KANJI_QPOS
     lda ppu_mask_shadow
     and #$18
-    beq cvn_rts                 ; rendering off: no split
+    beq cvn_off                 ; rendering off: no split, none pending
     bit TXR_UPF
     bmi cvn_arm                 ; v is in the pattern table already (the
                                 ; game's own scroll writes restored t)
@@ -138,6 +138,10 @@ cv_reload:                      ; (label for the gates)
     sta TXR_UPF
     cli                         ; stage 0 may preempt the rest of the NMI
 cvn_rts:
+    rts
+cvn_off:
+    sta MMC3_IRQ_OFF
+    sta KANJI_IRQ_ST            ; (A = 0)
     rts
 cvn_band_path:
     lda ppu_mask_shadow
@@ -443,6 +447,8 @@ txr_restore:
     jsr busy_off
     lda #0
     sta TXR_ON
+    sta MMC3_IRQ_OFF            ; no map split pending any more
+    sta KANJI_IRQ_ST
     rts
 
 ; Every part's glyphs free: kana maps empty, groups free, the bitmaps

@@ -317,6 +317,61 @@ About 1,600 bytes become free.
 3. Canvas code removed, gates (glyph truth, IRQ lines, deadline, taint,
    RAM).
 
+## Progress (2026-11-12, first working build)
+
+Commits `a2c501a` and the follow-up.  The original build is still
+byte-identical, and `bank15_lint` passes.
+
+**In place:**
+- **Bank 26 (`txr.asm`, about 2.4 KiB).**
+  - The map init (`$DE8D`).
+  - The font restore (in the nametable fill, i.e. `clear_screen`).
+  - The per-part allocator: kana map, kanji groups, tile bitmap.
+  - Staging.
+  - The translation of `text_draw_line`'s entries and the
+    `text_render_cell` loop (a kanji's two columns in one step).
+  - The fill.
+  - The split's NMI arm and the glyph uploader, which the NMI maps at
+    `$8000`.
+- **RAM image (757 bytes, `$7900-$7BF4`).**  The IRQ stages, the stream
+  step, the stubs and the bank reader.
+  - The renderer never waits itself.  Its calls return a status, and the
+    stub waits at the original routine's stack depth.  A first version
+    that waited inside bank 26 overflowed the text task's stack
+    (`$0100-$0130`) and crashed.
+  - In rendering-off frames the glyphs are written directly, with the
+    NMI held off.
+- **Tables.**  `$7BF5-$7F9B`, plus `$0780-$07F3`.
+- **Overlay.**  In map mode it writes the kanji codes and `REG_LO/HI` and
+  posts no requests.  The hack's NMI is skipped in map mode.
+- **Band page.**  Now at CHR `$3800` (`wr_reg1` maps page 2 to R0 14).
+- **Canvas.**  Removed: the `$CA59` patch, `cursor_to_ppu`'s tail and
+  `redraw_start`'s redirect are back to the original.  `redraw_start` now
+  frees every part's glyphs.
+
+**Measured** (battery-save boot, town, `out/test/txr/`):
+
+| Check | Result |
+|---|---|
+| IRQ page switches | 2,436, every one in line 71, 119 or 167 at dots 266-282 (hblank).  An IRQ armed before `clear_screen` once switched 14 lines early on the title; fixed (leaving map mode and rendering-off map frames turn the IRQ off). |
+| Command window | the finished window pixel-identical to the previous build (`a1cf5e6`); complete at frame 922 against 919, drawn over 8 frames (row by row, each row waiting for its new glyphs) where the previous build showed it at once |
+| Kanji message 「早くお行きなさい 玄徳」 | every kanji whole on its first frame (no half kanji) |
+| Officer list, item window and sub-window, info screen round trip | the same pictures as the previous build once drawn; the info screen (font restored by `clear_screen`) pixel-identical |
+
+**Not done yet:**
+1. **Speed.**  Upload a row's glyphs in the same NMI as its entry (the
+   uploader before the game's flush, a lag frame only when they do not
+   fit), so windows open at the original pace.
+2. **Full pages.**  Freeing slots when a page is full (the VRAM read-back
+   GC).  Today slots come back only at the full redraw that closes the
+   map's windows.  A cell that finds no slot is drawn blank and counted in
+   `TXR_FULL` (`$078F`).
+3. **Gates.**  `band_check`, `canvas_check` and parts of `garble_state`
+   assume the band or the canvas.  Save states from earlier builds hold
+   the old RAM image and no renderer state, so they need a converter.
+   Still to run: stack depth (`taint_check`), battle entry and exit, the
+   persuasion stream, the deadline gate.
+
 ## Work order (after the answers)
 
 1. **Pages and IRQ.**
