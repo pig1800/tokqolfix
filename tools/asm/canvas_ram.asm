@@ -458,8 +458,9 @@ txr_rcx:
     lda TXR_RET
     rts
 
-; text_draw_cursor's tile store ($CD07, "pla / sta $0400,x"): in map
-; mode ▶ ($70) and the blank ($0A) are the fixed set's $0A and $7F.
+; text_draw_cursor's tile store ($CD07, "pla / sta $0400,x"; also
+; text_put_char's ▼ and blank): in map mode ▶ ($70), ▼ ($71) and the
+; blank ($0A) are the fixed set's $0A, $0B and $7F.
 txr_cur:
     pla
     sta TXR_C0
@@ -468,13 +469,15 @@ txr_cur:
     pla                         ; the tile
     bit TXR_ON
     bpl @st
+    cmp #$0A
+    beq @b
     cmp #$70
-    bne @b
-    lda #$0A
+    bcc @st
+    cmp #$72
+    bcs @st
+    sbc #$65                    ; (C clear: - $66) $70 -> $0A, $71 -> $0B
     bne @st
 @b:
-    cmp #$0A
-    bne @st
     lda #$7F
 @st:
     sta $0400,x
