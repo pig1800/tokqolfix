@@ -16,6 +16,10 @@
 ;                dispatcher, replaced by the overlay's text_dispatch)
 ;   $F004-$F039  reset mapper/RAM setup, rewritten
 ;   $FFE0-$FFEF  block-writer original entry, overlay frame wait
+;   $D671-$D6C1  copy_pointer_triplet and its divisor table (QoL: the
+;                digits come from the UI bank; stubs in the space)
+;   $C1D2-$C216  div24_shift (QoL: the UI bank divides; the block
+;                writer's fast copy in the space)
 ;
 ; MMC3 bank-switch protocol (revision 21).  MMC3_SEL ($EB, the game's MMC1
 ; bank_switch_lock, which only the rewritten switch routines used) holds the
@@ -219,11 +223,8 @@ c343_hook:
     jsr chr1_scene
     jmp CV_STREAM               ; the step, then a split's address force
 @main:
-    lda #FN_BLOCK_PRE
-    jsr call_hack
-    jsr c343_plain
-    lda #FN_BLOCK_POST
-    jmp call_hack
+    jmp blk_main                ; (QoL: page 0 and the nametables skip the
+                                ; hack calls; $D671 block below)
 
 ; MMC3 scanline IRQ (the vector at $FFFE, IRQs enabled at reset).  Two
 ; per frame since map-canvas step 1.  Stage 0 (KANJI_IRQ_ST = 1 or 2)
@@ -458,6 +459,140 @@ wait_text:
     jsr WAIT_VBLANK
     lda KANJI_TEXT_BANK
     jmp SET_BANK_LOCK
+
+;----------------------------------------------------------------------
+.base $D671
+; ----------------------------------------------------------------------
+; QoL (battle setup and the army screen).  copy_pointer_triplet ($D671,
+; entered from read_pointer_triplet above it and called directly) wrote
+; the decimal digits of $03-$05 with six div24_shift calls, ~11,500 cycles
+; a number.  UIF_DEC does the same by subtracting the powers of ten,
+; ~1,700 cycles with the call, and leaves the same results and end state
+; (ui.asm ui_dec).  Its 81 bytes (with the divisor table) hold the stub and
+; the two routines after it.  The stack is no deeper than with
+; div24_shift (call_ui's bank byte and return address, nothing in
+; ui_dec): $0104-$010A, the digits, sit at the bottom of the stack page.
+cpt_stub:
+    sty ppu_update_off          ; (the original's first instruction)
+    stx UI_DECX
+    ldx #UIF_DEC
+    jmp call_ui
+
+; bs_wait: wait_vblank_queued for the battle start's pacing waits (bank 14
+; $9BE3 / $9C47 around the encounter roll, bank 15 $DF32 in the enemy
+; slots' roll, $E0A3 / $E200 / $E238 in the name loop).  With the NMI busy
+; and rendering off, such a frame only lets the busy NMI run (frame
+; counter, task timers, sound: no PPU work) and then resumes the main
+; task: controller, RNG step (read_input_state), nmi_frame_counter, the
+; sound hook if nmi_mode is set.  Without the frame, the same steps run
+; here, from the scheduler's own resume code ($C040, which pulls Y and X
+; and returns), so every roll sees the same random numbers.  The queue
+; budget is set as the real wait sets it (a busy NMI leaves it).  Shown
+; screen, NMI not busy or another task: the real wait.
+bs_wait:
+    lda nmi_busy
+    beq @wait
+    lda ppu_mask_shadow
+    and #$18
+    bne @wait
+    lda task_slot_index
+    bne @wait
+    lda #1
+    sta nmi_update_budget
+    txa
+    pha
+    tya
+    pha
+    jmp TASK_RESUME
+@wait:
+    jmp WAIT_VBLANK_QUEUED
+
+; blk_main: c343_hook's main-thread path.  FN_BLOCK_PRE / FN_BLOCK_POST
+; only act on CHR page 1 ($1000-$1FFF: select it, copy or mark the band
+; page); for page 0 and the nametables they cost ~470 cycles a call for
+; nothing (the battle setup's sprite stream: 48 such calls).
+; Page-0 writes of plain tiles (mode 0: 16 bytes a tile from ($00)) of
+; 1-15 tiles go to blk_fast (the sprite stream: 4 tiles a step).
+blk_main:
+    lda $03
+    cmp #$20
+    bcs @plain                  ; nametables, palette
+    cmp #$10
+    bcs @page1
+    lda $04
+    and #$0F
+    bne @plain                  ; fills, plane-only and read-back modes
+    ldx $02
+    dex
+    cpx #15
+    bcs @plain                  ; 0 (= 256) or 16 and more tiles
+    jmp blk_fast
+@plain:
+    jmp c343_plain
+@page1:
+    lda #FN_BLOCK_PRE
+    jsr call_hack
+    jsr c343_plain
+    lda #FN_BLOCK_POST
+    jmp call_hack
+blk_main_end:
+
+; ----------------------------------------------------------------------
+.base $C1D2
+; ----------------------------------------------------------------------
+; QoL: div24_shift ($00-$02 / $06-$08: quotient $00-$02, remainder
+; $03-$05, $09 = 0, X and Y kept) shifts 24 times, ~1,900 cycles.  The UI
+; bank's ui_div runs the same steps (the same results for every input,
+; divisor 0 and divisors over $7FFFFF included) and skips the dividend's
+; leading zero bytes.  Callers load A again after it (A and the flags are
+; call_ui's).  The stack is one byte deeper than the original's (X and Y
+; pushed there; call_ui's bank byte and return address here).
+div_stub:
+    stx UI_DECX
+    sty UI_DECY
+    ldx #UIF_DIV
+    jmp call_ui
+
+; blk_fast (from blk_main): the game's body for mode 0, page 0, 1-15
+; tiles, in one 2x unrolled loop: ~14 cycles a byte instead of ~23 (the
+; body calls a routine per 8 bytes and tests the read flag per byte).
+; End state as the body's: $00/$01 past the tiles, $02 = $03 = 0, X = Y = 0,
+; A = $01.
+blk_fast:
+    bit PPUSTATUS
+    lda $03
+    sta PPUADDR
+    lda $04
+    sta PPUADDR
+    lda $02
+    asl a
+    asl a
+    asl a
+    asl a
+    sta $03                     ; the end index (16-240)
+    ldy #0
+@copy:
+    lda ($00),y
+    sta PPUDATA
+    iny
+    lda ($00),y
+    sta PPUDATA
+    iny
+    cpy $03
+    bne @copy
+    tya
+    clc
+    adc $00
+    sta $00
+    lda #0
+    tax
+    tay
+    stx $02
+    stx $03
+    adc $01
+    sta $01
+    rts
+blk_fast_end:
 
 ; ======================================================================
 ; Map-canvas step 2: four-screen nametables (TR1ROM/TVROM-style, header

@@ -175,6 +175,10 @@ RESTORE_BANK_AFTER_NMI = $C4AA
 SET_BANK_13       = $C4A2
 SET_BANK_14       = $C4A6
 WAIT_VBLANK       = $C09F
+WAIT_VBLANK_QUEUED = $C0A7  ; always yields a frame (the NMI flushes)
+TASK_RESUME       = $C040   ; task_scheduler, main task resumed: controller,
+                            ; RNG step, nmi_frame_counter, sound hook, then
+                            ; pla / tay / pla / tax / rts
 TEXT_DRAW_CHAR    = $D456   ; prompt + wait for the button
 TEXT_REDRAW_LINES = $D405   ; shift the window's tile rows up one row
 
@@ -267,6 +271,13 @@ UIF_BSETUP        = 9       ; battle_setup_slots is next: busy mode while the
                             ; screen is off (the slots' waits flush at once)
 UIF_BSETUP_END    = 10      ; its slot loop ended (bank 15 $E10F, X = $0A
                             ; there): busy mode off again
+UIF_DEC           = 11      ; copy_pointer_triplet's decimal digits (bank 15
+                            ; $D671 is a stub; X in UI_DECX)
+UIF_DIV           = 12      ; div24_shift (bank 15 $C1D2 is a stub; X, Y in
+                            ; UI_DECX, UI_DECY)
+UI_DECY           = $7F9C   ; UIF_DIV: the caller's Y
+UI_DECX           = $7F9D   ; UIF_DEC, UIF_DIV: the caller's X (the bytes before
+                            ; UI_RAM2; the canvas RAM code ends below them)
 ; The reward window (victory) and the message pool (step B item 8).
 UI_RAM2           = $7F9E   ; battery RAM after the canvas RAM code (below UI_RAM)
 UI_MC_LO          = UI_RAM2+0 ; 15: text code of the message kanji in pool slot k

@@ -3196,7 +3196,11 @@ b14_loc_9BD8:
 
 b14_data_9BE1:
     .incbin "build/assets/bank14_data.bin", $1BE1, $0002
+.ifdef KANJI_TARGET
+    jsr BS_WAIT                 ; QoL: busy, screen off: the frame's steps, no frame
+.else
     jsr wait_vblank_queued
+.endif
     ldx text_y
     ldy text_y2
     lda party_index
@@ -3268,7 +3272,11 @@ b14_loc_9C2D:
     adc #$8D
     sta party_scan2
 b14_loc_9C47:
+.ifdef KANJI_TARGET
+    jsr BS_WAIT                 ; QoL: as at $9BE3
+.else
     jsr wait_vblank_queued
+.endif
     jsr b14_battle_gauge_scale
     lda #$01
     sta battle_flags

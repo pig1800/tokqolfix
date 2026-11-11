@@ -34,6 +34,17 @@ HOOK_RANGES = ((0xC5A6, 0xC6D1), (0xC460, 0xC47D), (0xC489, 0xC49D),
                (0xC4AD, 0xC4B9), (0xC4BA, 0xC4CA), (0xD291, 0xD2B6),
                (0xF004, 0xF039), (0xFFE0, 0xFFEF))
 
+# QoL: copy_pointer_triplet and its divisor table (the decimal digits),
+# replaced by a stub to the UI bank (UIF_DEC); the space holds bs_wait and
+# blk_main.  Original bytes, by hash; joins HOOK_RANGES.
+QOL_REGIONS = (
+    (0xD671, 0xD6C1, "039df481b2024e448ac04f8bd2252af2746608ae28741435ac022cbd78aecbf1"),
+    # div24_shift, replaced by a stub to the UI bank (UIF_DIV); the space
+    # holds blk_fast
+    (0xC1D2, 0xC216, "4e77aef7dc99cbeaaabbc1781c494c6a195d16fe951b86e16d7875118c69c1d9"),
+)
+HOOK_RANGES = HOOK_RANGES + tuple((lo, hi) for lo, hi, _ in QOL_REGIONS)
+
 # Map-canvas step 2 (four-screen nametables): game routines rewritten in
 # place by the fixed-bank source (cursor_to_ppu + set_scroll_from_cursor,
 # the walking scroll's vertical part, draw_tile_run's column wrap,
@@ -96,7 +107,7 @@ CV_RAM_PAGES = 7
 # renderer, its own copy of the UI kanji glyphs and the item / tactic kanji
 # tables (ui_data.inc, generated here).
 UI_BANK = 28
-UI_RAM = 0x7F9E                 # kanji.inc UI_RAM2 (then UI_RAM): the UI bank's battery-RAM state
+UI_RAM = 0x7F9C                 # kanji.inc UI_DECY, UI_DECX, UI_RAM2, UI_RAM: the UI bank's battery-RAM state
 REWARD_KANJI = "金兵糧経験値"   # the reward window $22 (ui_battle.asm ui_reward_g)
 REWARD_TPL = 0x923C             # its template in bank 14 (bank14.asm b14_k_reward_tpl)
 UI_ITEM_TYPES = ("weapon", "armor", "helmet", "consumable", "keyitem")
@@ -159,14 +170,15 @@ PATCH_SITES = {
     # window $22's template pointer (data_EDA1 / data_EDD1 + $22): $EC34
     0xEDC3: bytes((0x34,)),
     0xEDF3: bytes((0xEC,)),
-    # battle setup: jsr wait_vblank_queued (the name loop's three sites),
-    # the loop's end
+    # battle setup: jsr wait_vblank_queued (the enemy roll, the name
+    # loop's three sites), the loop's end
+    0xDF32: bytes((0x20, 0xA7, 0xC0)),
     0xE0A3: bytes((0x20, 0xA7, 0xC0)),
     0xE200: bytes((0x20, 0xA7, 0xC0)),
     0xE238: bytes((0x20, 0xA7, 0xC0)),
     0xE10F: bytes.fromhex("e00af0034ca3e0"),   # cpx #$0A / beq intro / jmp loc_E0A3
 }
-BSETUP_WAITS = (0xE0A3, 0xE200, 0xE238)   # not $DF32: the enemy rolls keep their frames
+BSETUP_WAITS = (0xDF32, 0xE0A3, 0xE200, 0xE238)   # -> jsr bs_wait
 
 
 def prg() -> bytes:
@@ -238,7 +250,7 @@ def write_hook_constants(labels: dict[str, int]) -> None:
     need = ("main_prg", "nmi_prg", "irq_handler", "far_head", "call_hack", "c343_hook",
             "ef08_hook", "ef08_gate", "ef31_hook", "ef31_gate", "chr1_scene", "wait_text", "scroll_text",
             "page_flip", "window_clear", "ltg_copied", "battle_shake",
-            "call_ui", "call_ui_army")
+            "call_ui", "call_ui_army", "bs_wait")
     for label in need:
         if label not in labels:
             raise SystemExit(f"missing fixed-hook label {label}")
@@ -576,6 +588,13 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     for lo, hi, digest in FOURSCREEN_REGIONS:
         if hashlib.sha256(bytes(bank[lo - 0xC000:hi - 0xC000 + 1])).hexdigest() != digest:
             raise SystemExit(f"four-screen region ${lo:04X}-${hi:04X} differs from the audited original")
+    for lo, hi, digest in QOL_REGIONS:
+        if hashlib.sha256(bytes(bank[lo - 0xC000:hi - 0xC000 + 1])).hexdigest() != digest:
+            raise SystemExit(f"QoL region ${lo:04X}-${hi:04X} differs from the audited original")
+    if labels["cpt_stub"] != 0xD671:
+        raise SystemExit(f"cpt_stub at ${labels['cpt_stub']:04X}: copy_pointer_triplet is $D671")
+    if labels["div_stub"] != 0xC1D2:
+        raise SystemExit(f"div_stub at ${labels['div_stub']:04X}: div24_shift is $C1D2")
     base, want = RESET_REGION
     have = bytes(bank[base - 0xC000:base - 0xC000 + len(want)])
     if have != want:
@@ -655,14 +674,13 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     apply_patch(bank, 0xEDA1 + 0x22, bytes((REWARD_TPL & 0xFF,)))
     apply_patch(bank, 0xEDD1 + 0x22, bytes((REWARD_TPL >> 8,)))
 
-    # Battle setup in busy mode (QoL): the name loop's queue waits become
-    # wait_vblank ($C09F; with the NMI on and not busy it falls into
-    # wait_vblank_queued, so nothing changes there), and the loop's end
-    # calls UIF_BSETUP_END (X = $0A at that point) before
-    # battle_setup_intro: "cpx #$0A / bne loc_E0A3 / jsr call_ui".  The
-    # enemy loop's wait ($DF32) stays: its troop rolls see the same RNG
-    # steps as before, and UIF_BSETUP_END replays the steps the name loop
-    # no longer yields for.
+    # Battle setup without frame pacing (QoL): the enemy roll's and the
+    # name loop's queue waits call bs_wait (with the NMI busy and the
+    # screen off it runs the main task's per-frame steps in place of the
+    # frame, so every roll sees the same RNG steps; otherwise the real
+    # wait), and the loop's end calls UIF_BSETUP_END (X = $0A at that
+    # point) before battle_setup_intro: "cpx #$0A / bne loc_E0A3 /
+    # jsr call_ui".  Bank 14's $9BE3 / $9C47 call bs_wait too.
     uif = {}
     for line in (ROOT / "decomp" / "include" / "kanji.inc").read_text(encoding="utf-8").splitlines():
         m = re.match(r"^(UIF_[A-Z_]+)\s*=\s*(\d+)", line)
@@ -671,7 +689,7 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     if uif.get("UIF_BSETUP_END") != 0x0A:
         raise SystemExit("UIF_BSETUP_END must be 10: bank 15 $E10F calls call_ui with X = $0A")
     for addr in BSETUP_WAITS:
-        apply_patch(bank, addr, bytes((0x20, 0x9F, 0xC0)))
+        apply_patch(bank, addr, bytes((0x20, labels["bs_wait"] & 0xFF, labels["bs_wait"] >> 8)))
     apply_patch(bank, 0xE10F, bytes((0xE0, 0x0A, 0xD0, 0x90, 0x20,
                                      labels["call_ui"] & 0xFF, labels["call_ui"] >> 8)))
 

@@ -29,8 +29,8 @@ end
 local function rd(a) return emu.read(a, emu.memType.nesMemory) end
 local A_MAIN_PRG = 0xC5BA  -- @main_prg@
 local fixed_ranges = {{A_MAIN_PRG,0xC6D1},{0xC460,0xC47D},{0xC4AD,0xC4CA},{0xD291,0xD2B6},{0xF004,0xF039},{0xFFE0,0xFFEF}}
-local A_BATTLE_SHAKE = 0xC6BB  -- @battle_shake@
-local A_BATTLE_SHAKE_END = 0xC6CF  -- @battle_shake_end@
+local A_BATTLE_SHAKE = 0xC6B1  -- @battle_shake@
+local A_BATTLE_SHAKE_END = 0xC6C5  -- @battle_shake_end@
 local A_LTG_MASK = 0xB94B  -- @ltg_mask@
 local A_REDRAW_START = 0xDB67  -- @redraw_start@
 local A_LTG_MASK_END = 0xB976  -- @ltg_mask_end@

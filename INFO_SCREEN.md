@@ -500,6 +500,7 @@ decomp regeneration must keep them, as it keeps `SAVE_SLOTS` and
 |---|---|
 | `b14_officer_info_screen` `$8518-$857A` | the new driver, padded to `$857B` (with `UIF_INFO_BUSY` after `battle_intro_screen`) |
 | `b14_battle_build_lineup` (`jsr battle_setup_slots`) | `jsr b14_k_setup` (QoL: `UIF_BSETUP`) |
+| `b14_battle_start` `$9BE3`, `b14_loc_9C47` (`jsr wait_vblank_queued`) | `jsr BS_WAIT` (QoL: the frame's steps without the frame; `fixed_hooks.inc`) |
 | army status screen `$95EA`, `b14_inline_969F` (2), `b14_print_gold` / `_food` / `_exp`, `b14_wincb_print_sp` / `_sp_factor` | `jsr wait_vblank` for `jsr wait_vblank_queued` (QoL) |
 | `b14_battle_officer_info` `$AA1A-$AA60` | `call_ui` enter/exit, no slot 0/1 streaming; the original wrapper is 71 bytes, not `$AA5E` |
 | `b14_battle_start` `$9B89` | `jsr b14_k_battle_start` |
@@ -796,50 +797,126 @@ lint OK; results in `out/test/stepD_g1`, states `out/user/m7`):
 The user saw the officer names enter plane 1 slot by slot, during the
 black screen of a battle start and of the army status screen (Select on
 the map).  The game paces those builds through the VRAM queue, one wait
-per step, although the screen is off.
+per step, although the screen is off.  A second pass (the user: keep the
+same rolls without the roll frames; "2 frames per slot sounds absurd")
+replaced the remaining pacing waits by their per-frame steps and sped up
+the slot work.
 
-| Screen | Black before | Black now | How |
+| Screen | Original pacing | First pass | Now |
 |---|---|---|---|
-| info screen, from battle / from the map | 15 / 16 frames | 5 / 6 | busy mode (`UIF_INFO_BUSY`, see "Busy-mode build") |
-| battle start, normal / boss | 47 / 50 | 29 / 31 | the name loop in busy mode |
-| army status screen | 31 | 21 | its queue waits flush at once |
+| info screen, from battle / from the map | 15 / 16 frames | 5 / 6 | 5 / 6 |
+| battle start, normal / boss | 47 / 50 | 29 / 31 | 17 / 19 |
+| army status screen | 31 | 21 | 14 |
 
 **`wait_vblank` vs `wait_vblank_queued`.**  `wait_vblank` flushes the
 queue and the palette/CHR stream at once when `nmi_busy` is set (or the
 NMI is off); otherwise it falls into `wait_vblank_queued`, which always
 yields one frame (task timer) and leaves the flush to the NMI.  A busy
 NMI skips the PPU work but still runs the frame counter, the task timers
-and the sound (`nmi_mode` 0).  So outside busy mode the two are the same,
-and the patched sites below change nothing there.
+and the sound (`nmi_mode` 0).
 
-**Battle start.**  `battle_setup_slots` rolls the 5 enemy slots (one
-frame each, `$DF32`) and falls into `battle_setup_names`.  That loop draws
-the 10 slots (sprite, name, troops), with a queue wait per slot (`$E0A3`)
-and two per shown slot (`$E200`, `$E238` in `battle_draw_slot_troops`).
-- Bank 14 `b14_k_setup` (`jsr battle_setup_slots` in
-  `b14_battle_build_lineup`) calls `UIF_BSETUP`: busy mode if rendering is
-  off (`ppu_mask_shadow`; a scripted battle's intro event could leave it
-  on, then nothing changes).
-- Bank 15: `$E0A3`, `$E200`, `$E238` call `wait_vblank`; `$E10F` (the loop
-  end, X = `$0A` there) is `cpx #$0A / bne loc_E0A3 / jsr call_ui`, so
-  `UIF_BSETUP_END` (function 10) runs before `battle_setup_intro`.  It
-  ends busy mode only if `UIF_BSETUP` started it (`UI_BSBUSY`).
-- **The random numbers.**  The main task steps the RNG (`read_input_state`
-  `$FA9D`, a misnomer) and `nmi_frame_counter` each time it resumes after
-  a yield.  The enemy loop keeps its frames, so the troop rolls are
-  unchanged.  `UIF_BSETUP_END` replays the steps the name loop no longer
-  yields for: 10 + 2 per shown slot.  Nothing in the loop reads them.  At
-  `battle_setup_intro` everything matches the old build (nametables, all
-  CHR RAM, palette, WRAM, RNG, `nmi_frame_counter`), normal and boss
-  battle.  Only the NMI's real-frame counter `$33` and the task timers
-  are about 18 frames behind.  Some later sequences pace by `$33`, so
-  after the setup a roll can land on another RNG step: in the boss test
-  the enemy's first strike happened on the old build only.  As random as
-  before, not the same outcome for the same frame of input (any timing
-  change does that, the kanji text's included).
-- What is left of the 29 frames is work: per slot about 17,000
-  instructions, mostly `div24_shift` (the troop count in decimal) and
-  `copy_to_vram`'s tile loops (the slot's sprite tiles).
+**What a pacing frame does.**  With the NMI busy and rendering off, a
+`wait_vblank_queued` frame lets the busy NMI run and then resumes the main
+task (task_scheduler `$C040`): `read_controller`, the RNG step
+(`read_input_state` `$FA9D`, a misnomer), `nmi_frame_counter`, the sound
+hook if `nmi_mode` is set, `pla / tay / pla / tax / rts`.  Nothing else in
+the game state changes (the queue budget is set to 1 by the wait and a
+busy NMI leaves it).  **`bs_wait`** (fixed bank `$D67B`): with
+`nmi_busy` set, rendering off (`ppu_mask_shadow & $18`) and the main task
+running, it sets the budget, pushes X and Y and jumps to `$C040`, so the
+same steps run without the frame; otherwise it is the real wait.  Every
+roll after such a wait sees the same random number as before.
+
+**Battle start.**  Pacing waits, all `jsr bs_wait` now:
+- bank 14 `$9BE3` and `$9C47` (`.ifdef KANJI_TARGET`), around the random
+  encounter's lineup roll (`b14_battle_setup_enemy_list`);
+- bank 15 `$DF32`, one per enemy slot in `battle_setup_slots` (the troop
+  rolls);
+- `$E0A3` once per slot in `battle_setup_names`, `$E200` / `$E238` twice
+  per shown slot (`battle_draw_slot_troops`).
+
+The first pass made the last three `wait_vblank` (busy: flush at once)
+and replayed their RNG steps in `UIF_BSETUP_END`; `bs_wait` does the steps
+in place, and `UIF_BSETUP_END` only leaves busy mode.  Bank 14
+`b14_k_setup` (`jsr battle_setup_slots` in `b14_battle_build_lineup`)
+calls `UIF_BSETUP`: busy mode and `UI_NOMIR` if rendering is off (a
+scripted battle's intro event could leave it on, then nothing changes).
+`$E10F` (the loop end, X = `$0A` there) is `cpx #$0A / bne loc_E0A3 /
+jsr call_ui`, so `UIF_BSETUP_END` (function 10) runs before
+`battle_setup_intro`; it acts only if `UIF_BSETUP` started (`UI_BSBUSY`).
+
+**The slot work** (per shown slot: the sprite's 24 tiles through the CHR
+stream in 6 steps, the name, the troop count and gauge, two OAM rebuilds)
+was about 17,000 instructions, ~58,000 cycles; now ~11,100 instructions,
+~37,000 cycles:
+- **The troop count's digits.**  `copy_pointer_triplet` (`$D671`, also
+  the army screen's gold, food, experience and troop numbers) divided by
+  10^6 ... 10 with six `div24_shift` calls, ~12,000 cycles.  `$D671` is a
+  stub now (`sty ppu_update_off / stx UI_DECX / ldx #UIF_DEC / jmp
+  call_ui`); the UI bank's `ui_dec` subtracts the powers of ten, ~1,900
+  cycles with the call, with the same digits and the same end state
+  (`$00-$09`, `ppu_update_ptr_lo`, X, Y).  Every caller loads A or Y next.
+- **`div24_shift`** (`$C1D2`, the gauge and four bank-14 / bank-15
+  callers): a stub too (`stx UI_DECX / sty UI_DECY / ldx #UIF_DIV / jmp
+  call_ui`).  `ui_div` runs the same 24 shift-and-subtract steps (the same
+  results for every input, divisor 0 and divisors over `$7FFFFF`
+  included) and skips the dividend's leading zero bytes while the
+  remainder is 0: ~1,250 cycles instead of ~1,930.  Callers load A next.
+- **No band copy of the name glyphs.**  The block writer copied every
+  name tile written to page 1 to the band page (`restore_tile_main`, 664
+  cycles a tile).  The battle shows no band (the user's rule: no band
+  copying in battle and on the info screen); `UIF_BSETUP` sets `UI_NOMIR`
+  until `UIF_BSETUP_END`, so the tiles are marked stale instead, as for
+  the battle start's and the info screen's other uploads.
+- **The block writer** (`c343_hook`'s main-thread path, now `blk_main`
+  at `$D68F`): `FN_BLOCK_PRE` / `FN_BLOCK_POST` act only on CHR page 1
+  and cost ~470 cycles a call for page 0 and the nametables, which skip
+  them now.  Page-0 writes of plain tiles (mode 0) of 1-15 tiles go to
+  `blk_fast` (`$C1DD`): one 2x unrolled loop, ~14 cycles a byte instead
+  of ~23, with the body's end state (`$00-$04`, A, X, Y).  The sprite
+  stream's steps (4 tiles) take this path.
+
+Fixed-bank space: `copy_pointer_triplet` with its divisor table
+(`$D671-$D6C1`) holds the `UIF_DEC` stub, `bs_wait` and `blk_main`;
+`div24_shift` (`$C1D2-$C216`) the `UIF_DIV` stub and `blk_fast`.  Both
+regions are checked against the original by hash (`kanji_build.py`
+`QOL_REGIONS`) and registered in `bank15_lint.py`.  `UI_DECY` / `UI_DECX`
+are `$7F9C` / `$7F9D`, below `UI_RAM2` (the canvas RAM code ends at
+`$7F93`).  The stubs' stack is no deeper than the originals' for
+`UIF_DEC` (the digits at `$0104-$010A` sit at the bottom of the stack
+page) and one byte deeper for `UIF_DIV`.
+
+Verified:
+- py65 (`out/test/stepE/dec`): `ui_dec` against the original
+  `copy_pointer_triplet` + `div24_shift` machine code, 30,244 numbers
+  (edges and random 24-bit), 0 mismatches in `$00-$09`, `$0104-$010A`,
+  `ppu_update_ptr_lo`, X, Y; `ui_div` against `div24_shift`, 20,176
+  dividend / divisor pairs (with divisor 0 and over `$7FFFFF`), 0
+  mismatches; `blk_main` / `blk_fast` against the original body, 4,995
+  writes of 1-15 tiles, the same PPU register writes in order and the
+  same end state.
+- At `battle_setup_intro`, against the build before both passes, normal
+  and boss battle: nametables, CHR `$0000-$1FFF`, palette, WRAM (but
+  `UI_DECY` / `UI_DECX`), the RNG and `nmi_frame_counter` are identical.
+  Different by design: the band page (no copy of the name tiles) and
+  `KANJI_STALE`; by timing: the NMI's real-frame counter `$33`, the sound
+  engine's state (`$CA`, `$D0-$D5`, `$0700-$077F`), the main task's saved
+  stack pointer, stack and hack scratch bytes, and two bytes of the
+  `$0600` inline-block copy (it copies past its block, over the patched
+  `jsr`).
+- After the setup the battle runs on the same random numbers, but some
+  later sequences pace by `$33`, so a later roll can land on another RNG
+  step for the same frame of input (in the first pass's boss test the
+  enemy's first strike happened on the old build only).  As random as
+  before.
+
+What is left of the 17 frames: 3 frames of the game's own NMI work before
+busy mode starts (the black screen begins, the palette upload), about
+2.5 frames of the fixed kanji and status panels before the rolls, about
+1.25 frames a shown slot (the sprite's 384 CHR bytes, the name's glyphs,
+two OAM rebuilds; `update_oam_sprite` steps each actor's animation
+counter per call, so neither rebuild can be skipped), 2 frames of
+`battle_setup_intro`'s fade.
 
 **Army status screen.**  It is in busy mode already (the game's own); its
 frames came from `wait_vblank_queued` calls, which ignore that.  They call
@@ -847,15 +924,17 @@ frames came from `wait_vblank_queued` calls, which ignore that.  They call
 line's inline block (`b14_inline_969F`, two calls per line), and the
 number printers `b14_print_gold` / `_food` / `_exp`,
 `b14_wincb_print_sp`, `b14_wincb_print_sp_factor` (the same outside busy
-mode).  The finished screen is byte-identical to before.
+mode).  The second pass's digit routine takes it from 21 to 14 frames.
+The finished screen is byte-identical to before.
 
-Gates (`out/test/stepD_g3`, kanji ROM after this change): as after item 8,
-except `taint_check` bb's min SP `$0C` (was `$0D`).  That is an NMI with
-the sound engine on top of `wait_vblank`'s direct flush in the name loop.
-The lowest stack byte is `$010D`, clear of the number printer's digits
-(`$0104-$010A`, not in use during a flush) and of the hack's `$0102-$0103`.
-`ram_gate` (alone) 0 / 0 / 0, min SP `$14`; the battle -> info -> battle
-path, an army screen path and the canvas item path as before.
+Gates (`out/test/stepE_g1`, kanji ROM after the second pass): as after the first pass: garble 0 on the battle, victory, level-up and
+save paths (town and shop 42 / 85 / 44 / 90 / 123, unchanged), the custom
+item path s1 0, the army screen path 0, canvas 152 / 0 / 0, standard
+garble 0, band 1253 / 0, zp / deadline / mask / palette 0; taint 0 reads,
+0 writes, min SP bt `$15`, nb `$10`, bb `$10` (was `$0D` / `$0C`: the
+name loop no longer flushes inside a wait); `ram_gate` 0 / 0 / 0, min SP
+`$14`.  The army screen and the info screen (map path) are byte-identical
+to the first pass's (all PPU memory, the 16 KiB of CHR RAM, the palette).
 
 ## Questions for the user
 

@@ -78,7 +78,7 @@ ui_dispatch:
 ui_fns:
     .dw ui_info_draw-1, ui_binfo_enter-1, ui_binfo_exit-1, ui_army-1
     .dw ui_info_enter-1, ui_bstart-1, ui_wincb-1, ui_sm-1, ui_info_busy-1
-    .dw ui_bsetup-1, ui_bsetup_end-1
+    .dw ui_bsetup-1, ui_bsetup_end-1, ui_dec-1, ui_div-1
 
 ; ======================================================================
 ; UIF_INFO_ENTER: the info screen, before battle_intro_screen.  Its block
@@ -106,13 +106,14 @@ ui_info_busy:
 
 ; ======================================================================
 ; UIF_BSETUP: battle_setup_slots is next (bank 14 b14_k_setup).  It rolls
-; the enemy slots (one frame each, $DF32: unchanged), then draws every slot
-; (sprite, name, troops), paced by the queue waits at $E0A3, $E200 and
-; $E238: about 4 frames a slot.  With the screen off (always so far; a
-; scripted battle's intro event could leave it on) that pacing is not
-; needed: busy mode, and those three waits are wait_vblank now (fixed
-; bank), whose busy path flushes at once.  UIF_BSETUP_END leaves busy mode
-; when the slot loop ends.
+; the enemy slots, then draws every slot (sprite, name, troops), paced by
+; queue waits ($DF32, $E0A3, $E200, $E238): about 4 frames a slot.  The
+; screen is off and the NMI busy there (always so far; a scripted battle's
+; intro event could leave the screen on), and those waits are the fixed
+; bank's bs_wait now, which steps the RNG in place of the frame.  Here:
+; busy mode for the CHR writes, and no band-page copy of the name glyphs
+; (the battle shows no band; the block writer marks the tiles stale).
+; UIF_BSETUP_END undoes both when the slot loop ends.
 ; ======================================================================
 ui_bsetup:
     lda ppu_mask_shadow
@@ -120,56 +121,153 @@ ui_bsetup:
     bne @rts                    ; shown: as the original
     lda #1
     sta UI_BSBUSY
+    sta UI_NOMIR
     jmp ppu_begin
 @rts:
     rts
 
 ; UIF_BSETUP_END: bank 15 $E10F, after the last slot, before
 ; battle_setup_intro (its fade and messages need the NMI's PPU work).
-; Each wait the name loop no longer yields for resumed the main task, and
-; that steps the RNG (read_input_state) and nmi_frame_counter
-; (task_scheduler $C046).  They are replayed, so the battle goes on with
-; the same random numbers as before (the surprise roll next, then every
-; roll of the battle): $E0A3 once per slot, $E200 and $E238 once each per
-; slot shown (battle_draw_slot_troops).  Nothing in the loop reads them.
-READ_INPUT_STATE = $FA9D        ; the per-frame RNG step (fixed bank)
 ui_bsetup_end:
     lda UI_BSBUSY
     beq @rts
     lda #0
     sta UI_BSBUSY
-    jsr ppu_end
-    lda #0
-    sta ZP_N
-    ldx #9
-@slot:
-    inc ZP_N                    ; $E0A3
-    txa                         ; battle_current_actor's actor: party
-    cmp #5                      ; order for slots 0-4, slot + 2 after
-    bcs @enemy
-    ldy $6097,x
-    jmp @actor
-@enemy:
-    adc #2                      ; (C set: + 3 - 1)
-    sbc #0
-    tay
-@actor:
-    tya
-    bmi @next                   ; (no actor)
-    lda $609C,y
-    bpl @next                   ; (not present)
-    inc ZP_N                    ; $E200, $E238
-    inc ZP_N
-@next:
-    dex
-    bpl @slot
-@step:
-    jsr READ_INPUT_STATE
-    inc nmi_frame_counter
-    dec ZP_N
-    bne @step
+    sta UI_NOMIR
+    jmp ppu_end
 @rts:
     rts
+
+; ======================================================================
+; UIF_DEC: copy_pointer_triplet ($D671, now a stub: sty ppu_update_off /
+; stx UI_DECX / ldx #UIF_DEC / jmp call_ui).  The original divides $03-$05
+; by 1,000,000 ... 10 with div24_shift (24 shift steps each, about 11,500
+; cycles a number); the quotients go to $0104-$0109 (the first can exceed
+; 9: 16,777,215 / 1,000,000 = 16), the last remainder to $010A.  Here the
+; powers of ten are subtracted (at most 16 + 5 * 9 subtractions, about
+; 1,600 cycles), with the same end state: $00-$02 the last quotient,
+; $03-$05 the last remainder, $06-$08 the last divisor (10), $09 = 0
+; (div24_shift's counter), ppu_update_ptr_lo = 6, X and Y as given (A and
+; the flags are call_ui's; every caller loads A or Y next).  No call and
+; no push: the digits sit at the bottom of the stack page.
+; ======================================================================
+ui_dec:
+    ldy #0                      ; digit
+@digit:
+    ldx #0                      ; quotient
+@try:
+    lda $03                     ; $06/$07 = trial low / middle bytes
+    sec
+    sbc dec_lo,y
+    sta $06
+    lda $04
+    sbc dec_mid,y
+    sta $07
+    lda $05
+    sbc dec_hi,y
+    bcc @store
+    sta $05
+    lda $07
+    sta $04
+    lda $06
+    sta $03
+    inx
+    bne @try                    ; (always: at most 16)
+@store:
+    txa
+    sta $0104,y
+    iny
+    cpy #6
+    bne @digit
+    stx $00
+    sty ppu_update_ptr_lo
+    lda #0
+    sta $01
+    sta $02
+    sta $07
+    sta $08
+    sta $09
+    lda #10
+    sta $06
+    lda $03
+    sta $010A
+    ldx UI_DECX
+    ldy ppu_update_off
+    rts
+; ======================================================================
+; UIF_DIV: div24_shift ($C1D2, now a stub: stx UI_DECX / sty UI_DECY /
+; ldx #UIF_DIV / jmp call_ui).  $00-$02 / $06-$08: the quotient in
+; $00-$02, the remainder in $03-$05, $09 = 0, X and Y as given.  The same
+; 24 shift-and-subtract steps as the original, so the same results for
+; every input (divisor 0: quotient $FFFFFF, remainder the dividend;
+; divisors over $7FFFFF: the remainder's bit 24 is dropped as there).
+; With a divisor above 0 and the remainder still 0, a zero top byte of the
+; dividend makes the next 8 steps leave the remainder 0 and shift 8 zero
+; quotient bits in: done as one byte move.  No call and no push.
+; ======================================================================
+ui_div:
+    lda #0
+    sta $03
+    sta $04
+    sta $05
+    ldy #24
+    lda $06
+    ora $07
+    ora $08
+    beq @step                   ; divisor 0: every step
+@skip:
+    lda $02
+    bne @step
+    lda $01                     ; 8 steps: remainder 0, quotient << 8
+    sta $02
+    lda $00
+    sta $01
+    lda #0
+    sta $00
+    tya
+    sec
+    sbc #8
+    tay
+    bne @skip
+    beq @done                   ; (dividend 0)
+@step:
+    asl $00
+    rol $01
+    rol $02
+    rol $03
+    rol $04
+    rol $05
+    lda $03
+    sec
+    sbc $06
+    tax
+    lda $04
+    sbc $07
+    sta $09
+    lda $05
+    sbc $08
+    bcc @next
+    sta $05
+    lda $09
+    sta $04
+    stx $03
+    inc $00
+@next:
+    dey
+    bne @step
+@done:
+    sty $09
+    ldx UI_DECX
+    ldy UI_DECY
+    rts
+
+; 1,000,000 / 100,000 / 10,000 / 1,000 / 100 / 10 (data_D6B0's divisors)
+dec_lo:
+    .db $40, $A0, $10, $E8, $64, $0A
+dec_mid:
+    .db $42, $86, $27, $03, $00, $00
+dec_hi:
+    .db $0F, $01, $00, $00, $00, $00
 
 ; ======================================================================
 ; UIF_BINFO_ENTER: the battle wrapper, before the info screen (rendering

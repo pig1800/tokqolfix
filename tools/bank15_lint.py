@@ -40,7 +40,10 @@ PATCHES = [
     (0xEB43, 0xEB6C),   # window $17 template (battle tactics; title 残り)
     (0xEDC3, 0xEDC3),   # window $22's template pointer, low (reward window: bank 14 $923C)
     (0xEDF3, 0xEDF3),   # its high byte
-    (0xE0A3, 0xE0A5),   # battle setup's name loop: jsr wait_vblank (was wait_vblank_queued)
+    (0xD671, 0xD6C1),   # copy_pointer_triplet + divisor table: UIF_DEC stub, bs_wait, blk_main
+    (0xC1D2, 0xC216),   # div24_shift: UIF_DIV stub, blk_fast
+    (0xDF32, 0xDF34),   # battle setup's enemy roll: jsr bs_wait (was wait_vblank_queued)
+    (0xE0A3, 0xE0A5),   # battle setup's name loop: jsr bs_wait (was wait_vblank_queued)
     (0xE200, 0xE202),   # same (battle_draw_slot_troops)
     (0xE238, 0xE23A),   # same
     (0xE10F, 0xE115),   # slot loop end: cpx #$0A / bne loc_E0A3 / jsr call_ui (UIF_BSETUP_END)
