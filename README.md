@@ -3,6 +3,14 @@
 Workspace for analyzing and modifying the Famicom game
 `Tenchi o Kurau (Japan) (Rev 1).nes`.
 
+The ROM is not in this repository, nor is any data taken from it.  Put
+your own copy (sha256 `40f19e17...`, below) at the repo root under that
+name, then extract the game's graphics and data blocks once:
+
+```sh
+python tools/assets.py export
+```
+
 ## Decompilation
 
 `decomp/` contains a byte-identical ASM reconstruction:

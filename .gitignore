@@ -10,7 +10,6 @@ out/
 
 # Mesen / model caches
 *.mss
-!tools/lua/town_menu.mss
 *.sav
 .cache/
 __pycache__/
@@ -23,3 +22,16 @@ desktop.ini
 
 tools/asm/*.bin
 tools/asm/*.lst
+
+# Game data is never tracked: the ROM (kept at the repo root for the build)
+# and everything tools/assets.py export makes from it.  On a new checkout:
+# put the ROM there, then run python tools/assets.py export.
+*.nes
+assets/data/
+assets/text/
+assets/graphics/
+assets/screens/
+assets/fonts/kana_8x8.png
+assets/fonts/kanji_16x16_bank01.png
+assets/fonts/kanji_16x16_bank02.png
+decomp/main.lst
