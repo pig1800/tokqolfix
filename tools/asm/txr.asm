@@ -394,41 +394,19 @@ txr_restore:
     lda #CHR_SCENE_LO
     jsr set_r0
     lda #0
-    sta TXR_G                   ; glyph
-@chunk:
-    lda TXR_G                   ; 4 glyphs (32 bytes) a read
-    asl a
-    asl a
-    asl a
-    sta TXR_RS
-    lda TXR_G
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    clc
-    adc #>FONT_SRC
-    sta TXR_RS+1
-    lda #1
-    sta TXR_RST
-    lda #0
-    sta TXR_RST+1
-    sta TXR_RO
-    lda #32
-    sta TXR_RN
-    lda #FONT_BANK
-    jsr TXR_RR
-    lda TXR_G
     jsr tile_addr
-    ldx #0
+    lda #<font_copy
+    sta PTR
+    lda #>font_copy
+    sta PTR+1
+    ldx #128                    ; tiles
 @tile:
-    ldy #8
+    ldy #0
 @d:
-    lda TXR_GBUF,x
+    lda (PTR),y
     sta PPUDATA
-    inx
-    dey
+    iny
+    cpy #8
     bne @d
     lda #0
     ldy #8
@@ -436,13 +414,15 @@ txr_restore:
     sta PPUDATA
     dey
     bne @z
-    cpx #32
-    bne @tile
-    lda TXR_G
+    lda PTR
     clc
-    adc #4
-    sta TXR_G
-    bpl @chunk
+    adc #8
+    sta PTR
+    bcc @n
+    inc PTR+1
+@n:
+    dex
+    bne @tile
     jsr busy_off
     lda #0
     sta TXR_ON
@@ -618,30 +598,29 @@ write_gbuf:
     bne @z
     rts
 
-; TXR_GBUF[0-7] = the old font's glyph A (bank 9, 1bpp).
+; TXR_GBUF[0-7] = the old font's glyph A (1bpp; this bank's copy of the
+; bank-9 font, so no bank switch: the stack stays shallow).
 read_kana:
     ldx #0
-    stx TXR_RS+1
+    stx PTR+1
     asl a
-    rol TXR_RS+1
+    rol PTR+1
     asl a
-    rol TXR_RS+1
+    rol PTR+1
     asl a
-    rol TXR_RS+1
-    sta TXR_RS
-    lda TXR_RS+1
+    rol PTR+1
+    sta PTR
+    lda PTR+1
     clc
-    adc #>FONT_SRC
-    sta TXR_RS+1
-    lda #1
-    sta TXR_RST
-    lda #0
-    sta TXR_RST+1
-    sta TXR_RO
-    lda #8
-    sta TXR_RN
-    lda #FONT_BANK
-    jmp TXR_RR
+    adc #>font_copy
+    sta PTR+1
+    ldy #7
+@c:
+    lda (PTR),y
+    sta TXR_GBUF,y
+    dey
+    bpl @c
+    rts
 
 ; TXR_GBUF[0-31] = kanji glyph TXR_K (code = bank index * 512 + local:
 ; high byte bit 0 = the +256 half, the rest the glyph bank 23 + n).
@@ -1329,3 +1308,9 @@ fix_map:
     .dsb $60-$10, $FF
     .db $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $00, $02, $03
     .db $0A, $0B, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $06, $07, $FF
+
+; The bank-9 font (1bpp, 128 glyphs), the build's asset (identical to
+; bank 9 $BA00): kana glyphs and the font restore without a bank switch.
+    .align 256
+font_copy:
+    .incbin "../../decomp/build/assets/bank09_kana.bin"

@@ -372,6 +372,44 @@ byte-identical, and `bank15_lint` passes.
    Still to run: stack depth (`taint_check`), battle entry and exit, the
    persuasion stream, the deadline gate.
 
+### Second round (2026-11-12, after the user's review)
+
+The user's answers:
+- Battle, the info screen and the army screen keep their own (approved)
+  code; the renderer is map mode only.
+- 3 frames slower to open a menu is fine (the 外星科技 translation needs
+  about 15).
+- Tile freeing is not needed: only the shop's buying returns to a previous
+  menu; every other cancel closes the whole menu.
+- Save states: the user makes fresh ones on request; no converter.
+
+Fixes:
+- **Title glitch.**  The boot's font load (from the reset path, RAM
+  `$061F`) went through the same hook as the map setup.  The logo showed
+  the renderer's tiles, and the band page (now CHR `$3800`) never got its
+  copy of the font, so the title's history window lost its kana and
+  frame.  The hook is now `screen_refresh`'s `jsr load_battle_palette`
+  (`$CF22`).  At boot only pages 2-4 are set up, at the first map setup.
+- **Opening logo.**  The glyph uploader sat on the NMI's flush call
+  (`$EE9E`), 26 cycles before the game's raster loops.  It moved to
+  `cv_nmi` (`ef08_gate`, normal frames only): 6 tiles, minus one per 8
+  bytes flushed.  With uploads the arm ends by line 256.8.
+- **Stack.**  The font restore read bank 9 through the bank switcher,
+  inside `clear_screen`: 11 bytes deeper than the original fill (lowest
+  push `$0110`).  Bank 26 now carries a copy of the font (the build's
+  asset), so kana reads and the restore need no bank switch.  Lowest push
+  `$0116` (the previous build: `$0117`) on the boot, town, menus, info
+  screen and army screen path.
+
+Checks (battery-save boot, `out/test/txr`):
+
+| Check | Result |
+|---|---|
+| Boot, logo, title menu, history window (frames 11-650) | pixel-identical to `a1cf5e6` |
+| Town fade-in | 1 frame earlier (the map setup writes less than the font copy) |
+| Army screen round trip | identical |
+| Map page switches | 5,169, all in lines 71, 119, 167 |
+
 ## Work order (after the answers)
 
 1. **Pages and IRQ.**
