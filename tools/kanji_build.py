@@ -107,7 +107,7 @@ CV_RAM_PAGES = 7
 # renderer, its own copy of the UI kanji glyphs and the item / tactic kanji
 # tables (ui_data.inc, generated here).
 UI_BANK = 28
-UI_RAM = 0x7F9B                 # kanji.inc UI_AP0, UI_DECY, UI_DECX, UI_RAM2, UI_RAM: the UI bank's battery-RAM state
+UI_RAM = 0x7F9C                 # kanji.inc UI_DECY, UI_DECX, UI_RAM2, UI_RAM: the UI bank's battery-RAM state
 REWARD_KANJI = "金兵糧経験値"   # the reward window $22 (ui_battle.asm ui_reward_g)
 REWARD_TPL = 0x923C             # its template in bank 14 (bank14.asm b14_k_reward_tpl)
 UI_ITEM_TYPES = ("weapon", "armor", "helmet", "consumable", "keyitem")
@@ -177,8 +177,6 @@ PATCH_SITES = {
     0xE200: bytes((0x20, 0xA7, 0xC0)),
     0xE238: bytes((0x20, 0xA7, 0xC0)),
     0xE10F: bytes.fromhex("e00af0034ca3e0"),   # cpx #$0A / beq intro / jmp loc_E0A3
-    # window $0D (army status screen, level / gold / food / experience)
-    0xEA44: bytes.fromhex("fb010c6d0c0c6560647900010c0c6efa0af84996fa0af85696fa0af86396ff"),
 }
 BSETUP_WAITS = (0xDF32, 0xE0A3, 0xE200, 0xE238)   # -> jsr bs_wait
 
@@ -262,7 +260,7 @@ def write_hook_constants(labels: dict[str, int]) -> None:
     # The UI functions and flags (kanji.inc) for bank 14's step-B sites.
     inc = ROOT / "decomp" / "include" / "kanji.inc"
     for line in inc.read_text(encoding="utf-8").splitlines():
-        m = re.match(r"^(UIF_[A-Z_]+|UI_RAM|UI_NOMIR|UI_AP0|AP0_ON)\s*=\s*(\S+)", line)
+        m = re.match(r"^(UIF_[A-Z_]+|UI_RAM|UI_NOMIR)\s*=\s*(\S+)", line)
         if m:
             lines.append(f"{m.group(1)} = {m.group(2)}")
     # The canvas RAM code's battle window CALL (bank 14's reward template).
@@ -703,17 +701,6 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
         apply_patch(bank, addr, bytes((0x20, labels["bs_wait"] & 0xFF, labels["bs_wait"] >> 8)))
     apply_patch(bank, 0xE10F, bytes((0xE0, 0x0A, 0xD0, 0x90, 0x20,
                                      labels["call_ui"] & 0xFF, labels["call_ui"] >> 8)))
-
-    # Army status screen (QoL): the level window $0D's three lines hold one
-    # blank cell each, no number printing (lines starting with $FA do not
-    # count as lines: window $0E's first line would move).  UIF_ALAB redraws the window after the last one,
-    # 4 columns wider (left border 3 columns left, right border 1 right: the
-    # engine places windows by metatile, so it cannot draw an odd column),
-    # with the kanji labels and the numbers.
-    tpl = (bytes((0xFB, 0x01, 0x0C))
-           + bytes.fromhex("6d0c0c6560647900010c0c6e")
-           + bytes((0xFA, 0x0A, 0xFA, 0x0A, 0xFA, 0x0A, 0xFF)))
-    apply_patch(bank, 0xEA44, tpl + bytes([0xFF]) * (31 - len(tpl)))
 
 
     write_bank("bank15.bin", bytes(bank))

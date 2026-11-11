@@ -259,7 +259,7 @@ UI_BANK           = 28
 UIF_INFO_DRAW     = 0       ; info screen, still black: CHR and the layout
 UIF_BINFO_ENTER   = 1       ; battle wrapper, before the info screen
 UIF_BINFO_EXIT    = 2       ; battle wrapper, after it (rendering off)
-UIF_ARMY          = 3       ; army status screen: flush, SP / MSP cells P1
+UIF_ARMY          = 3       ; army status screen: the whole screen, rendering off
 UIF_INFO_ENTER    = 4       ; info screen, before battle_intro_screen
 UIF_BSTART        = 5       ; battle start, rendering off: the fixed kanji
 UIF_WINCB         = 6       ; battle window line (template CALL, X in UI_X)
@@ -275,14 +275,7 @@ UIF_DEC           = 11      ; copy_pointer_triplet's decimal digits (bank 15
                             ; $D671 is a stub; X in UI_DECX)
 UIF_DIV           = 12      ; div24_shift (bank 15 $C1D2 is a stub; X, Y in
                             ; UI_DECX, UI_DECY)
-UIF_ALAB          = 13      ; army status screen, last: the level window's
-                            ; labels and numbers, S P / M S P
-UI_AP0            = $7F9B   ; AP0_ON: the army status screen, plane 0 only (the
-                            ; block writer turns plane-1 writes into plane 0);
-                            ; pal_copy clears it.  A magic value: save states
-                            ; of older builds hold garbage here
-AP0_ON            = $A7
-UI_DECY           = $7F9C   ; UIF_DIV: the caller's Y (UI_AP0 below it)
+UI_DECY           = $7F9C   ; UIF_DIV: the caller's Y
 UI_DECX           = $7F9D   ; UIF_DEC, UIF_DIV: the caller's X (the bytes before
                             ; UI_RAM2; the canvas RAM code ends below them)
 ; The reward window (victory) and the message pool (step B item 8).

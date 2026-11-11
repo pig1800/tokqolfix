@@ -1443,17 +1443,6 @@ fn_block_pre:
     lda $04
     and #$02                    ; read mode: nothing changes
     bne @rts
-    lda UI_AP0                  ; QoL, army status screen: plane 0 only.
-    cmp #AP0_ON                 ; A plane-1 write (mode 2: names, 大将 /
-    bne @std
-    lda $04                     ; 軍師, the digits) writes plane 0 and
-    and #$0F                    ; clears plane 1 (mode 1)
-    cmp #$08
-    bne @std
-    lda $04
-    eor #$0C
-    sta $04
-@std:
     lda $03
     sta KANJI_M0
     lda $04
@@ -1578,8 +1567,7 @@ bitmask:
 pal_copy:
     lda #0                      ; step B: the uploads before this load were
     sta UI_NOMIR                ; the one-shot no-mirror ones; the battle
-    sta UI_BATTLE               ; screen's kanji state ends (UIF_BSTART);
-    sta UI_AP0                  ; QoL: so is the army screen's plane-0 mode
+    sta UI_BATTLE               ; screen's kanji state ends (UIF_BSTART)
     ldx text_graphics_index
     lda KANJI_PAL_LO,x
     sta ppu_update_ptr_lo

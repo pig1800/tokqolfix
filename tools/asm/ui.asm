@@ -78,7 +78,7 @@ ui_dispatch:
 ui_fns:
     .dw ui_info_draw-1, ui_binfo_enter-1, ui_binfo_exit-1, ui_army-1
     .dw ui_info_enter-1, ui_bstart-1, ui_wincb-1, ui_sm-1, ui_info_busy-1
-    .dw ui_bsetup-1, ui_bsetup_end-1, ui_dec-1, ui_div-1, ui_alab-1
+    .dw ui_bsetup-1, ui_bsetup_end-1, ui_dec-1, ui_div-1
 
 ; ======================================================================
 ; UIF_INFO_ENTER: the info screen, before battle_intro_screen.  Its block
@@ -450,16 +450,113 @@ pool_unchecked:
     rts
 
 ; ======================================================================
-; UIF_ARMY: the army status screen (Select on the map), in place of its
-; "jsr wait_vblank" after the attribute string (busy mode, rendering off).
-; Flush the queue as that call did, then set the cells of SP (row 20) and
-; MSP (row 22), columns 22-25, to P1: S, P and M are plane 1 (decision 11).
+; UIF_ARMY: the army status screen (Select on the map), built whole while
+; it is black (bank 14 b14_army_status_screen, after battle_intro_screen's
+; fade-out; INFO_SCREEN.md "Army status screen, built directly").  The
+; game built it with battle_intro_screen's setup (two frame waits after
+; the fade), four text-engine windows (every row queued and flushed, every
+; name kanji a block-writer stream, the troop list's line routine copied
+; to RAM for each line), its portrait loader (six queued parts) and three
+; more frame waits to show it: 13 black frames.  Here, busy mode with
+; rendering off throughout, everything written directly:
+; - battle_intro_screen's setup: input_buttons, $AA, PPUCTRL, the
+;   nametable and the sprites cleared (clear_screen), palette set 8 (the
+;   NMI that shows the screen sends it).  Its CHR: tiles $00-$0F (bank 9
+;   $BA00, plane-1 glyphs) to plane 0, plane 1 cleared; the UI block's
+;   $F0-$FE (bank 9 $BF00; $E0-$EF get the labels);
+; - 大将 / 軍師 ($C0-$D7, bank 1 $8000) to plane 0, the six label kanji
+;   to $D8-$EF, M S P to plane 0 of $F5-$F7 (planes 1 cleared);
+; - the leader's portrait: text_load_page's six parts and colours, read
+;   directly; sub_CFA1's string around it (fixed bank);
+; - every name once ($A9 from $10, 4 tiles a kanji, $A4-$BF once $10-$5F
+;   are full): the leader's, the troop list's, the strategist's; an actor
+;   shown before reuses its tiles (the leader and the strategist are in
+;   the troop list);
+; - the numbers with read_stack_arg's blanking.
+; Every cell is P0 (plane 0 only) but the portrait's.  The level window is
+; 4 columns wider than the game's (columns 15-30): 金 兵糧 経験値 from
+; column 16, numbers right aligned at column 29 (6 digits leave 2 blank
+; cells after 経験値), レベル- and the level from column 20.
+; The text engine's state is left as its last window left it where the
+; field return reads it (text_mode, menu_flags, text_actor, text_target,
+; the saved rows); the hack's as for the info screen (no band, the pool
+; check posted by load_text_graphics dropped, the pool unchecked).
 ; ======================================================================
+ALAB_TILE   = $D8               ; 6 label kanji, 4 tiles each
+AR_NT       = $0600             ; 16: an actor's first name tile (0: not yet)
+AR_NK       = $0610             ; 16: its kanji
+AR_BUF      = $0620             ; 10: the officer record's bytes $0A-$13
+AR_RECA     = $062A             ; the actor whose record AR_BUF holds
+RR_CODE     = $0660             ; the RAM reader (rr_rom, up to $06FF)
+CLEAR_SCREEN = $C43C
+LOAD_TEXT_GRAPHICS = $C5A6
+TEXT_LOAD_PAGE = $CFA9
+FIND_PARTY_MEMBER = $D636
+PORTRAIT_STR = $CFA6            ; sub_CFA1's draw_string pointer
+PORTRAIT_DST = $D107            ; text_load_page's CHR address by loop_counter
+PORTRAIT_COL = $D0FD            ; its third colour by the record's low nibble
+
 ui_army:
-    jsr WAIT_VBLANK             ; busy mode: flushes the queue directly
-    jsr ppu_begin
-    ; The level window's labels 金 兵 糧 経 験 値: plane 0, tiles $D8-$EF
-    ; (8x16 order), over the bars of the UI block (not shown here).
+    lda #$80
+    sta input_buttons
+    inc $AA
+    lda #$90
+    sta ppu_ctrl_shadow
+    jsr ppu_begin               ; busy; PPUCTRL $90 (NMI on, +1)
+    lda ppu_mask_shadow
+    and #$E7
+    sta ppu_mask_shadow
+    sta PPUMASK                 ; off now: the fade left the palette black
+    jsr CLEAR_SCREEN            ; nametable blank, attributes 0, sprites off
+    lda #$08
+    sta text_graphics_index
+    jsr LOAD_TEXT_GRAPHICS      ; palette set 8 to $03E0
+    jsr ppu_setup
+    lda #0                      ; the hack's state for a screen without a
+    sta KANJI_BAND              ; band (as ui_info_draw)
+    lda KANJI_CODE_HI
+    cmp #POOL_CHECK_CODE
+    bne @nocheck
+    lda KANJI_REQ
+    cmp #REQ_UPLOAD
+    bne @nocheck
+    lda #REQ_NONE
+    sta KANJI_REQ
+@nocheck:
+    jsr pool_unchecked
+    ldx #0
+@rr:
+    lda rr_rom,x
+    sta RR_CODE,x
+    inx
+    cpx #rr_end-rr_rom
+    bne @rr
+    ; battle_intro_screen's tiles, 大将 / 軍師
+    lda #0
+    sta ZP_I
+@chr:
+    ldy ZP_I
+    lda ar_chr,y                ; PPU address high, 0: end
+    beq @labels
+    sta PPUADDR
+    lda ar_chr+1,y
+    sta PPUADDR
+    lda ar_chr+3,y
+    sta ZP_PTR
+    lda ar_chr+4,y
+    sta ZP_PTR+1
+    lda ar_chr+5,y
+    sta ZP_N
+    ldx ar_chr+6,y              ; mode
+    lda ar_chr+2,y              ; bank
+    jsr RR_CODE
+    lda ZP_I
+    clc
+    adc #7
+    sta ZP_I
+    bne @chr
+@labels:
+    ; 金 兵 糧 経 験 値: plane 0 of $D8-$EF (8x16 order)
     lda #0
     sta ZP_N
 @lab:
@@ -499,106 +596,736 @@ ui_army:
     bne @p1
     cpy #24
     bne @smp
-    lda #1                      ; the names' streams: no band copy and
-    sta UI_NOMIR                ; plane 0 (battle_intro_screen's pal_copy
-    lda #AP0_ON                 ; cleared both)
-    sta UI_AP0
-    jmp ppu_end
-
-; ======================================================================
-; UIF_ALAB: the army status screen's last string (bank 14, in place of
-; draw_string $9753).  The level window again, 4 columns wider (rows
-; 4-11, columns 15-30; window $0D drew columns 18-29 with empty lines and
-; the level digits went to columns 25-26, kept): the kanji labels with
-; their top-left cell where the kana labels were, 3 columns left; the
-; numbers right aligned at column 28, one right (6 digits leave a blank
-; cell after 金 and 兵糧, none after 経験値; a 7th digit lands in column
-; 22).  Then べ's dakuten, S P and M S P.  Busy mode: the queue is flushed
-; first (window $0F's rows hold the S P cells).
-; ======================================================================
-ALAB_TILE   = $D8               ; 6 label kanji, 4 tiles each
-ui_alab:
-    jsr WAIT_VBLANK
-    jsr ppu_begin
-    ldy #0
-@seg:
-    lda ui_alab_str,y           ; address high, 0: end
-    beq @num
-    sta PPUADDR
-    iny
-    lda ui_alab_str,y
-    sta PPUADDR
-    iny
-    ldx ui_alab_str,y           ; count
-    iny
-@tile:
-    lda ui_alab_str,y
-    sta PPUDATA
-    iny
+    ; names from $10, none uploaded yet
+    lda #$10
+    sta $A9
+    ldx #15
+    lda #0
+@nc:
+    sta AR_NT,x
     dex
-    bne @tile
-    beq @seg
-@num:
+    bpl @nc
+    ; the leader's portrait
+    jsr FIND_PARTY_MEMBER       ; party_slot: the leader (actor)
+    lda #$FF
+    sta AR_RECA
+    lda party_slot
+    sta text_actor
+    jsr ar_rec
+    lda battle_flags
+    beq @portrait
+    jsr ar_game_portrait        ; (never on the map: the game's mirrored path)
+    jmp @pstr
+@portrait:
+    lda loop_counter
+    asl a
+    tax
+    lda PORTRAIT_DST,x
+    sta ZP_A+1
+    lda PORTRAIT_DST+1,x
+    sta ZP_A
     lda #0
     sta ZP_I
-@line:
+@part:
+    lda ZP_A+1
+    sta PPUADDR
+    lda ZP_A
+    sta PPUADDR
     ldy ZP_I
-    ldx alab_var,y              ; offset from $6070
-    jsr num7                    ; RW_DIG: 7 digit tiles, leading zeros blank
-    ldy #0
-@lead:
-    lda RW_DIG,y
-    cmp #T_BLANK
-    bne @first
-    iny
-    cpy #6
-    bne @lead                   ; (the last digit is always a digit)
-@first:
-    sty ZP_N
-    ldx ZP_I
-    lda alab_hi,x
-    sta PPUADDR
-    tya
+    lda AR_BUF,y                ; part: bit 7 bank 3 (else 2), $8800 + 96 n
+    and #$7F
+    sta ZP_T
+    lda #0
+    sta ZP_PTR+1
+    lda ZP_T
+    asl a
+    rol ZP_PTR+1
+    asl a
+    rol ZP_PTR+1
+    asl a
+    rol ZP_PTR+1
+    asl a
+    rol ZP_PTR+1
+    asl a
+    rol ZP_PTR+1                ; 32 n
+    sta ZP_PTR
+    asl a
+    sta ZP_J
+    lda ZP_PTR+1
+    rol a
+    sta ZP_K                    ; 64 n
+    lda ZP_PTR
     clc
-    adc alab_lo,x
+    adc ZP_J
+    sta ZP_PTR
+    lda ZP_PTR+1
+    adc ZP_K
+    adc #$88
+    sta ZP_PTR+1
+    lda #96
+    sta ZP_N
+    lda AR_BUF,y
+    asl a                       ; C = bit 7
+    lda #2
+    adc #0
+    ldx #1                      ; copy
+    jsr RR_CODE
+    lda ZP_A
+    clc
+    adc #$60
+    sta ZP_A
+    bcc @pn
+    inc ZP_A+1
+@pn:
+    inc ZP_I
+    lda ZP_I
+    cmp #6
+    bne @part
+    lda AR_BUF+6                ; record $10: the colours
+    and #$0F
+    beq @black
+    tax
+    lda #$37
+    sta $03ED
+    lda #$26
+    sta $03EE
+    lda PORTRAIT_COL,x
+    sta $03EF
+    bne @pal
+@black:
+    lda #$0F
+    sta $03ED
+    sta $03EE
+    sta $03EF
+@pal:
+    lda #1
+    sta vram_dma_pending
+@pstr:
+    lda PORTRAIT_STR
+    sta ZP_PTR
+    lda PORTRAIT_STR+1
+    sta ZP_PTR+1
+    jsr ar_str                  ; the portrait's cells and P3
+    lda #<ar_layout
+    sta ZP_PTR
+    lda #>ar_layout
+    sta ZP_PTR+1
+    jsr ar_str                  ; 大将 軍師, the frames, the labels
+    ; the leader's name (window $2E): row 8, column 9
+    lda #$09
+    sta ZP_A
+    lda #$21
+    sta ZP_A+1
+    lda party_slot
+    jsr ar_name
+    ; the level (row 4, columns 24-25)
+    lda #$20
     sta PPUADDR
-    ldy ZP_N
-@digit:
-    lda RW_DIG,y
+    lda #$98
+    sta PPUADDR
+    ldx #$FF
+    lda $6073
+    sec
+@l10:
+    inx
+    sbc #10
+    bcs @l10
+    adc #10
+    stx PPUDATA
     sta PPUDATA
-    iny
-    cpy #7
-    bne @digit
+    ; gold, food, experience: rows 6, 8, 10, 7 cells to column 29
+    lda #0
+    sta ZP_I
+@gfe:
+    ldy ZP_I
+    ldx ar_gfe_var,y
+    lda $6070,x
+    sta RW_NUM
+    lda $6071,x
+    sta RW_NUM+1
+    lda $6072,x
+    sta RW_NUM+2
+    jsr ar_dig
+    ldy ZP_I
+    lda ar_gfe_hi,y
+    sta PPUADDR
+    lda ar_gfe_lo,y
+    sta PPUADDR
+    ldx #7
+    jsr ar_emit
     inc ZP_I
     lda ZP_I
     cmp #3
-    bne @line
-    jmp ppu_end
+    bne @gfe
+    ; the troop list (window $0E): line n, rows 13+2n / 14+2n
+    lda #0
+    sta ZP_I
+@line:
+    ldx ZP_I
+    lda $6090,x                 ; party order: the actor, negative: none
+    bpl @member
+    jmp @next
+@member:
+    sta ZP_V
+    lda ar_line_lo,x            ; the name's top-left cell, column 2
+    sta ZP_A
+    lda ar_line_hi,x
+    sta ZP_A+1
+    lda ZP_V
+    jsr ar_name
+    lda ZP_A                    ; the lower row, column 1: the marker
+    clc
+    adc #31
+    tay
+    lda ZP_A+1
+    adc #0
+    sta PPUADDR
+    sty PPUADDR
+    ldx ZP_V
+    lda $609C,x                 ; state bits
+    bmi @b7
+    lda #$0E
+    bne @mark
+@b7:
+    and #$40
+    beq @plain
+    lda #$0F
+    bne @mark
+@plain:
+    lda #T_BLANK
+@mark:
+    sta PPUDATA
+    lda ZP_A                    ; column 8: troops (6 cells) / maximum (5)
+    clc
+    adc #38
+    tay
+    lda ZP_A+1
+    adc #0
+    sta PPUADDR
+    sty PPUADDR
+    lda ZP_V
+    asl a
+    asl a
+    tax
+    lda $60D0,x
+    sta RW_NUM
+    lda $60D1,x
+    sta RW_NUM+1
+    lda $60D2,x
+    sta RW_NUM+2
+    jsr ar_dig
+    ldx #6
+    jsr ar_emit
+    lda #$7C                    ; /
+    sta PPUDATA
+    lda ZP_V
+    asl a
+    asl a
+    tax
+    lda $6160,x
+    sta RW_NUM
+    lda $6161,x
+    sta RW_NUM+1
+    lda $6162,x
+    sta RW_NUM+2
+    jsr ar_dig
+    ldx #5
+    jsr ar_emit
+@next:
+    inc ZP_I
+    lda ZP_I
+    cmp #7
+    beq @strat
+    jmp @line
+@strat:
+    ; the strategist (window $0F): the member with state $C0
+    ldx #6
+@sf:
+    lda $609C,x
+    cmp #$C0
+    beq @sfound
+    dex
+    bpl @sf
+@sfound:
+    stx text_target
+    txa
+    bmi @sp
+    lda #$38                    ; row 17, column 24
+    sta ZP_A
+    lda #$22
+    sta ZP_A+1
+    txa
+    jsr ar_name
+@sp:
+    lda #$22                    ; S.P: row 20, columns 27-29
+    sta PPUADDR
+    lda #$9B
+    sta PPUADDR
+    ldx #3
+@sp3:
+    lda $61FB-1,x
+    sta RW_NUM-1,x
+    dex
+    bne @sp3
+    jsr ar_dig
+    ldx #3
+    jsr ar_emit
+    lda #$22                    ; M.S.P: row 22
+    sta PPUADDR
+    lda #$DB
+    sta PPUADDR
+    ldx #3
+@msp3:
+    lda $61F8-1,x
+    sta RW_NUM-1,x
+    dex
+    bne @msp3
+    jsr ar_dig
+    ldx #3
+    jsr ar_emit
+    ; the text engine's state after window $0F
+    lda #$0F
+    sta text_mode
+    lda text_busy
+    bne @busy
+    lda #1
+    sta menu_flags
+@busy:
+    ldy #$17
+    lda #T_BLANK
+@saved:
+    sta $0348,y
+    dey
+    bpl @saved
+    jsr ppu_end                 ; not busy: the next NMI is a normal one
+    lda ppu_mask_shadow
+    ora #$18
+    sta ppu_mask_shadow         ; rendering on with it
+    rts
 
-; address high, low, count, tiles; 0 ends.  Rows 4-11 from column 15.
-ALT = ALAB_TILE
-ui_alab_str:
-    .db $20,$76,1, $72                                  ; べ's dakuten (row 3)
-    .db $20,$8F,10, $6D,$0C,$0C,$0C,$0C,$0C,$65,$60,$64,$79   ; row 4: レベル-
-    .db $20,$9B,4, $0C,$0C,$0C,$6E                      ; (the level digits: 25-26)
-    .db $20,$AF,16, $7D,$0A,ALT+0,ALT+2,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$7E   ; 金
-    .db $20,$CF,16, $7D,$0A,ALT+1,ALT+3,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$7E
-    .db $20,$EF,16, $7D,$0A,ALT+4,ALT+6,ALT+8,ALT+10,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$7E  ; 兵糧
-    .db $21,$0F,16, $7D,$0A,ALT+5,ALT+7,ALT+9,ALT+11,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$7E
-    .db $21,$2F,16, $7D,$0A,ALT+12,ALT+14,ALT+16,ALT+18,ALT+20,ALT+22,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$7E  ; 経験値
-    .db $21,$4F,16, $7D,$0A,ALT+13,ALT+15,ALT+17,ALT+19,ALT+21,ALT+23,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$7E
-    .db $21,$6F,16, $0B,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$6F  ; row 11
-    .db $22,$97,2, $F6,$F7                              ; S P
-    .db $22,$D7,3, $F5,$F6,$F7                          ; M S P
+; The leader's portrait through the game's loader (battle_flags set: its
+; mirrored path), as ui_binfo_exit calls put_officer_name.
+ar_game_portrait:
+    lda current_bank_a          ; text_load_page ends in set_bank_current
+    pha
+    lda #UI_BANK
+    sta current_bank_a
+    lda ZP_G
+    jsr TEXT_LOAD_PAGE
+    pla
+    sta current_bank_a
+    sta current_bank_b
+    jmp ppu_setup
+
+; A = actor: the officer record's bytes $0A-$13 to AR_BUF (bank 12: the
+; record's address at $A800 / $A900 + officer), ZP_G = the officer.
+ar_rec:
+    sta AR_RECA
+    tax
+    lda $60A8,x
+    sta ZP_G
+    sta ZP_PTR
+    lda #$A8
+    sta ZP_PTR+1
+    ldx #2                      ; record
+    lda #12
+    jmp RR_CODE
+
+; A = actor, ZP_A = the name's top-left cell: its kanji in two rows (upper
+; t, t+2, lower t+1, t+3 a kanji, as put_officer_name).  The glyphs are
+; uploaded the first time only (record $11-$13, $FF ends; record $10 bit 7
+; down: kanji n in bank 2, else bank 1, at $8000 + 32 glyph): plane 0,
+; plane 1 cleared, from $A9 on.
+ar_name:
+    sta ZP_X
+    tax
+    lda AR_NT,x
+    beq @new
+    jmp @show
+@new:
+    lda ZP_X
+    cmp AR_RECA
+    beq @have                   ; (the leader's, read for the portrait)
+    jsr ar_rec
+@have:
+    ldy #0
+@count:
+    lda AR_BUF+7,y
+    cmp #$FF
+    beq @counted
+    iny
+    cpy #3
+    bne @count
+@counted:
+    ldx ZP_X
+    tya
+    sta AR_NK,x
+    asl a
+    asl a
+    adc $A9
+    cmp #$61
+    bcc @fits                   ; it ends at $60 at most
+    lda $A9
+    cmp #$A4
+    bcs @fits                   ; (in $A4-$BF already)
+    lda #$A4                    ; then $A4-$BF (free on this screen)
+    sta $A9
+@fits:
+    lda $A9
+    sta AR_NT,x
+    lda AR_BUF+6
+    sta ZP_C                    ; bank bits
+    lda AR_NK,x
+    sta ZP_K
+    lda #0
+    sta ZP_J
+@glyph:
+    ldy ZP_J
+    cpy ZP_K
+    beq @show
+    lda $A9
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora #$10
+    sta PPUADDR
+    lda $A9
+    asl a
+    asl a
+    asl a
+    asl a
+    sta PPUADDR
+    lda AR_BUF+7,y
+    lsr a
+    lsr a
+    lsr a
+    ora #$80
+    sta ZP_PTR+1
+    lda AR_BUF+7,y
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    sta ZP_PTR
+    lda #4
+    sta ZP_N
+    asl ZP_C
+    lda #1
+    adc #0
+    ldx #0                      ; plane 0, plane 1 cleared
+    jsr RR_CODE
+    lda $A9
+    clc
+    adc #4
+    sta $A9
+    inc ZP_J
+    jmp @glyph
+@show:
+    ldx ZP_X
+    lda AR_NK,x
+    beq @rts
+    sta ZP_N
+    lda AR_NT,x
+    sta ZP_T
+    lda ZP_A+1
+    sta PPUADDR
+    lda ZP_A
+    sta PPUADDR
+    lda ZP_T
+    ldx ZP_N
+@top:
+    sta PPUDATA
+    clc
+    adc #2
+    sta PPUDATA
+    adc #2
+    dex
+    bne @top
+    lda ZP_A
+    clc
+    adc #32
+    tay
+    lda ZP_A+1
+    adc #0
+    sta PPUADDR
+    sty PPUADDR
+    lda ZP_T
+    clc
+    adc #1
+    ldx ZP_N
+@bottom:
+    sta PPUDATA
+    adc #2
+    sta PPUDATA
+    adc #2
+    dex
+    bne @bottom
+@rts:
+    rts
+
+; RW_DIG = the 24-bit number RW_NUM as 7 decimal digits (no blanking).
+ar_dig:
+    ldy #0
+@digit:
+    ldx #0
+@sub:
+    lda RW_NUM
+    sec
+    sbc pow7_lo,y
+    sta ZP_J
+    lda RW_NUM+1
+    sbc pow7_mid,y
+    sta ZP_K
+    lda RW_NUM+2
+    sbc pow7_hi,y
+    bcc @emit
+    sta RW_NUM+2
+    lda ZP_K
+    sta RW_NUM+1
+    lda ZP_J
+    sta RW_NUM
+    inx
+    bne @sub
+@emit:
+    txa
+    sta RW_DIG,y
+    iny
+    cpy #6
+    bne @digit
+    lda RW_NUM
+    sta RW_DIG+6
+    rts
+
+; The last X digits of RW_DIG to PPUDATA as read_stack_arg prints them:
+; zeros before the first other digit blank, the last digit always shown.
+ar_emit:
+    stx ZP_K
+    lda #7
+    sec
+    sbc ZP_K
+    tay
+    lda #0
+    sta ZP_K                    ; a digit was shown
+@cell:
+    lda RW_DIG,y
+    bne @show
+    cpy #6
+    beq @put
+    ldx ZP_K
+    bne @put
+    lda #T_BLANK
+    bne @put
+@show:
+    sta ZP_K
+@put:
+    sta PPUDATA
+    iny
+    cpy #7
+    bne @cell
+    rts
+
+; A draw_string-format string at (ZP_PTR): address high ($FF ends), low,
+; count (bit 7: down a column, bit 6: one tile repeated), tiles.
+ar_str:
+    ldy #0
+    lda (ZP_PTR),y
+    cmp #$FF
+    beq @end
+    sta PPUADDR
+    iny
+    lda (ZP_PTR),y
+    sta PPUADDR
+    iny
+    lda (ZP_PTR),y
+    iny
+    sta ZP_C
+    and #$3F
+    tax
+    lda ppu_ctrl_shadow
+    and #$FB
+    bit ZP_C
+    bpl @across
+    ora #$04
+@across:
+    sta PPUCTRL
+    bvc @list
+    lda (ZP_PTR),y
+    iny
+@run:
+    sta PPUDATA
+    dex
+    bne @run
+    beq @next
+@list:
+    lda (ZP_PTR),y
+    sta PPUDATA
+    iny
+    dex
+    bne @list
+@next:
+    tya
+    clc
+    adc ZP_PTR
+    sta ZP_PTR
+    bcc ar_str
+    inc ZP_PTR+1
+    bcs ar_str
+@end:
+    lda ppu_ctrl_shadow
+    and #$FB
+    sta PPUCTRL
+    rts
+
+; The RAM reader, copied to RR_CODE (relocatable: branches only).  A = the
+; 16 KiB bank (game lock protocol: an NMI maps it back), X = 0: ZP_N tiles
+; of 8 bytes from (ZP_PTR) to plane 0, 8 zeros after each (plane 1);
+; 1: ZP_N bytes to PPUDATA (a multiple of 4; 0 = 256); 2: the record of
+; officer ZP_PTR - $A800 (its address at (ZP_PTR) and 256 bytes on): its
+; bytes $0A-$13 to AR_BUF.  Maps the UI bank again.
+rr_rom:
+    jsr SET_BANK_LOCK
+    ldy #0
+    dex
+    bmi @tile
+    beq @copy
+    lda (ZP_PTR),y              ; the record
+    pha
+    inc ZP_PTR+1
+    lda (ZP_PTR),y
+    sta ZP_PTR+1
+    pla
+    sta ZP_PTR
+    ldy #$0A
+@rec:
+    lda (ZP_PTR),y
+    sta AR_BUF-$0A,y
+    iny
+    cpy #$14
+    bne @rec
+    beq @back
+@tile:
+    lda (ZP_PTR),y
+    sta PPUDATA
+    iny
+    lda (ZP_PTR),y
+    sta PPUDATA
+    iny
+    lda (ZP_PTR),y
+    sta PPUDATA
+    iny
+    lda (ZP_PTR),y
+    sta PPUDATA
+    iny
+    lda (ZP_PTR),y
+    sta PPUDATA
+    iny
+    lda (ZP_PTR),y
+    sta PPUDATA
+    iny
+    lda (ZP_PTR),y
+    sta PPUDATA
+    iny
+    lda (ZP_PTR),y
+    sta PPUDATA
+    iny
+    lda #0
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    sta PPUDATA
+    dec ZP_N
+    bne @tile
+    beq @back
+@copy:
+    lda (ZP_PTR),y
+    sta PPUDATA
+    iny
+    lda (ZP_PTR),y
+    sta PPUDATA
+    iny
+    lda (ZP_PTR),y
+    sta PPUDATA
+    iny
+    lda (ZP_PTR),y
+    sta PPUDATA
+    iny
+    cpy ZP_N
+    bne @copy
+@back:
+    lda #UI_BANK
+    jmp SET_BANK_LOCK
+rr_end:
+.if rr_end - rr_rom > $100 - <RR_CODE
+    .error "rr_rom does not fit the $0600 page"
+.endif
+
+; PPU address high (0 ends), low, bank, source low, high, count, mode
+ar_chr:
+    .db $10,$00, 9, $00,$BA, 16, 0      ; $00-$0F: plane-1 glyphs to plane 0
+    .db $1F,$00, 9, $00,$BF, 240, 1     ; $F0-$FE: the UI block's rest
+    .db $1C,$00, 1, $00,$80, 24, 0      ; $C0-$D7: 大将 軍師
     .db 0
-; gold row 6, food row 8, experience row 10; the 7 digit cells from
-; column 22
-alab_var:
+
+; gold $6076, food $6079, experience $6070: rows 6, 8, 10, columns 23-29
+ar_gfe_var:
     .db 6, 9, 0
-alab_hi:
+ar_gfe_hi:
     .db $20, $21, $21
-alab_lo:
-    .db $D6, $16, $56
+ar_gfe_lo:
+    .db $D7, $17, $57
+
+; the troop list's name cells: row 13 + 2n, column 2
+ar_line_lo:
+    .db <($21A2+0*64), <($21A2+1*64), <($21A2+2*64), <($21A2+3*64)
+    .db <($21A2+4*64), <($21A2+5*64), <($21A2+6*64)
+ar_line_hi:
+    .db >($21A2+0*64), >($21A2+1*64), >($21A2+2*64), >($21A2+3*64)
+    .db >($21A2+4*64), >($21A2+5*64), >($21A2+6*64)
+
+; The fixed cells (ar_str format).
+ALT = ALAB_TILE
+ar_layout:
+    .db $20,$89,4, $C0,$C2,$C4,$C6                      ; 大将 (rows 4-5)
+    .db $20,$A9,4, $C1,$C3,$C5,$C7
+    .db $21,$B8,4, $D0,$D2,$D4,$D6                      ; 軍師 (rows 13-14)
+    .db $21,$D8,4, $D1,$D3,$D5,$D7
+    ; the level window, rows 4-11, columns 15-30
+    .db $20,$75,1, $72                                  ; べ's dakuten (row 3)
+    .db $20,$8F,1, $6D
+    .db $20,$90,$44, $0C
+    .db $20,$94,4, $65,$60,$64,$79                      ; レベル- (the level: 24-25)
+    .db $20,$9A,$44, $0C
+    .db $20,$9E,1, $6E
+    .db $20,$AF,$C6, $7D                                ; the sides, rows 5-10
+    .db $20,$BE,$C6, $7E
+    .db $20,$B0,2, ALT+0,ALT+2                          ; 金
+    .db $20,$D0,2, ALT+1,ALT+3
+    .db $20,$F0,4, ALT+4,ALT+6,ALT+8,ALT+10             ; 兵糧
+    .db $21,$10,4, ALT+5,ALT+7,ALT+9,ALT+11
+    .db $21,$30,6, ALT+12,ALT+14,ALT+16,ALT+18,ALT+20,ALT+22  ; 経験値
+    .db $21,$50,6, ALT+13,ALT+15,ALT+17,ALT+19,ALT+21,ALT+23
+    .db $21,$6F,1, $0B
+    .db $21,$70,$4E, $0D
+    .db $21,$7E,1, $6F
+    ; the troop list's window, rows 12-27, columns 0-21
+    .db $21,$80,1, $6D
+    .db $21,$81,$54, $0C
+    .db $21,$95,1, $6E
+    .db $21,$A0,$CE, $7D
+    .db $21,$B5,$CE, $7E
+    .db $23,$60,1, $0B
+    .db $23,$61,$54, $0D
+    .db $23,$75,1, $6F
+    ; S P, M S P (rows 20, 22)
+    .db $22,$97,2, $F6,$F7
+    .db $22,$D7,3, $F5,$F6,$F7
+    .db $FF
 
 ; ======================================================================
 ; Direct PPU access on the main thread: busy mode (the NMI leaves the PPU
