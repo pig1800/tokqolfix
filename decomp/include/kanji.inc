@@ -380,6 +380,18 @@ TXR_S11           = $07F0
 TXR_SB            = $07F1
 TXR_RX            = $07F2   ; txr_rd: X, Y kept
 TXR_RY            = $07F3
+TXR_GCS           = $07E0   ; GC: bit 7 = running, bits 0-1 = the part (the canvas's old CV_I0-CV_SROWS)
+TXR_GCF           = $07E1   ; GC: ran for this line / cell already (a second miss draws blank)
+TXR_GCR           = $07E2   ; GC: rows requested so far
+TXR_RBQ           = $07E3   ; GC: a row read is pending for the NMI
+TXR_A1H           = $07F4   ; GC row read: segment 1 address, count; segment 2
+TXR_A1L           = $07F5
+TXR_N1            = $07F6
+TXR_A2H           = $07F7
+TXR_A2L           = $07F8
+TXR_N2            = $07F9
+TXR_GN            = $07FA   ; GC: the part's row count
+TXR_MARK          = TXR_UQ  ; GC: 16-byte bitmap of the tiles shown (the staging area is idle)
 ; Battery RAM (the canvas code's old space, after the RAM image), from the
 ; top down to TXR_TABLES:
 TXR_NG            = 28      ; kanji groups per part: tiles $0C-$7B

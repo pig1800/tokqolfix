@@ -104,6 +104,15 @@ cvn_map:
     beq cvn_off                 ; rendering off: no split, none pending
     bit CV_STRM
     bvs cvn_arm                 ; cv_stream forced already (no uploads after it)
+    lda TXR_RBQ
+    beq @noread
+    cpx #48
+    bcs @noup                   ; a long flush: the read waits a frame
+    stx TXR_Q0
+    jsr row_read                ; the GC's row (no uploads this frame)
+    ldx TXR_Q0
+    jmp @noup
+@noread:
     lda TXR_UQN
     beq @noup
     jsr nmi_up                  ; staged glyphs (X = bytes flushed)
@@ -293,6 +302,45 @@ nmi_up:
     sta MMC3_SELECT
 @rts:
     ldx TXR_Q0
+    rts
+; The GC's row read (NMI after the game's flush, or the main thread with
+; the NMI held off): TXR_N1 cells from TXR_A1H/L and TXR_N2 from
+; TXR_A2H/L into TXR_GBUF.
+row_read:
+    lda ppu_ctrl_shadow
+    and #$FB
+    sta PPUCTRL                 ; +1 increments
+    ldy #0
+    bit PPUSTATUS
+    lda TXR_A1H
+    sta PPUADDR
+    lda TXR_A1L
+    sta PPUADDR
+    lda PPUDATA                 ; (the read buffer's old byte)
+    ldx TXR_N1
+@a:
+    lda PPUDATA
+    sta TXR_GBUF,y
+    iny
+    dex
+    bne @a
+    ldx TXR_N2
+    beq @done
+    bit PPUSTATUS
+    lda TXR_A2H
+    sta PPUADDR
+    lda TXR_A2L
+    sta PPUADDR
+    lda PPUDATA
+@b:
+    lda PPUDATA
+    sta TXR_GBUF,y
+    iny
+    dex
+    bne @b
+@done:
+    lda #0
+    sta TXR_RBQ
     rts
 nmi_code_end:
 .if nmi_code_end > $A000
@@ -866,6 +914,19 @@ xlate:
     clc
     rts
 @full:
+    lda TXR_GCF
+    bne @blank                  ; the GC ran for this line already
+    jsr stage_out               ; what is staged goes up first
+    lda TXR_P
+    ora #$80
+    sta TXR_GCS                 ; the continuation runs the GC first
+    lda #0
+    sta TXR_GCR
+    lda #1
+    sta TXR_ST
+    sec
+    rts
+@blank:
     inc TXR_FULL
     lda #BLANK
     clc
@@ -1048,6 +1109,286 @@ alloc_kana:
     rts
 
 ; ======================================================================
+; GC (a part is full): read the part's visible rows back from VRAM, one
+; row a frame (the NMI) or all at once (rendering off), keep the tiles
+; shown and the ones this line already uses, free every other kana tile
+; and kanji group, then the line goes on (the failed cell retried).
+; C set: wait (TXR_ST = 1), then call again; C clear: done.
+; ======================================================================
+part_row:   .db 0, 9, 15, 21
+part_rows:  .db 9, 6, 6, 9
+
+gc_step:
+    lda TXR_RBQ
+    beq @go
+    jmp gc_wait
+@go:
+    lda TXR_GCS
+    and #3
+    sta TXR_P
+    lda TXR_GCR
+    bne gc_got
+    ; Start: the bitmap holds the tiles this line already uses (EB's bytes
+    ; before TXR_E, the cell's tiles; conservative) and page 1's pins.
+    ldx #15
+    lda #0
+@clr:
+    sta TXR_MARK,x
+    dex
+    bpl @clr
+    ldx TXR_E
+    beq @cell
+@eb:
+    dex
+    lda TXR_EB,x
+    jsr mark_tile
+    cpx #0
+    bne @eb
+@cell:
+    lda TXR_CT
+    jsr mark_tile
+    lda TXR_CT+1
+    jsr mark_tile
+    lda TXR_CB
+    jsr mark_tile
+    lda TXR_CB+1
+    jsr mark_tile
+    lda TXR_MARK+15
+    ora #$1E                    ; $7B-$7E (pinned in page 1)
+    sta TXR_MARK+15
+    ldx TXR_P
+    lda part_rows,x
+    sta TXR_GN
+    jmp gc_req
+gc_got:
+    ldx #31                     ; the row read: mark its tiles
+@m:
+    lda TXR_GBUF,x
+    jsr mark_tile
+    dex
+    bpl @m
+    lda TXR_GCR
+    cmp TXR_GN
+    bcs gc_free
+gc_req:
+    jsr row_addr
+    inc TXR_GCR
+    lda #1
+    sta TXR_RBQ
+    lda nmi_busy
+    bne @direct
+    lda ppu_mask_shadow
+    and #$18
+    bne gc_wait
+@direct:
+    jsr busy_on
+    jsr row_read
+    jsr busy_off
+    jmp gc_got
+gc_wait:
+    lda #1
+    sta TXR_ST
+    sec
+    rts
+gc_free:
+    ; Kana: a tile no row shows is free again.
+    ldx TXR_P
+    lda part_kml,x
+    sta PTR
+    lda part_kmh,x
+    sta PTR+1
+    ldy #127
+@k:
+    lda (PTR),y
+    beq @kn
+    jsr is_marked
+    bne @kn
+    lda (PTR),y
+    jsr tbm_clear
+    lda #0
+    sta (PTR),y
+@kn:
+    dey
+    bpl @k
+    ; Kanji groups: one whose four tiles no row shows is free again.
+    lda #0
+    sta TXR_G
+@g:
+    ldx TXR_P
+    lda part_g,x
+    clc
+    adc TXR_G
+    tay
+    lda TXR_GHI,y
+    cmp #$FF
+    beq @gn
+    lda TXR_G                   ; (3 + g) >> 1, the nibble
+    clc
+    adc #3
+    lsr a
+    tax
+    lda #$0F
+    bcs @nib
+    lda #$F0
+@nib:
+    and TXR_MARK,x
+    bne @gn
+    lda #$FF
+    sta TXR_GHI,y
+    jsr group_bits              ; X = the part's bitmap byte, A = nibble
+    eor #$FF
+    and TXR_TBM,x
+    sta TXR_TBM,x
+@gn:
+    inc TXR_G
+    lda TXR_G
+    cmp #TXR_NG
+    bne @g
+    lda #0
+    sta TXR_GCS
+    sta TXR_GCR
+    lda #1
+    sta TXR_GCF
+    clc
+    rts
+
+; A = a tile: set in TXR_MARK when below $7F (X, Y kept).
+mark_tile:
+    cmp #$7F
+    bcs @r
+    stx TXR_J
+    pha
+    and #7
+    tax
+    lda bitmask,x
+    sta TXR_I
+    pla
+    lsr a
+    lsr a
+    lsr a
+    tax
+    lda TXR_I
+    ora TXR_MARK,x
+    sta TXR_MARK,x
+    ldx TXR_J
+@r:
+    rts
+
+; A = a tile: Z clear when it is in TXR_MARK (Y kept).
+is_marked:
+    pha
+    and #7
+    tax
+    lda bitmask,x
+    sta TXR_I
+    pla
+    lsr a
+    lsr a
+    lsr a
+    tax
+    lda TXR_MARK,x
+    and TXR_I
+    rts
+
+; A = a tile of part TXR_P: its bit in TXR_TBM cleared (Y kept).
+tbm_clear:
+    pha
+    and #7
+    tax
+    lda bitmask,x
+    eor #$FF
+    sta TXR_I
+    pla
+    lsr a
+    lsr a
+    lsr a
+    ldx TXR_P
+    clc
+    adc part_b,x
+    tax
+    lda TXR_I
+    and TXR_TBM,x
+    sta TXR_TBM,x
+    rts
+
+; The nametable addresses of screen row part_row[P] + TXR_GCR: 32 cells
+; from the camera's left column, up to two segments (the ring's two
+; horizontal tables).
+row_addr:
+    ldx TXR_P
+    lda part_row,x
+    clc
+    adc TXR_GCR
+    sta TXR_I                   ; screen row
+    lda ppu_ctrl_shadow
+    and #$02
+    beq @t
+    lda #30
+@t:
+    sta TXR_J
+    lda scroll_y
+    lsr a
+    lsr a
+    lsr a
+    clc
+    adc TXR_J
+    clc
+    adc TXR_I                   ; ring row
+    cmp #60
+    bcc @r60
+    sbc #60
+@r60:
+    ldx #$20                    ; upper half
+    cmp #30
+    bcc @h
+    sbc #30
+    ldx #$28                    ; lower half
+@h:
+    stx TXR_A1H
+    sta TXR_I                   ; row in the half
+    lsr a
+    lsr a
+    lsr a
+    ora TXR_A1H
+    sta TXR_A1H                 ; + row >> 3
+    sta TXR_A2H
+    lda TXR_I
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    sta TXR_A1L                 ; (row & 7) << 5
+    sta TXR_A2L
+    lda scroll_x                ; first column on the 64-column ring
+    lsr a
+    lsr a
+    lsr a
+    sta TXR_I                   ; column 0-31
+    lda ppu_ctrl_shadow
+    and #$01
+    beq @x
+    lda TXR_A1H
+    ora #$04
+    sta TXR_A1H                 ; the right table first
+    bne @x2
+@x:
+    lda TXR_A2H
+    ora #$04
+    sta TXR_A2H                 ; the right table second
+@x2:
+    lda TXR_A1L
+    ora TXR_I
+    sta TXR_A1L
+    lda #32
+    sec
+    sbc TXR_I
+    sta TXR_N1
+    lda TXR_I
+    sta TXR_N2
+    rts
+
+; ======================================================================
 ; text_draw_line's entries (queue $40 .. TXR_QX).  They leave the queue
 ; (other tasks may queue while glyphs upload: the stub's waits yield),
 ; are translated in TXR_EB, then queued again at the queue's end; TXR_QX
@@ -1074,10 +1415,16 @@ txr_dl:
     sta TXR_SN
     sta TXR_E
     sta TXR_EN
+    sta TXR_GCF
     beq dl_go
 txr_dlc:
     lda #0
     sta TXR_SN                  ; (the NMI has the batch in CHR)
+    bit TXR_GCS
+    bpl dl_go
+    jsr gc_step
+    bcc dl_go
+    rts                         ; (TXR_ST = 1: a row read or uploads)
 dl_go:
     lda #0
     sta TXR_ST
@@ -1145,10 +1492,16 @@ txr_rc:
     sta ptr1_hi
     lda #0
     sta TXR_SN
+    sta TXR_GCF
     beq rc_step
 txr_rcc:
     lda #0
     sta TXR_SN
+    bit TXR_GCS
+    bpl rc_step
+    jsr gc_step
+    bcc rc_step
+    rts
 rc_step:
     lda #0
     sta TXR_ST
@@ -1177,13 +1530,15 @@ rc_step:
     ldy TXR_Y
     lda $0300,y
     jsr xlate
-    bcs @wait
+    bcc $+5
+    jmp @wait
     sta TXR_CT
     inc TXR_PAR                 ; (0: the top row) the bottom row
     ldy TXR_Y
     lda $0318,y
     jsr xlate
-    bcs @wait
+    bcc $+5
+    jmp @wait
     sta TXR_CB
     lda TXR_N
     cmp #2
@@ -1192,13 +1547,15 @@ rc_step:
     ldy TXR_Y
     lda $0301,y
     jsr xlate
-    bcs @wait
+    bcc $+5
+    jmp @wait
     sta TXR_CT+1
     inc TXR_PAR
     ldy TXR_Y
     lda $0319,y
     jsr xlate
-    bcs @wait
+    bcc $+5
+    jmp @wait
     sta TXR_CB+1
 @tr:
     jsr stage_out
@@ -1220,6 +1577,8 @@ rc_step:
     ldx vram_queue_write
     lda #0
     sta $0400,x
+    lda #0
+    sta TXR_GCF                 ; (the next cell may run the GC again)
     lda TXR_N
     sta TXR_WC
     clc

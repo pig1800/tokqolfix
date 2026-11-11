@@ -384,8 +384,9 @@ txr_dlx:
     lda TXR_ST
     beq @done
 @w:
-    jsr WAIT_VBLANK             ; the NMI uploads the batch
+    jsr WAIT_VBLANK             ; the NMI uploads the batch (or reads a row)
     lda TXR_UQN
+    ora TXR_RBQ
     bne @w
     ldx #TXF_DLC
     bne @call
@@ -414,8 +415,9 @@ txr_rcx:
     lsr a                       ; 1: uploads, 2: the pause
     bcc @pause
 @w:
-    jsr WAIT_VBLANK             ; the NMI uploads the batch
+    jsr WAIT_VBLANK             ; the NMI uploads the batch (or reads a row)
     lda TXR_UQN
+    ora TXR_RBQ
     bne @w
     beq @cont
 @pause:                         ; the original's per-cell pause, per cell

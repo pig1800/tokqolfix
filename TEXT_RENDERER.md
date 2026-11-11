@@ -434,6 +434,27 @@ The fix is a read-back GC, run only on an allocation failure:
    already translated.
 4. Free every other kana tile and kanji group, then retry.
 
+The GC is in (`txr.asm`: `gc_step`, `row_read`, `row_addr`).  On an
+allocation failure:
+1. The staged tiles go up.
+2. The part's visible rows are read back, one row a frame through the
+   NMI (all at once with rendering off).
+3. The tiles shown, and the tiles of the line being translated, are kept.
+4. Every other kana tile and kanji group of the part is freed, and the
+   cell is retried once.  A second failure draws it blank (`TXR_FULL`).
+
+| Check (build with the GC) | Result |
+|---|---|
+| New game, the first town's speech | every kanji drawn (武器 用意 立 虐 救 were blank before) |
+| Shop, record office (`k3`, `k4`, RAM image reinstalled) | pixel-identical to the build before the GC (the GC never ran there); `TXR_FULL` 0 |
+| Boot, logo, title, history (frames 11-650) | pixel-identical to `a1cf5e6` |
+| Stack | lowest push `$0116` |
+| Map page switches, new-game path | 10,965.  28 one line late (72, 120, 168): four frames at each page flip, whose window redraw floods the queue past the force limit, as with the band before. |
+
+States saved by one build hold that build's RAM image.  After every
+change to `canvas_ram.asm`, reinstall it with `tools/mss_canvas.py
+<state> <out> --keep`.
+
 ## Work order (after the answers)
 
 1. **Pages and IRQ.**
