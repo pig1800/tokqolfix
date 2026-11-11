@@ -2285,9 +2285,17 @@ b14_loc_9595:
 ;   gold/food/exp, level, the troop list and the strategist's S.P.
 ; ----------------------------------------------------------------------
 b14_army_status_screen:
+.ifdef KANJI_TARGET
+    jsr b14_k_army_enter        ; QoL: plane 0 only, no band copy
+.else
     jsr b14_calc_strategist_tactic_pts
+.endif
     jsr battle_intro_screen
+.ifdef KANJI_TARGET
+    jsr b14_k_army_p0           ; QoL: plane 0 again (pal_copy cleared it)
+.else
     jsr screen_fade_in
+.endif
     jsr call_inline_block       ; copies the following block to $0600 and executes it there
 
 ; ----------------------------------------------------------------------
@@ -2378,10 +2386,15 @@ b14_loc_9623:
     ldx #$0F
     jsr text_init
     dec input_buttons
+.ifdef KANJI_TARGET
+    ldx #UIF_ALAB               ; QoL: kanji labels, numbers, S P / M S P
+    jsr CALL_UI                 ; (was draw_string $9753)
+.else
     jsr draw_string             ; inline pointer/data follows the JSR
 
 b14_data_9631:
     .incbin "build/assets/bank14_data.bin", $1631, $0002
+.endif
     jsr wait_vblank
     jsr screen_fade_out
     jsr wait_vblank
@@ -2390,7 +2403,11 @@ b14_loc_963F:
     jsr wait_vblank
     lda controller_state
     beq b14_loc_963F
+.ifdef KANJI_TARGET
+    jmp b14_k_army_exit
+.else
     jmp field_return_refresh
+.endif
 ; ----------------------------------------------------------------------
 ; b14_print_gold
 ;   Flush the VRAM queue, then print gold $6076.
@@ -2577,7 +2594,37 @@ b14_data_9713:
     rts
 
 b14_data_9716:
+.ifdef KANJI_TARGET
+    ; QoL: the army status screen in plane 0 only.  The 大将 / 軍師 rows
+    ; (the string's first 28 bytes) without its attribute bytes (every cell
+    ; P0 now), then the label string's space ($9753, UIF_ALAB draws them).
+    .incbin "build/assets/bank14_data.bin", $1716, $001C
+    .db $FF
+b14_k_army_enter:
+    lda #AP0_ON
+    sta UI_AP0                  ; the block writer: plane-1 writes to plane 0
+    lda #1
+    sta UI_NOMIR                ; no band copy (battle_intro_screen)
+    jmp b14_calc_strategist_tactic_pts
+b14_k_army_exit:
+    lda #0
+    sta UI_AP0
+    sta UI_NOMIR
+    jmp field_return_refresh
+b14_k_army_p0:                  ; after battle_intro_screen, whose pal_copy
+    lda #AP0_ON                 ; cleared both: 大将 / 軍師 ($C0-$D7) and the
+    sta UI_AP0                  ; names to plane 0, no band copy
+    lda #1
+    sta UI_NOMIR
+    jmp screen_fade_in
+    .dsb $9775 - $, $FF
+.if $ != $9775
+    .error "army strings: $9775 (the level digits' string) moved"
+.endif
+    .incbin "build/assets/bank14_data.bin", $1775, $0006
+.else
     .incbin "build/assets/bank14_data.bin", $1716, $0065
+.endif
 
 ; ----------------------------------------------------------------------
 ; b14_battle_calc_damage

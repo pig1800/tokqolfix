@@ -78,7 +78,7 @@ ui_dispatch:
 ui_fns:
     .dw ui_info_draw-1, ui_binfo_enter-1, ui_binfo_exit-1, ui_army-1
     .dw ui_info_enter-1, ui_bstart-1, ui_wincb-1, ui_sm-1, ui_info_busy-1
-    .dw ui_bsetup-1, ui_bsetup_end-1, ui_dec-1, ui_div-1
+    .dw ui_bsetup-1, ui_bsetup_end-1, ui_dec-1, ui_div-1, ui_alab-1
 
 ; ======================================================================
 ; UIF_INFO_ENTER: the info screen, before battle_intro_screen.  Its block
@@ -458,15 +458,147 @@ pool_unchecked:
 ui_army:
     jsr WAIT_VBLANK             ; busy mode: flushes the queue directly
     jsr ppu_begin
-    lda #$23
+    ; The level window's labels 金 兵 糧 経 験 値: plane 0, tiles $D8-$EF
+    ; (8x16 order), over the bars of the UI block (not shown here).
+    lda #0
+    sta ZP_N
+@lab:
+    lda ZP_N
+    asl a
+    asl a
+    adc #ALAB_TILE
+    tax
+    ldy ZP_N
+    lda ui_reward_g,y
+    clc                         ; plane 0, plane 1 cleared
+    jsr put_glyph
+    inc ZP_N
+    lda ZP_N
+    cmp #6
+    bne @lab
+    ; M S P ($F5-$F7): plane 1 in the kanji target's UI block (decision
+    ; 11); plane 0 here, plane 1 cleared.
+    lda #$1F
     sta PPUADDR
-    lda #$ED
+    lda #$50
     sta PPUADDR
-    lda #$44                    ; $23ED: rows 20-23, columns 22-23
+    ldy #0
+@smp:
+    ldx #8
+@p0:
+    lda ui_army_smp,y
     sta PPUDATA
-    lda #$11                    ; $23EE: rows 20-23, columns 24-25
+    iny
+    dex
+    bne @p0
+    ldx #8
+    lda #0
+@p1:
     sta PPUDATA
+    dex
+    bne @p1
+    cpy #24
+    bne @smp
+    lda #1                      ; the names' streams: no band copy and
+    sta UI_NOMIR                ; plane 0 (battle_intro_screen's pal_copy
+    lda #AP0_ON                 ; cleared both)
+    sta UI_AP0
     jmp ppu_end
+
+; ======================================================================
+; UIF_ALAB: the army status screen's last string (bank 14, in place of
+; draw_string $9753).  The level window again, 4 columns wider (rows
+; 4-11, columns 15-30; window $0D drew columns 18-29 with empty lines and
+; the level digits went to columns 25-26, kept): the kanji labels with
+; their top-left cell where the kana labels were, 3 columns left; the
+; numbers right aligned at column 28, one right (6 digits leave a blank
+; cell after 金 and 兵糧, none after 経験値; a 7th digit lands in column
+; 22).  Then べ's dakuten, S P and M S P.  Busy mode: the queue is flushed
+; first (window $0F's rows hold the S P cells).
+; ======================================================================
+ALAB_TILE   = $D8               ; 6 label kanji, 4 tiles each
+ui_alab:
+    jsr WAIT_VBLANK
+    jsr ppu_begin
+    ldy #0
+@seg:
+    lda ui_alab_str,y           ; address high, 0: end
+    beq @num
+    sta PPUADDR
+    iny
+    lda ui_alab_str,y
+    sta PPUADDR
+    iny
+    ldx ui_alab_str,y           ; count
+    iny
+@tile:
+    lda ui_alab_str,y
+    sta PPUDATA
+    iny
+    dex
+    bne @tile
+    beq @seg
+@num:
+    lda #0
+    sta ZP_I
+@line:
+    ldy ZP_I
+    ldx alab_var,y              ; offset from $6070
+    jsr num7                    ; RW_DIG: 7 digit tiles, leading zeros blank
+    ldy #0
+@lead:
+    lda RW_DIG,y
+    cmp #T_BLANK
+    bne @first
+    iny
+    cpy #6
+    bne @lead                   ; (the last digit is always a digit)
+@first:
+    sty ZP_N
+    ldx ZP_I
+    lda alab_hi,x
+    sta PPUADDR
+    tya
+    clc
+    adc alab_lo,x
+    sta PPUADDR
+    ldy ZP_N
+@digit:
+    lda RW_DIG,y
+    sta PPUDATA
+    iny
+    cpy #7
+    bne @digit
+    inc ZP_I
+    lda ZP_I
+    cmp #3
+    bne @line
+    jmp ppu_end
+
+; address high, low, count, tiles; 0 ends.  Rows 4-11 from column 15.
+ALT = ALAB_TILE
+ui_alab_str:
+    .db $20,$76,1, $72                                  ; べ's dakuten (row 3)
+    .db $20,$8F,10, $6D,$0C,$0C,$0C,$0C,$0C,$65,$60,$64,$79   ; row 4: レベル-
+    .db $20,$9B,4, $0C,$0C,$0C,$6E                      ; (the level digits: 25-26)
+    .db $20,$AF,16, $7D,$0A,ALT+0,ALT+2,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$7E   ; 金
+    .db $20,$CF,16, $7D,$0A,ALT+1,ALT+3,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$7E
+    .db $20,$EF,16, $7D,$0A,ALT+4,ALT+6,ALT+8,ALT+10,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$7E  ; 兵糧
+    .db $21,$0F,16, $7D,$0A,ALT+5,ALT+7,ALT+9,ALT+11,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$7E
+    .db $21,$2F,16, $7D,$0A,ALT+12,ALT+14,ALT+16,ALT+18,ALT+20,ALT+22,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$7E  ; 経験値
+    .db $21,$4F,16, $7D,$0A,ALT+13,ALT+15,ALT+17,ALT+19,ALT+21,ALT+23,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$7E
+    .db $21,$6F,16, $0B,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$0D,$6F  ; row 11
+    .db $22,$97,2, $F6,$F7                              ; S P
+    .db $22,$D7,3, $F5,$F6,$F7                          ; M S P
+    .db 0
+; gold row 6, food row 8, experience row 10; the 7 digit cells from
+; column 22
+alab_var:
+    .db 6, 9, 0
+alab_hi:
+    .db $20, $21, $21
+alab_lo:
+    .db $D6, $16, $56
 
 ; ======================================================================
 ; Direct PPU access on the main thread: busy mode (the NMI leaves the PPU

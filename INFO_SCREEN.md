@@ -473,9 +473,10 @@ How it works:
   top row, P0 with the next window's (the command panel's border replaces
   S P in the same frame).
 - **Army status screen (Select on the map):** it shows SP and MSP (rows 20
-  and 22, columns 23-25): decision 12's MSP.  `UIF_ARMY` replaces that
-  screen's `jsr wait_vblank` after its attribute string: it flushes, then
-  sets `$23ED` = `$44` and `$23EE` = `$11` (P1).
+  and 22, columns 23-25): decision 12's MSP.  Since the plane-0 rework
+  (QoL section, "Army status screen in plane 0") the whole screen is P0
+  but the portrait, and `UIF_ARMY` gives M S P plane-0 copies instead of
+  P1 cells.
 - **Decision 11:** the kanji target's copy of the bank-9 block,
   `bank09_ui_b_k.bin`, has `$EF-$FA` in plane 1.  Palette set 8 P2 is
   `0F 0F 17 17`.
@@ -507,6 +508,11 @@ decomp regeneration must keep them, as it keeps `SAVE_SLOTS` and
 | `b14_battle_tactic_subwindow` `$9EB0` | `jsr b14_k_tactic_window` (item 7 reverted it) |
 | `$AE3C` (`b14_loc_AE33` tail) | `jmp b14_k_gauge_colour` |
 | army status `$95C4` | `jsr CALL_UI_ARMY` |
+| army status `$959E` (`jsr b14_calc_strategist_tactic_pts`) | `jsr b14_k_army_enter` (QoL: `UI_AP0`, `UI_NOMIR`) |
+| army status `$95A4` (`jsr screen_fade_in`) | `jsr b14_k_army_p0` (QoL: both flags again after `battle_intro_screen`'s `pal_copy`) |
+| army status `$962E` (`jsr draw_string` + pointer `$9753`) | `ldx #UIF_ALAB / jsr CALL_UI` (QoL) |
+| army status `$9646` (`jmp field_return_refresh`) | `jmp b14_k_army_exit` (QoL: clears both flags) |
+| strings `$9716-$977A` | the 大将 / 軍師 rows without the attribute bytes (`$FF` at `$9732`), `b14_k_army_enter` / `_exit` in the label string's space, padded so `$9775` (the level digits) stays |
 | `$BFD8-$BFFF` | the helpers (with `b14_k_setup`).  This was the MMC1 reset stub and vectors, dead in the MMC3 target.  `b14_data_BFD9` stays as an equate for bank 15's MMC1 register writes |
 
 Bank 9 has one more hand edit: `b09_ui_graphics2` uses the kanji copy.
@@ -935,6 +941,87 @@ garble 0, band 1253 / 0, zp / deadline / mask / palette 0; taint 0 reads,
 name loop no longer flushes inside a wait); `ram_gate` 0 / 0 / 0, min SP
 `$14`.  The army screen and the info screen (map path) are byte-identical
 to the first pass's (all PPU memory, the 16 KiB of CHR RAM, the palette).
+
+### Army status screen in plane 0 (2026-11-11)
+
+The user's rework of the army status screen (Select on the map), after a
+check of the limits (gold, food and experience are 24-bit counters,
+16,777,215 at most, wrapping past it; every printer has 7 digit cells, so
+9,999,999 shows correctly; the user assumes 6 digits in normal play):
+every tile the screen mixes into plane 1 is volatile, so all text goes to
+plane 0 and every cell is P0 (no 16x16 palette picking), no band-page
+backups, and a wider level window with kanji labels.
+
+| | Before | Now |
+|---|---|---|
+| names, 大将 / 軍師 | kanji in plane 1 over the kana font's plane 0, P1 cells | plane 0 (plane 1 cleared), P0 |
+| attribute table | P1 cells from the `$9716` string, `UIF_ARMY`'s SP / MSP cells | all P0 but the portrait (P3) |
+| band page (`$2000+`) | every page-1 write copied (`restore_tile_main`) | none: `UI_NOMIR` for the whole screen |
+| level window | columns 18-29, kana labels in column 20 (金 one tile, 兵ろう, けいけんち), numbers ending at column 27 | columns 15-30, kanji labels 金 兵糧 経験値 with their top-left cell in column 17 of the old label rows, numbers ending at column 28 |
+| M S P (`$F5-$F7`) | plane 1 (decision 11), P1 cells | plane-0 copies |
+| black screen | 14 frames (21 originally) | 13 |
+
+How:
+- **`UI_AP0`** (`$7F9B`, battery RAM below `UI_DECY`): active only as
+  `AP0_ON` (`$A7`), because save states of older builds hold garbage there
+  (zero after a reset: the canvas image is padded with zeros), and
+  `pal_copy` clears it with `UI_NOMIR` at every palette load.
+  `b14_k_army_enter` (bank 14, the screen's first call) sets both,
+  `b14_k_army_p0` (after `battle_intro_screen`, whose `pal_copy` cleared
+  them) and `UIF_ARMY` set them again, `b14_k_army_exit` (in place of the
+  exit's `jmp field_return_refresh`) clears both.  While it is set, the
+  block writer's `FN_BLOCK_PRE` turns a
+  page-1 write in mode 2 (plane 1 only) into mode 1 (plane 0 from the
+  data, plane 1 cleared): the name streams of `put_officer_name`, the
+  `$C0-$D7` upload (大将 / 軍師) and `battle_intro_screen`'s digits and
+  borders `$00-$0F` (the same glyphs as the font's plane 0).
+- **P0 shows plane 0 only:** palette set 8 P0 is `0F 20 0F 20`, so a
+  plane-1 bit adds nothing; leftovers in plane 1 do not show.
+- **Attributes:** the `$9716` string ends after the 大将 / 軍師 rows (a
+  `$FF` in place of its 32 attribute bytes); `UIF_ARMY` no longer writes
+  `$23ED` / `$23EE`.
+- **`UIF_ARMY`** (`$95C4`, rendering off, busy): the 6 label kanji from
+  the UI bank's glyphs (`ui_reward_g`) to `$D8-$EF` in plane 0, 8x16 order
+  (over the bars of the UI block, not shown here); M S P from the original
+  bank-9 block (`ui_army_smp` in `ui_data.inc`, plane 0) to `$F5-$F7`;
+  `UI_NOMIR` again (`battle_intro_screen`'s `pal_copy` cleared it).
+- **The level window:** the engine places windows by metatile, so window
+  `$0D` keeps its position and width (columns 18-29); its template
+  (`$EA44`, fixed bank) has three lines of one blank cell each instead of
+  the number printers' CALLs (a line that starts with `$FA` does not count
+  as a line: window `$0E`'s first line moved one column).  **`UIF_ALAB`**
+  (in place of the label string `$9753`, after window `$0F`; busy, the
+  queue flushed first) redraws rows 4-11, columns 15-30: the frame, レベル-
+  (the level digits in columns 25-26 stay as the game queued them), the
+  kanji labels, then the numbers (`num7`, right aligned at column 28: 6
+  digits leave a blank cell after 金 and 兵糧, none after 経験値; a 7th
+  digit lands in column 22), べ's dakuten, S P and M S P.
+- **Limits (assumed enough, as the user asked):** the name streams start
+  at `$10` (`$A9`), 4 tiles a kanji.  Tiles `$10-$5F` (20 kanji) are free
+  of other text on this screen; the title レベル-, the dakuten, the
+  borders and the '/' use `$60-$7F`.  Nine name streams (leader, up to 7
+  members, strategist) of two kanji end at `$57`; 3-kanji names push the
+  end towards `$7B` and would overwrite those tiles' plane 0.
+
+Checked (kanji ROM after this change):
+- The screen (`out/test/stepD/arm13`): the nametable is the previous
+  build's but rows 4-11 (the window); the attribute table is all 0 but the
+  portrait's bytes.  Values 999,999 and 9,999,999 in all three counters
+  (`q13_a4`, `q13_a1`) as described above.
+- After the return to the map (A on the screen, `ret13` against `ret7`):
+  all 16 KiB of CHR RAM, both pattern tables and the palette are
+  identical, `KANJI_A` / `KANJI_STALE` are clear, `UI_AP0` is 0.  The
+  nametable keeps the army screen's cells where the map has not redrawn
+  yet, as before.
+- Gates: as before (`out/test/stepE_g3`): garble 0 on the battle, victory,
+  level-up and save paths (town and shop 42 / 85 / 44 / 90 / 123,
+  unchanged), the custom item path s1 0, the army screen path (in and
+  out twice) 0, canvas 152 / 0 / 0, standard garble 0, band 1253 / 0, zp
+  / deadline / mask / palette 0; taint 0 reads, 0 writes, min SP bt
+  `$15`, nb `$11`, bb `$11`; `ram_gate` 0 / 0 / 0, min SP `$14`.  A first
+  run had taint reads of `$04` on the battle paths: `UI_AP0` was a plain
+  flag, and the gate states, saved by older builds, hold garbage there
+  (hence `AP0_ON` and the `pal_copy` clear).
 
 ## Questions for the user
 

@@ -8,7 +8,7 @@
 local A_ENTRY  = 0x800F  -- @nmi_ef08@
 local A_PROBE  = 0x82E3  -- @probe_window@
 local A_UPLOAD = 0x848C  -- @upload_go@
-local A_POOLCHK = 0xBB87  -- @pool_check_go@
+local A_POOLCHK = 0xBB8A  -- @pool_check_go@
 local A_RESTORE= 0x85C6  -- @restore_tile@
 local A_FORCE  = 0x8A0A  -- @arm_force@
 local A_FORCE_END = 0x8A26  -- @arm_force_end@
