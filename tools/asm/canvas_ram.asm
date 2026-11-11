@@ -29,9 +29,8 @@ SOUND_QUEUE_ADD   = $C4D5
 SET_BANK_CURRENT  = $C47E
 CELL_ROWS         = $DC8F       ; text_render_cell's row-buffer offsets
 RENDER_CELL_LOOP  = $DBD1       ; text_render_cell after its first three instructions
-TXR_NMI_CV        = $8003       ; txr.asm: nmi_cv, nmi_live, nmi_up (bank
-TXR_NMI_LIVE      = $8006       ; TXR_BANK's first 8 KiB, mapped at $8000 by
-TXR_NMI_UP        = $8009       ; txr_map6 in the NMI)
+TXR_NMI_CV        = $8003       ; txr.asm: nmi_cv, nmi_live (the bank's first
+TXR_NMI_LIVE      = $8006       ; 8 KiB, mapped at $8000 by txr_map6 in the NMI)
 
 ; IRQ delay (calibrated: the R0 data write lands in dots 257-320).
 TXR_D             = 1
@@ -373,19 +372,6 @@ txr_rr_src:
     lda #TXR_BANK
     jmp SET_BANK_LOCK
 
-; The NMI's "jsr flush_vram_queue" ($EE9E): the game's flush, then the
-; renderer's staged glyph tiles (txr.asm nmi_up, mapped here).
-txr_flush:
-    lda vram_queue_read
-    sta TXR_Q0
-    jsr FLUSH_VRAM_QUEUE
-    lda TXR_UQN
-    beq @rts
-    jsr txr_map6
-    jmp TXR_NMI_UP
-@rts:
-    rts
-
 ; text_draw_line's end ($DD03, X = the queue's end): in map mode the
 ; renderer translates the line's entries first.
 txr_dlx:
@@ -498,12 +484,13 @@ txr_cur:
     pha
     rts
 
-; load_battle_palette ($DE8D, the map's font load): the renderer's page
-; setup in its place.
+; screen_refresh's "jsr load_battle_palette" ($CF22, the map setup): the
+; renderer's page setup in place of the font load.  (The boot's font load,
+; from the reset path, stays the game's: the title and the scenes use the
+; font, and the band page gets its copy.)
 txr_mi:
     ldx #TXF_MAPINIT
-    jsr txr_call
-    jmp SET_BANK_CURRENT
+    jmp txr_call
 
 ; redraw_start's first instruction: the full redraw that closes every map
 ; window; every page's glyphs are free again.  X and Y kept.

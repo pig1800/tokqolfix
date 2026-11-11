@@ -138,7 +138,7 @@ INFO_ATTR_CELLS = (
 CV_LABELS = ("cv_irq", "cv_sm", "cv_nmi", "cv_w1", "cv_stage",
              "cv_irq_end", "cv_ram_end",
              "cv_stream", "cv_sforce", "cv_sreload", "cv_fill", "cv_wincb",
-             "txr_call", "txr_rr", "txr_flush",
+             "txr_call", "txr_rr",
              "txr_dlx", "txr_rcx", "txr_cur", "txr_mi", "txr_rd")
 # The map text renderer (TEXT_RENDERER.md): bank 26, its tables in
 # battery RAM from TXR_TABLES up (kanji.inc).
@@ -186,8 +186,7 @@ PATCH_SITES = {
     0xDD03: bytes.fromhex("a9009d"),           # text_draw_line: lda #0 / sta $0400,x
     0xDBCA: bytes.fromhex("a656bd"),           # text_render_cell: ldx text_line / lda
     0xCD07: bytes.fromhex("689d0004"),         # text_draw_cursor: pla / sta $0400,x
-    0xDE8D: bytes.fromhex("a90920"),           # load_battle_palette: lda #9 / jsr
-    0xEE9E: bytes.fromhex("20a1d9"),           # NMI: jsr flush_vram_queue
+    0xCF22: bytes.fromhex("208dde"),           # screen_refresh: jsr load_battle_palette
 }
 BSETUP_WAITS = (0xDF32, 0xE0A3, 0xE200, 0xE238)   # -> jsr bs_wait
 
@@ -729,8 +728,7 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     apply_patch(bank, 0xDD03, jmp(0x4C, "txr_dlx"))
     apply_patch(bank, 0xDBCA, jmp(0x4C, "txr_rcx"))
     apply_patch(bank, 0xCD07, jmp(0x20, "txr_cur") + bytes((0xEA,)))
-    apply_patch(bank, 0xDE8D, jmp(0x4C, "txr_mi"))
-    apply_patch(bank, 0xEE9E, jmp(0x20, "txr_flush"))
+    apply_patch(bank, 0xCF22, jmp(0x20, "txr_mi"))
 
 
     write_bank("bank15.bin", bytes(bank))

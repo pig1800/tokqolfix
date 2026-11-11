@@ -56,8 +56,7 @@ PATCHES = [
     (0xDD03, 0xDD05),   # text_draw_line's end: jmp txr_dlx
     (0xDBCA, 0xDBCC),   # text_render_cell: jmp txr_rcx
     (0xCD07, 0xCD0A),   # text_draw_cursor's tile store: jsr txr_cur / nop
-    (0xDE8D, 0xDE8F),   # load_battle_palette (the map's font load): jmp txr_mi
-    (0xEE9E, 0xEEA0),   # NMI: jsr txr_flush (the flush, then glyph uploads)
+    (0xCF22, 0xCF24),   # screen_refresh's font load (map setup): jsr txr_mi
 ]
 
 

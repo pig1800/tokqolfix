@@ -40,7 +40,9 @@ BLANK           = $7F
     jmp txr_dispatch            ; $8000: main thread (txr_call)
     jmp nmi_cv                  ; $8003: NMI entries, this bank's first 8 KiB
     jmp nmi_live                ; $8006:   mapped at $8000 by the RAM's
-    jmp nmi_up                  ; $8009:   txr_map6
+    nop                         ; ($8009: free)
+    nop
+    nop
 txr_dispatch:
     txa
     asl a
@@ -100,11 +102,12 @@ cvn_map:
     lda ppu_mask_shadow
     and #$18
     beq cvn_off                 ; rendering off: no split, none pending
-    bit TXR_UPF
-    bmi cvn_arm                 ; v is in the pattern table already (the
-                                ; game's own scroll writes restored t)
     bit CV_STRM
-    bvs cvn_arm                 ; cv_stream forced already
+    bvs cvn_arm                 ; cv_stream forced already (no uploads after it)
+    lda TXR_UQN
+    beq @noup
+    jsr nmi_up                  ; staged glyphs (X = bytes flushed)
+@noup:
     cpx #CV_FORCE_MAX+1
     bcs cvn_arm                 ; the game's NMI ran late: no PPU access
 cv_force:                       ; (label for the gates)
@@ -228,24 +231,21 @@ cvb_cancel:
 ; bytes flushed, none with a palette or CHR-stream step pending (they
 ; follow in this NMI).  R0 = page 1 again after.
 nmi_up:
-    lda vram_dma_pending
-    ora palette_dirty
-    bne @rts0
-    lda vram_queue_read
-    sec
-    sbc TXR_Q0
-    cmp #64
-    bcc @go
-@rts0:
-    rts
-@go:
+    ; After the game's NMI work (ef08_gate, normal frames only: no cycle
+    ; before the game's raster loops), rendering on, vblank: 6 tiles after
+    ; an empty flush, one fewer per 8 bytes flushed (the palette may have
+    ; gone up too); the rest next frame.  X = bytes flushed, kept.
+    stx TXR_Q0
+    txa
+    cmp #48
+    bcs @rts
     lsr a
     lsr a
     lsr a
     eor #$FF
     sec
-    adc #8
-    sta TXR_Q0                  ; tiles this NMI (1-8)
+    adc #6
+    sta TXR_I                   ; tiles this NMI (1-6)
     lda ppu_ctrl_shadow
     and #$FB
     sta PPUCTRL                 ; +1 increments
@@ -282,7 +282,7 @@ nmi_up:
     tax
     dec TXR_UQN
     beq @done
-    dec TXR_Q0
+    dec TXR_I
     bne @rec
 @done:
     stx TXR_UQR
@@ -291,11 +291,9 @@ nmi_up:
     lda MMC3_SEL
     ora #MMC3_CHR_MODE
     sta MMC3_SELECT
-    lda #$80
-    sta TXR_UPF                 ; v is in the pattern table (cv_nmi)
 @rts:
+    ldx TXR_Q0
     rts
-
 nmi_code_end:
 .if nmi_code_end > $A000
 .error "the renderer's NMI code must stay in the bank's first 8 KiB"
@@ -318,9 +316,10 @@ cmd_src:    .db $4B, $24, $68, $6B
 ; Page and allocator setup
 ; ======================================================================
 
-; The map's font load (screen_refresh, the boot), rendering off: page 1
-; lower = the fixed set, コマンド, everything else blank; pages 2-4 once
-; after reset.  Every part's glyphs free.  Map mode from here.
+; The map setup (screen_refresh, in place of its font load), rendering
+; off: page 1 lower = the fixed set, コマンド, everything else blank; pages
+; 2-4 the first time after reset (nothing else uses them).  Every part's
+; glyphs free.  Map mode from here.
 txr_mapinit:
     jsr busy_on
     bit TXR_BOOT
