@@ -1232,16 +1232,8 @@ arm0_once:
     lda ppu_mask_shadow
     and #$18
     beq arm0_off                    ; rendering off: nothing to switch
-    lda CV_ROWS
-    beq arm0_nocv
-    ; The dialogue canvas (map-canvas step 3): the game's NMI armed it
-    ; (nmi_force -> cv_nmi) right after its last PPU write.  That stands in
-    ; a long frame (first thing, no PPU access of ours); after our own PPU
-    ; work (which clocks the counter) force and arm again.
-    bit CV_NOFORCE
-    bpl arm0_force
-    rts
-arm0_nocv:
+    ; (Map mode never gets here: ef08_gate skips the hack's NMI and cv_nmi
+    ; arms the text renderer's parts.)
     lda KANJI_BAND
     beq arm0_off
     bit CV_NOFORCE
@@ -1269,13 +1261,6 @@ arm0_noforce:
     sta MMC3_IRQ_RELOAD
     sta MMC3_IRQ_OFF            ; acknowledge anything pending
     sta MMC3_IRQ_ON
-    lda CV_ROWS
-    beq arm0_band
-    lda #2
-    sta KANJI_IRQ_ST            ; canvas stage 1 after stage 0
-    lda #CV_TOP*8-2
-    bne arm0_row
-arm0_band:
     lda #1
     sta KANJI_IRQ_ST
     ; T for stage 0 (it runs only after the cli below).
@@ -1379,8 +1364,11 @@ set_page:
 ; restore_bank_after_nmi that ends every NMI gives it back.  Preserves X
 ; and Y.
 wr_reg1:
-    asl a
-    asl a
+    cmp #2                      ; page 1: R0 = CHR_SCENE_LO; page 2 (the
+    lda #CHR_SCENE_LO           ; band): CHR_BAND_LO ($3800 since the map
+    bcc @r                      ; renderer)
+    lda #CHR_BAND_LO
+@r:
     pha
     lda #MMC3_R0
     sta MMC3_SELECT
@@ -1392,8 +1380,11 @@ wr_reg1:
 ; select and the data write restores $8000 = MMC3_SEL = R0).  Preserves X
 ; and Y.
 wr_reg1_main:
-    asl a
-    asl a
+    cmp #2
+    lda #CHR_SCENE_LO
+    bcc @r
+    lda #CHR_BAND_LO
+@r:
     pha
     lda #MMC3_R0
     sta MMC3_SEL

@@ -52,6 +52,12 @@ PATCHES = [
     (0xF004, 0xF039),   # reset: MMC3 registers + hack RAM clear (rewritten)
     (0xFFE0, 0xFFEF),   # block-writer entry, overlay frame wait (padding)
     (0xFFFE, 0xFFFF),   # IRQ vector: irq_handler (MMC3 scanline IRQ)
+    # the map text renderer (TEXT_RENDERER.md): RAM stubs
+    (0xDD03, 0xDD05),   # text_draw_line's end: jmp txr_dlx
+    (0xDBCA, 0xDBCC),   # text_render_cell: jmp txr_rcx
+    (0xCD07, 0xCD0A),   # text_draw_cursor's tile store: jsr txr_cur / nop
+    (0xDE8D, 0xDE8F),   # load_battle_palette (the map's font load): jmp txr_mi
+    (0xEE9E, 0xEEA0),   # NMI: jsr txr_flush (the flush, then glyph uploads)
 ]
 
 

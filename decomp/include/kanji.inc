@@ -42,7 +42,7 @@ MMC3_SEL          = $00EB   ; main thread's last $8000 value (the game's
                             ; outside the rewritten switch routines)
 CHR_SCENE_LO      = 4       ; 1 KiB CHR bank numbers: page 1 tiles $00-$7F
 CHR_SCENE_HI      = 6       ;   page 1 tiles $80-$FF
-CHR_BAND_LO       = 8       ;   page 2 tiles $00-$7F
+CHR_BAND_LO       = 14      ;   page 2 tiles $00-$7F: CHR $3800 since the map renderer (TEXT_RENDERER.md)
 
 KANJI_TEXT_BANK   = $0131
 KANJI_TEXT_ADDR   = $0132   ; 2 bytes (consumed at overlay entry)
@@ -322,3 +322,73 @@ UI_GF             = UI_RAM+40 ; 23: bit 0 a window on screen shows group k,
 UI_BSBUSY         = UI_RAM+63 ; UIF_BSETUP entered busy mode (UIF_BSETUP_END
                             ; leaves it only then)
 UI_RAM_END        = UI_RAM+64
+
+; ----------------------------------------------------------------------
+; Map-mode text renderer (TEXT_RENDERER.md, 2026-11-12).  PRG bank
+; TXR_BANK (txr.asm); RAM stubs and the NMI uploader in canvas_ram.asm.
+; Screen parts (rows 0-8 / 9-14 / 15-20 / 21-29) show BG tiles $00-$7F
+; from R0 = 4 / 8 / 10 / 12 (CHR $1000 / $2000 / $2800 / $3000).
+; ----------------------------------------------------------------------
+TXR_BANK          = 26
+TXF_MAPINIT       = 0       ; the map's font load: page 1 lower = the fixed set
+TXF_RESTORE       = 1       ; clear_screen: the font back into page 1 lower
+TXF_DL            = 2       ; text_draw_line's entries: translate before the commit
+TXF_RC            = 3       ; text_render_cell, in map mode
+TXF_RESET         = 4       ; redraw_start: every page's glyphs free again
+TXF_DLC           = 5       ; text_draw_line: continue after the uploads
+TXF_RCC           = 6       ; text_render_cell: continue (after uploads or a pause)
+TXF_FILL          = 7       ; set_ppu_scroll's fill (cv_fill)
+TXR_N0            = 70      ; stage 0's count: the first switch in line 71's hblank
+TXR_ON            = $0780   ; bit 7: page 1 lower holds the renderer's tiles (map mode)
+TXR_UQN           = $0781   ; staged tiles the NMI has still to upload
+TXR_UQR           = $0782   ; the NMI's offset in TXR_UQ
+TXR_BOOT          = $0783   ; bit 7: pages 2-4 hold the fixed set (since reset)
+TXR_QX            = $0784   ; text_draw_line: the queue's end index
+TXR_RET           = $0785   ; text_render_cell's return value (the line-end byte)
+TXR_C0            = $0786   ; txr_cur: the return address
+TXR_C1            = $0787
+TXR_RS            = $0788   ; txr_rr: 2, source address
+TXR_RST           = $078A   ; txr_rr: 2, source stride
+TXR_RN            = $078C   ; txr_rr: byte count
+TXR_RO            = $078D   ; txr_rr: offset in TXR_GBUF
+TXR_SN            = $078E   ; main thread: records staged in this batch
+TXR_FULL          = $078F   ; cells drawn blank because a page was full (count)
+TXR_P             = $0790   ; main thread: the entry's part 0-3
+TXR_PAR           = $0791   ; main thread: 0 = the entry's row is a line's top row
+TXR_E             = $0792   ; main thread: queue index of the entry
+TXR_EN            = $0793   ; main thread: cells left in the entry
+TXR_S0            = $0794   ; main thread: the first entry's header byte
+TXR_B             = $0795   ; main thread: the byte being translated
+TXR_T             = $0796   ; main thread: tile
+TXR_G             = $0797   ; main thread: group / loop index
+TXR_K             = $0798   ; main thread: kanji glyph code (2)
+TXR_Y             = $079A   ; text_render_cell: row-buffer index
+TXR_N             = $079B   ; text_render_cell: cells in this step (1 or 2)
+TXR_I             = $079C   ; scratch
+TXR_J             = $079D
+TXR_Q0            = $079E   ; NMI: the queue read index before the flush
+REG_LO            = $07A0   ; 32: glyph code of the page's kanji entry e (low)
+REG_HI            = $07C0   ;     (high)
+TXR_CT            = $07E7   ; text_render_cell: 2 top tiles
+TXR_CB            = $07E9   ; text_render_cell: 2 bottom tiles
+TXR_EL            = $07EB   ; text_draw_line: bytes in TXR_EB
+TXR_UPF           = $07EC   ; NMI: bit 7 = the uploader wrote the pattern table last
+TXR_ST            = $07ED   ; a renderer call's status for its stub (0 done, 1 uploads, 2 pause)
+TXR_WC            = $07EE   ; text_render_cell: cells to pause for
+TXR_S10           = $07EF   ; txr_call: $10, $11 and the bank, kept (not on the stack)
+TXR_S11           = $07F0
+TXR_SB            = $07F1
+TXR_RX            = $07F2   ; txr_rd: X, Y kept
+TXR_RY            = $07F3
+; Battery RAM (the canvas code's old space, after the RAM image), from the
+; top down to TXR_TABLES:
+TXR_NG            = 28      ; kanji groups per part: tiles $0C-$7B
+TXR_UQMAX         = 5       ; staged tiles per batch
+TXR_UQ            = $7F65   ; 5 x 11: staged tiles (R0 value, PPU hi, PPU lo, 8 bytes)
+TXR_EB            = $7F35   ; 48: text_draw_line's entries, out of the queue
+TXR_GBUF          = $7F15   ; 32: glyph bytes read by txr_rr
+TXR_TBM           = $7ED5   ; 4 x 16: tiles in use in part p (bit set)
+TXR_GHI           = $7E65   ; 4 x 28: glyph code of group g in part p (high; $FF = free)
+TXR_GLO           = $7DF5   ; 4 x 28: (low)
+TXR_KM            = $7BF5   ; 4 x 128: kana code -> tile in part p (0 = none)
+TXR_TABLES        = $7BF5   ; the RAM image must end at or below this

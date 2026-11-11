@@ -86,6 +86,8 @@ overlay_entry:
 ; this message's kana tiles on the band page.  No request is pending here,
 ; so the overlay owns KANJI_A.
 message_setup:
+    bit TXR_ON                  ; map mode: the text renderer owns the
+    bmi @txr                    ; tiles (no band, no pool, no requests)
     jsr pool_decide             ; C set: the battle pool
     bcc @band
     jsr release_all
@@ -120,6 +122,8 @@ message_setup:
     pla
     sta $10
 
+    bit TXR_ON
+    bmi @cleaned
     lda KANJI_BAND
     bne @clean_band
     lda KANJI_PAGES_LEFT        ; pool: flag the message, no band page to clean
@@ -147,6 +151,10 @@ message_setup:
     sta KANJI_UPLOADED+1        ; lines still on screen
 @done:
     rts
+@txr:
+    lda #0
+    sta KANJI_BAND
+    beq @meta
 
 ; ----------------------------------------------------------------------
 ; Window geometry from the engine's current line cell address
@@ -446,6 +454,10 @@ page_start:
     lda KANJI_PAGES_LEFT
     and #<~PAGE_FLAG
     sta KANJI_PAGES_LEFT
+    bit TXR_ON
+    bpl @band
+    rts                         ; map mode: nothing on any band page
+@band:
     jsr release_all
     lda $10                     ; the game's $10/$11 (math temps)
     pha
@@ -699,6 +711,33 @@ KANJI_EC:
     bcc @found
     jmp @blank_r
 @found:
+    bit TXR_ON
+    bpl @notxr
+    ; Map mode (TEXT_RENDERER.md): the renderer's codes, $80 + 2e (left
+    ; half) and $81 + 2e (right), in both rows; e = the entry, whose glyph
+    ; REG_LO/HI keeps.  The renderer uploads the glyph when it draws them.
+    pla                         ; give the game its $10/$11 back
+    sta $11
+    pla
+    sta $10
+    ldy KANJI_M2
+    lda KANJI_CODE_LO
+    sta REG_LO,y
+    lda KANJI_CODE_HI
+    sta REG_HI,y
+    tya
+    asl a
+    ora #$80
+    ldx KANJI_BUFX
+    sta $0300,x
+    sta $0318,x
+    ora #1
+    sta $0301,x
+    sta $0319,x
+    inx
+    inx
+    rts
+@notxr:
     bit KANJI_PAGES_LEFT
     bvc @record
     ldy KANJI_M2                ; pool: entry k -> the k-th slot not blocked

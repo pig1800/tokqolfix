@@ -1,66 +1,52 @@
 ; ======================================================================
-; Map-canvas step 3: the dialogue canvas, RAM code.
-;
-; Assembled for CV_RAM ($7900, battery RAM of the third save record, which
+; RAM code (battery RAM at CV_RAM, $7900; the third save record's, which
 ; the kanji target no longer offers).  kanji_build.py stores the image in
-; PRG bank CV_BANK at $A000; hack_init copies it at reset.  It runs from
-; RAM because it calls the game's map lookups (draw_map_area maps banks 9
-; and 12/13 over $8000-$BFFF) and must stay mapped across them.
+; PRG bank CV_BANK at $A000; hack_init copies it at reset.  It must end
+; below TXR_TABLES (the map renderer's tables).
 ;
-; A text window whose rows reach the band (screen rows 18-27: metarows
-; 9-13 below the camera's top) in map mode is drawn into the other
-; vertical half: the address EOR $0800, the same in-half rows.  Its first
-; band metarow must be the band's top (the dialogue window's is); each new
-; metarow gets the map's tiles beside the window (the game's own metatile
-; lookup) and the map's palettes (the attribute shadow mirrored into the
-; canvas half).  The NMI shows CV_ROWS tile rows of it from line 144: an
-; IRQ in line 143 points the PPU at the canvas, another one line above the
-; canvas's end points it back at the map.  The visible half is never
-; written while the canvas is up, so the full redraw that closes the
-; window only shrinks the canvas from the bottom as it passes.
-;
-; Entry points (fixed-bank patches and the hack bank):
-;   cv_irq    IRQ, KANJI_IRQ_ST != 0 (stage 0 and the canvas stages)
-;   cv_ctp    cursor_to_ppu's tail
-;   cv_ti     text_init, each window metarow ("jsr cursor_to_ppu /
-;             jsr tile_address")
-;   cv_sm     text_init's "jsr scroll_map" (both sites)
-;   cv_nmi    NMI, normal frames, after the game's flush
+; Map-canvas step 3's dialogue canvas is gone (TEXT_RENDERER.md,
+; 2026-11-12): map windows draw into the visible nametable again and the
+; map text renderer (txr.asm, bank TXR_BANK) owns every text tile.  What
+; stays here must run with any bank mapped:
+;   cv_irq    IRQ, KANJI_IRQ_ST != 0: stage 0, the map's part switches
+;   cv_nmi    NMI, normal frames (ef08_gate): the split's force and arm
 ;   cv_stream NMI, the game's CHR-stream step (c343_hook)
-;   cv_split  irq_arm0, canvas frames: the split's PPU addresses
+;   cv_fill   set_ppu_scroll (clear_screen): both twins; the font back
+;   cv_sm     text_init's "jsr scroll_map": step B's battle hook
+;   cv_wincb  the battle templates' line CALL (step B)
+;   txr_*     the renderer's stubs, waits, bank reader and NMI uploader
 ; ======================================================================
 .include "../../decomp/include/hardware.inc"
 .include "../../decomp/include/ram.inc"
 .include "../../decomp/include/kanji.inc"
 
-CURSOR_TO_PPU     = $D7E9
-TILE_ADDRESS      = $D953
 SCROLL_MAP        = $DB87
-DRAW_MAP_AREA     = $D83E
-DRAW_MAP_OBJECT   = $DAF2
-CURSOR_ADD_Y_S    = $D7D1       ; cursor_add_y_signed
-MAP_TILE_PAGES    = $F6C9       ; data_F6C9: metatile tile table pages by class
-ROW_TOP           = $DBC6       ; scroll_map's text_line for row 0, by text_line
-ROW_BOTTOM        = $DBC8       ;   and for row 1
-LINE_OFFSET       = $DD0B       ; text_draw_line's row-buffer offset by text_line
-ROW_BUFFER        = $0300
-QUEUE             = $0400
 CALL_UI_C         = $C48D       ; call_ui (mmc3_b15.asm; checked by kanji_build.py)
 C343_PLAIN        = $FFE0       ; c343_plain (mmc3_b15.asm; checked by kanji_build.py)
+FLUSH_VRAM_QUEUE  = $D9A1
+UPDATE_FRAME      = $C0D5
+SOUND_QUEUE_ADD   = $C4D5
+SET_BANK_CURRENT  = $C47E
+CELL_ROWS         = $DC8F       ; text_render_cell's row-buffer offsets
+RENDER_CELL_LOOP  = $DBD1       ; text_render_cell after its first three instructions
+TXR_NMI_CV        = $8003       ; txr.asm: nmi_cv, nmi_live, nmi_up (bank
+TXR_NMI_LIVE      = $8006       ; TXR_BANK's first 8 KiB, mapped at $8000 by
+TXR_NMI_UP        = $8009       ; txr_map6 in the NMI)
 
-; IRQ delays (calibrated: the second $2006 write lands at dots 257-320).
-CV_D1             = 1
-CV_D2             = 5
+; IRQ delay (calibrated: the R0 data write lands in dots 257-320).
+TXR_D             = 1
 
 .base CV_RAM
 .org CV_RAM
 
 ; ----------------------------------------------------------------------
 ; IRQ (A pushed by irq_handler), KANJI_IRQ_ST != 0.
-;   1 / 2   stage 0, in line 0: reload for line KANJI_IRQ_N; the band
-;           stage (ST 0) or canvas stage 1 (ST $80) comes there
-;   $80     canvas stage 1, in line 143: the canvas from line 144
-;   $81     canvas stage 2: the map again below the canvas
+;   1 / 2   stage 0, in line 0: reload for line KANJI_IRQ_N; then the band
+;           stage (ST 0, fixed bank) or the map's parts (ST $80)
+;   $80-$82 the map's parts 2, 3, 4: R0 = 8, 10, 12 in the hblank of lines
+;           71, 119, 167, the counter reloaded for the next one
+;   $83     line 240: R0 = page 1 again for the vblank
+; No switch while the main thread owns the PPU or the CHR registers.
 ; ----------------------------------------------------------------------
 cv_irq:
     lda KANJI_IRQ_ST
@@ -70,11 +56,10 @@ cv_irq:
     sta MMC3_IRQ_RELOAD
     sta MMC3_IRQ_OFF
     sta MMC3_IRQ_ON
-    lsr KANJI_IRQ_ST            ; 1 -> 0 (band), 2 -> 1
+    lsr KANJI_IRQ_ST            ; 1 -> 0 (band), 2 -> 1 (map parts)
     beq @band
     lda #$80
     sta KANJI_IRQ_ST
-    jsr cv_split                ; the canvas's addresses, long before line 142
 @band:
     pla
     rti
@@ -82,62 +67,47 @@ cv_irq:
 cv_stage:
     txa
     pha
-    lda KANJI_IRQ_ST
-    lsr a
-    bcs cv_stage2
     sta MMC3_IRQ_OFF            ; acknowledge
-    lda CV_LATCH
+    lda nmi_busy
+    ora KANJI_MAINCHR
+    bne cv_quit
+    ldx KANJI_IRQ_ST
+    lda txr_lat-$80,x
+    beq cv_last
     sta MMC3_IRQ_LATCH
     sta MMC3_IRQ_RELOAD         ; reloads at this line's clock
     sta MMC3_IRQ_ON
-    inc KANJI_IRQ_ST            ; $81: stage 2 next
-    lda nmi_busy
-    bne cv_out
-    ldx #CV_D1
-@w1:
-    dex
-    bne @w1
-    bit PPUSTATUS
-    lda CV_V1H
-    sta PPUADDR
-    lda CV_V1L
-cv_w1:                          ; (label for the timing probe)
-    sta PPUADDR                 ; hblank of line 143: the canvas from line 144
-    ; Kanji band (BG tiles $00-$7F): from the window's top border row,
-    ; whose tiles are the same on both pages.
-    lda KANJI_BAND
-    beq cv_out
+    inc KANJI_IRQ_ST
     lda #MMC3_R0
     sta MMC3_SELECT
-    lda #CHR_BAND_LO
-    sta MMC3_DATA
-    lda KANJI_NFLAGS
-    ora #FLAG_HIT|FLAG_PAGE2
-    sta KANJI_NFLAGS
+    lda txr_r0v-$80,x
+    ldx #TXR_D
+@w:
+    dex
+    bne @w
+cv_w1:                          ; (label for the timing probe)
+    sta MMC3_DATA               ; hblank: the next part's page
+    jmp cv_out
+cv_last:
+    lda #MMC3_R0
+    sta MMC3_SELECT
+    lda #CHR_SCENE_LO
+    sta MMC3_DATA               ; line 240: page 1 for the vblank
+cv_quit:
+    lda #0
+    sta KANJI_IRQ_ST
+cv_out:
     lda MMC3_SEL
     ora #MMC3_CHR_MODE
     sta MMC3_SELECT
-cv_out:
     pla
     tax
     pla
     rti
-
-cv_stage2:
-    sta MMC3_IRQ_OFF            ; acknowledge; off until the next arm
-    lda nmi_busy
-    bne cv_out
-    ldx #CV_D2
-@w2:
-    dex
-    bne @w2
-    bit PPUSTATUS
-    lda CV_V2H
-    sta PPUADDR
-    lda CV_V2L
-cv_w2:                          ; (label for the timing probe)
-    sta PPUADDR                 ; the map again from the next line
-    jmp cv_out
+txr_lat:
+    .db 47, 47, 72, 0
+txr_r0v:
+    .db 8, 10, 12, CHR_SCENE_LO
 cv_irq_end:
 
 ; ----------------------------------------------------------------------
@@ -248,10 +218,11 @@ cvs_split:
     lda ppu_mask_shadow
     and #$18
     beq cvs_body                ; rendering off: no split
-    lda CV_ROWS
-    ora CV_PEND
-    ora KANJI_BAND
+    bit TXR_ON
+    bmi cvs_force               ; the map's parts
+    lda KANJI_BAND
     beq cvs_body                ; no split this frame
+cvs_force:
 cv_sforce:                      ; (label for the gates)
     lda PPUSTATUS
     lda #$10
@@ -284,192 +255,23 @@ cvs_rts:
     rts
 
 ; ----------------------------------------------------------------------
-; NMI, normal frames (ef08_gate: after the game's PPU work and its
-; nmi_mode branch, so the game's own split loops keep their timing), or
-; cv_stream.  CV_ROWS takes CV_PEND: growing once the queue is empty (the
-; rows were queued before CV_PEND grew), shrinking once the flush passed
-; the closing redraw's row.  In a long frame (the hack's NMI does no PPU
-; work after this) the PPU-address force (v = $1000: A12 high when vblank
-; ends, the pre-render line's first BG fetch is no MMC3 clock; t restored)
-; and a canvas's arm come here at once: stage 0 at the pre-render line's
-; clock, stage 1 (KANJI_IRQ_ST 2 -> $80) at line 142's clock; a dialogue
-; window's frames push the hack's NMI past vblank.  The force only when a
-; split comes (canvas or band): none in battles and scenes.  In a light
-; frame irq_arm0 does both after the hack's own PPU work, as for the band.
-; Stage 0's handler computes the split's addresses (cv_split).
-; Fixed-position screens (title, battle, scenes) have no canvas.  The
-; path to the reload after a flush of more than CV_FORCE_MAX bytes is
-; the shortest: it ends near the pre-render line's clock.  A only.
+; NMI, normal frames (ef08_gate) and cv_stream: the split's force and arm
+; run from the text renderer's bank (txr.asm nmi_cv / nmi_live), mapped
+; at $8000-$9FFF here; the NMI's last restore_bank_after_nmi maps the
+; current bank back.
 ; ----------------------------------------------------------------------
 cv_nmi:
-    lda nmi_busy
-    ora CV_STRM
-    beq cvn_live
-    lda #0
-    sta CV_STRM                 ; (cv_stream ran it in this NMI, or busy)
-    rts
+    jsr txr_map6
+    jmp TXR_NMI_CV
 cvn_live:
-    ; A long frame (nmi_ef08 arms first thing, no hack unit or replay
-    ; follows): the force and the canvas's arm come first, before the
-    ; bookkeeping below.  A light frame: irq_arm0 does both after the
-    ; hack's own PPU work.
-    lda ppu_mask_shadow
-    and #$18
-    bne cvn_on
-    jmp cvn_pend                ; rendering off
-cvn_on:
-    lda vram_queue_read
-    sec
-    sbc KANJI_QPOS              ; bytes the game flushed this frame
-    cmp #CV_FORCE_MAX+1
-    bcs cvn_arm                 ; the game's NMI ran late: no PPU access
-    bit CV_STRM
-    bvc cvn_nstrm
-    jmp cvn_sarm                ; after the stream step: forced, reloaded
-cvn_nstrm:
-    cmp #REPLAY_MAX+1
-    bcs cvn_need                ; a long frame
-    lda $39
-    cmp KANJI_LAST39
-    beq cvn_pend                ; a light frame
-cvn_need:                       ; ($39 moved outside an NMI step: short)
-    lda CV_ROWS
-    ora CV_PEND
-    ora KANJI_BAND
-    beq cvn_pend                ; no split this frame: no PPU access
-cv_force:                       ; (label for the gates)
-    lda PPUSTATUS
-    lda #$10
-    sta PPUADDR
-    lda #$00
-    sta PPUADDR
-    lda ppu_ctrl_shadow
-    sta PPUCTRL
-    lda scroll_x
-    sta PPUSCROLL
-    lda scroll_y
-    sta PPUSCROLL
-cv_force_end:
-cvn_arm:
-    lda CV_ROWS
-    ora CV_PEND
-    beq cvn_barm
-    lda #0
-    sta MMC3_IRQ_LATCH
-cv_reload:                      ; (label for the gates)
-    sta MMC3_IRQ_RELOAD
-    sta MMC3_IRQ_OFF            ; acknowledge anything pending
-    sta MMC3_IRQ_ON
-    jmp cvn_cvst
-cvn_barm:
-    lda KANJI_BAND
-    beq cvn_pend                ; no split this frame
-    ; The band alone: armed here, right after the force, as irq_arm0
-    ; would after the hack NMI's entry (past the pre-render line's clock
-    ; after the longest flushes); FLAG_ARMED makes that a no-op.
-    lda #0
-    sta MMC3_IRQ_LATCH
-cv_breload:                     ; (label for the gates)
-    sta MMC3_IRQ_RELOAD
-    sta MMC3_IRQ_OFF
-    sta MMC3_IRQ_ON
-    lda KANJI_NFLAGS
-    ora #FLAG_ARMED
-    sta KANJI_NFLAGS
-    jmp cvn_band
-cvn_cvst:
-    lda #2
-    sta KANJI_IRQ_ST
-    lda #CV_TOP*8-2
-    sta KANJI_IRQ_N
-    lda #$80
-    sta CV_ARMED                ; (stage 0 waits for the cli below)
-cvn_pend:
-    ; Out of map mode (input_buttons bit 7): no canvas comes, the redirect
-    ; ends.  (After the arm: the shortest path to the reload; a canvas
-    ; armed on a stale CV_PEND is cancelled below.)
-    lda input_buttons
-    bpl cvn_rows
-    lda #0
-    sta CV_REDIR
-    sta CV_PEND
-cvn_rows:
-    lda CV_PEND
-    cmp CV_ROWS
-    beq cvn_done
-    bcs cvn_grow
-    ; Shrinking (the closing redraw): once the flush has passed the queue
-    ; position cv_ctp saw, i.e. with the redrawn row's map entries, as the
-    ; original's window row vanished.
-    lda vram_queue_read
-    cmp CV_Q
-    beq cvn_done
-    lda CV_PEND
-    sta CV_ROWS
-    bne cvn_done
-    sta KANJI_BAND              ; closed: the kanji band goes with it
-    sta CV_SROWS                ; (the next canvas computes its split)
-    beq cvn_done
-cvn_grow:
-    ; Growing: once the queue is empty (the rows were queued before
-    ; CV_PEND grew).
-    lda vram_queue_read
-    cmp vram_queue_write
-    bne cvn_done
-    lda CV_PEND
-    sta CV_ROWS
-cvn_done:
-    bit CV_ARMED
-    bpl cvn_rts
-    lda #0
-    sta CV_ARMED
-    lda CV_ROWS
-    beq cvn_cancel
-    cli                         ; stage 0 may preempt the rest of the NMI
+    jsr txr_map6
+    jmp TXR_NMI_LIVE
+txr_map6:
+    lda #MMC3_R6
+    sta MMC3_SELECT
+    lda #TXR_BANK*2
+    sta MMC3_DATA
     rts
-cvn_cancel:                     ; no canvas rows this frame after all
-    sta MMC3_IRQ_OFF
-    sta KANJI_IRQ_ST
-cvn_rts:
-    rts
-
-; After the stream step (cv_stream forced v and reloaded the counter when
-; a split comes): the stage settings.  The canvas as in cvn_arm; the band
-; alone as irq_arm0's band path (cvn_band, also cvn_arm's); nothing (the
-; input check above dropped the coming canvas): the IRQ off again.
-cvn_sarm:
-    lda CV_ROWS
-    ora CV_PEND
-    bne cvn_cvst
-    lda KANJI_BAND
-    beq cvb_cancel_p
-cvn_band:                       ; (the band's stage settings, cvn_arm too)
-    lda #1
-    sta KANJI_IRQ_ST            ; stage 0, then the band stage
-    lda KANJI_WIN_ROW
-    asl a
-    asl a
-    asl a
-    sec
-    sbc scroll_y
-    bcs cvb_row
-    sbc #15                     ; borrow: wrap modulo 240
-cvb_row:
-    cmp #16
-    bcc cvb_cancel_p
-    cmp #209
-    bcs cvb_cancel_p
-    sta KANJI_IRQ_N
-    cmp #ARM_CLI_MIN
-    bcc cvb_pend                ; near the top: stage 0 waits for the NMI's end
-    cli
-cvb_pend:
-    jmp cvn_pend
-cvb_cancel_p:
-    lda #0
-    sta KANJI_IRQ_ST
-    sta MMC3_IRQ_OFF
-    jmp cvn_pend
 
 ; ----------------------------------------------------------------------
 ; The nametable fill set_ppu_scroll ($C2AB, patched "jmp cv_fill"): A =
@@ -486,42 +288,8 @@ cv_fill:
     sta $00
     stx $01
     sty $02
-    ldy #1                      ; two tables (no subroutine: the original
-    ora #$08                    ; is flat, the stack stays as deep): the
-cvf_table:                      ; lower twin first
-    bit PPUSTATUS
-    sta PPUADDR
-    lda #0
-    sta PPUADDR
-    lda $01
-    ldx #64                     ; 64 x 16 bytes
-cvf_loop:
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    sta PPUDATA
-    dex
-    beq cvf_tdone
-    cpx #4
-    bne cvf_loop
-    lda $02                     ; the last 64: the attribute bytes
-    jmp cvf_loop
-cvf_tdone:
-    lda $00                     ; then the table
-    dey
-    bpl cvf_table
+    ldx #TXF_FILL               ; (leaving map mode: the font back first)
+    jsr txr_call
     ldy $02
     lda #$C0
     ldx $01
@@ -529,530 +297,12 @@ cvf_tdone:
 cv_fill_end:                    ; (label for the RAM gates)
 
 ; ----------------------------------------------------------------------
-; IRQ stage 0 of a canvas frame (line 0, or late in the NMI it preempts):
-; the two $2006 pairs and the stage-2 latch (stage 1 comes at line 142's
-; clock).  Scratch CV_I0-CV_I2 (not the NMI's: it may be preempted); A only.
-; ----------------------------------------------------------------------
-cv_split:
-    lda CV_ROWS
-    cmp CV_SROWS
-    bne @new
-    rts                         ; (the camera rests while the canvas is up)
-@new:
-    sta CV_SROWS
-    lda ppu_ctrl_shadow
-    and #$03
-    asl a
-    asl a
-    sta CV_I0                ; the camera's table bits ($08 lower, $04 right)
-    lda scroll_y
-    lsr a
-    lsr a
-    lsr a
-    clc
-    adc #CV_TOP
-    cmp #30
-    bcc @h1
-    sbc #30
-    sta CV_I2
-    lda CV_I0
-    eor #$08
-    sta CV_I0
-    lda CV_I2
-@h1:
-    sta CV_I2                ; the band top's in-half row
-    lsr a
-    lsr a
-    lsr a
-    ora CV_I0
-    eor #$08                    ; the canvas: the other vertical half
-    sta CV_V1H
-    lda scroll_x
-    lsr a
-    lsr a
-    lsr a
-    sta CV_I1                ; coarse X
-    lda CV_I2
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    ora CV_I1
-    sta CV_V1L
-    lda CV_I2
-    clc
-    adc CV_ROWS
-    cmp #30
-    bcc @h2
-    sbc #30
-    sta CV_I2
-    lda CV_I0
-    eor #$08
-    sta CV_I0
-    lda CV_I2
-@h2:
-    sta CV_I2
-    lsr a
-    lsr a
-    lsr a
-    ora CV_I0
-    sta CV_V2H
-    lda CV_I2
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    ora CV_I1
-    sta CV_V2L
-    lda CV_ROWS
-    asl a
-    asl a
-    asl a
-    sec
-    sbc #1
-    sta CV_LATCH
-    rts
-
-; ----------------------------------------------------------------------
-; A = the band index (0-4) of the cursor's metarow, C clear; C set when
-; it is outside the band.  Main thread; CV_S, CV_T0.
-; ----------------------------------------------------------------------
-cv_band:
-    lda cursor_y
-    lsr a
-    lda cursor_x
-    bcc @u
-    adc #14                     ; +15: the lower vertical half
-@u:
-    sta CV_S                    ; the cursor's metarow on the 30-metarow ring
-    lda ppu_ctrl_shadow
-    and #$02
-    beq @c
-    lda #15
-@c:
-    sta CV_T0
-    lda scroll_y
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    clc
-    adc CV_T0                   ; the camera's top metarow
-    eor #$FF
-    sec
-    adc CV_S                    ; cursor - camera
-    bcs @p
-    adc #30
-@p:
-    sec
-    sbc #CV_TOP/2
-    cmp #5
-    rts
-
-; ----------------------------------------------------------------------
-; cursor_to_ppu's tail (A = the address low byte for $68, $69 stored).
-; While the canvas takes writes, a band metarow's address moves to the
-; canvas.  While it closes, a map row redrawn in the band ends the canvas
-; above it.
-; ----------------------------------------------------------------------
-cv_ctp:
-    sta ppu_addr_lo_shadow
-    bit CV_REDIR                ; (bit 7 only: redraw_start shifts it out)
-    bmi @go
-    lda CV_PEND
-    beq @rts
-@go:
-    jsr cv_band
-    bcs @rts
-    bit CV_REDIR
-    bpl @shrink
-    lda ppu_addr_hi_shadow
-    eor #$08
-    sta ppu_addr_hi_shadow
-@rts:
-    rts
-@shrink:
-    asl a
-    cmp CV_PEND
-    bcs @rts
-    sta CV_PEND
-    lda vram_queue_write        ; the row's map entries come after this
-    sta CV_Q
-    rts
-
-; ----------------------------------------------------------------------
-; text_init, each window metarow, in place of "jsr cursor_to_ppu / jsr
-; tile_address".  Returns X = the attribute-shadow index for the window's
-; palette bits and attribute writes: the canvas half's for a canvas row.
-; ----------------------------------------------------------------------
-cv_ti:
-    lda #$FF
-    sta CV_CUR
-    lda input_buttons
-    bmi @plain                  ; fixed-position windows: not the map
-    jsr cv_band
-    bcs @plain
-    bit CV_REDIR
-    bmi @on
-    tax
-    bne @plain                  ; the canvas starts at the band's top metarow
-    ldx CV_PEND
-    bne @plain                  ; (still closing)
-    lda #$80
-    sta CV_REDIR
-    stx CV_MROWS
-    txa
-@on:
-    sta CV_CUR
-    jsr CURSOR_TO_PPU           ; moved into the canvas by cv_ctp
-    jsr TILE_ADDRESS            ; X = the visible half's shadow index
-    ; This metarow's quadrant pair of its attribute row (16 bytes), visible
-    ; half -> canvas half; the canvas's other pair stays (the metarow next
-    ; to it can be a live buffer row of the map).
-    txa
-    pha
-    lda cursor_x
-    lsr a
-    lda #$0F
-    bcc @m
-    lda #$F0
-@m:
-    sta CV_T0
-    txa
-    and #$F0
-    tax
-    lda #16
-    sta CV_S
-@cp:
-    txa
-    eor #$80
-    tay
-    lda MAP_ATTR,x
-    eor MAP_ATTR,y
-    and CV_T0
-    eor MAP_ATTR,y
-    sta MAP_ATTR,y
-    inx
-    dec CV_S
-    bne @cp
-    pla
-    eor #$80
-    tax
-    stx CV_BC
-    rts
-@plain:
-    jsr CURSOR_TO_PPU
-    jmp TILE_ADDRESS
-
-; ----------------------------------------------------------------------
-; text_init's "jsr scroll_map".  A new canvas metarow is queued whole: two
-; 32-cell rows (the map beside the window, the window's cells from the row
-; buffer) and the screen row's attribute bytes, in as few entries as the
-; nametable edge allows (the window frames carry the most VRAM traffic of
-; the dialogue).  A canvas metarow already set up gets scroll_map's own
-; window rows and attribute bytes (moved into the canvas).  The canvas
-; shows it from the next frame on.
-; A new metarow is 91 queued bytes (the original's window rows: 20-60).
-; The game yields after every text line only for windows 13 or more cells
-; wide (loc_CB24); narrower ones draw two or three lines per yield, which
-; overran the 256-byte queue (the item menu's status window: 277 bytes,
-; the read position lapped, the flush lost its entries) and would overrun
-; vblank too.  So with CV_QWAIT or more bytes already queued, wait_vblank
-; first (the game's own yield, as at loc_CB3B): one metarow per flush, as
-; in the dialogue (window frames 76-95 bytes).
+; text_init's "jsr scroll_map" ($CB1B, $CB80): the game's row drawing,
+; then step B's battle hook (UIF_SM after every row pair, UI_SMRET =
+; the return address low byte: $1D a line, $82 the window's last pair).
 ; ----------------------------------------------------------------------
 cv_sm:
-    jmp cv_sm_hook              ; step B (in place of "ldx CV_CUR", so every
-cv_sm_body:                     ; label keeps its address); flags from it
-    bmi @plain
-    cpx CV_MROWS
-    bcc @old
-    bne @plain                  ; a gap below the canvas: not shown
-    lda input_buttons
-    bne @plain                  ; (map windows have none)
-    lda vram_queue_write
-    sec
-    sbc vram_queue_read
-    cmp #CV_QWAIT
-    bcc @room
-    jsr WAIT_VBLANK             ; flush first
-@room:
-    jsr cv_flanks
-    inc CV_MROWS
-    jmp @shown
-@old:
     jsr SCROLL_MAP
-@shown:
-    lda CV_CUR
-    asl a
-    adc #2
-    cmp CV_PEND
-    bcc @rts
-    sta CV_PEND
-@rts:
-    rts
-@plain:
-    jmp SCROLL_MAP
-
-; ----------------------------------------------------------------------
-; A new canvas metarow, in place of scroll_map: the tiles of every
-; metatile not wholly under the window (draw_map_area, as the game's row
-; drawing) and the window's cells (scroll_map's row-buffer rows) make two
-; 32-cell rows; then the screen row's attribute bytes (the window's
-; palette bits are already in the canvas shadow).  Cursor = the window's
-; metarow and left metacol, text_speed_count = its width, text_line its
-; row-buffer pair, CV_BC its attribute index, $68/$69 its first row's
-; canvas address (cv_ti).
-; ----------------------------------------------------------------------
-cv_flanks:
-    ldx #3
-@sv:
-    lda cursor_x,x
-    sta CV_SAVE,x
-    dex
-    bpl @sv
-    lda current_bank_b
-    sta CV_SAVE+4
-    lda current_prg_bank
-    sta CV_SAVE+5
-    lda tile_id_base
-    sta CV_SAVE+6
-    ; geometry
-    lda ppu_ctrl_shadow
-    lsr a                       ; C = the camera's right table
-    lda scroll_x
-    ror a
-    lsr a
-    lsr a
-    lsr a
-    sta CV_M0                   ; table << 4 | scroll_x >> 4
-    asl a
-    and #$3F
-    sta CV_C0                   ; screen column 0's nametable column
-    lda cursor_y2
-    lsr a
-    lda cursor_x2
-    bcc @l
-    ora #$10
-@l:
-    sec
-    sbc CV_M0
-    and #$1F
-    sta CV_WL
-    lda text_speed_count
-    lsr a
-    clc
-    adc CV_WL
-    sta CV_WR
-    lda ppu_addr_hi_shadow
-    and #$FB
-    sta CV_HB
-    lda ppu_addr_lo_shadow
-    and #$E0
-    sta CV_LB
-    ; the metatiles, from screen metacol 0
-    lda #0
-    sec
-    sbc CV_WL
-    jsr CURSOR_ADD_Y_S
-    ldx #0
-@mt:
-    cpx CV_WL
-    bcc @look
-    cpx CV_WR
-    bcc @next
-@look:
-    stx CV_S
-    jsr DRAW_MAP_AREA           ; Y = the metatile; bank 9 mapped
-    lda #0
-    sta ppu_addr_lo
-    ldx class_index
-    lda MAP_TILE_PAGES,x
-    sta ppu_addr_hi
-    lda CV_S
-    asl a
-    tax
-    lda (ppu_addr_lo),y
-    sta CV_FLANK,x
-    inc ppu_addr_hi
-    lda (ppu_addr_lo),y
-    sta CV_FLANK+1,x
-    inc ppu_addr_hi
-    lda (ppu_addr_lo),y
-    sta CV_FLANK+32,x
-    inc ppu_addr_hi
-    lda (ppu_addr_lo),y
-    sta CV_FLANK+33,x
-    ldx CV_S
-@next:
-    lda #1
-    jsr CURSOR_ADD_Y_S
-    inx
-    cpx #16
-    bne @mt
-    ldx #3
-@rs:
-    lda CV_SAVE,x
-    sta cursor_x,x
-    dex
-    bpl @rs
-    lda CV_SAVE+4
-    sta current_bank_b
-    lda CV_SAVE+5
-    jsr SET_BANK_LOCK
-    ; the window's cells: row 0 from scroll_map's top line, row 1 from its
-    ; bottom line (text_draw_line's buffer offsets)
-    ldx text_line
-    lda ROW_TOP,x
-    tax
-    ldy LINE_OFFSET,x
-    lda CV_WL
-    asl a
-    tax
-    jsr cv_wincells
-    ldx text_line
-    lda ROW_BOTTOM,x
-    tax
-    ldy LINE_OFFSET,x
-    lda CV_WL
-    asl a
-    ora #$20
-    tax
-    jsr cv_wincells
-    ; both rows, whole
-    lda #0
-    sta CV_R
-@row:
-    lda #0
-    sta CV_C
-    lda #32
-    sta CV_N
-    jsr cv_emit
-    lda CV_R
-    eor #1
-    sta CV_R
-    bne @row
-    lda ppu_addr_lo_shadow      ; (as scroll_map leaves it: the second row)
-    ora #$20
-    sta ppu_addr_lo_shadow
-    ; the screen row's attribute bytes, the window's run among them
-    lda #0
-    sta tile_attr
-    lda CV_M0
-    lsr a
-    sta CV_T0                   ; the screen's first byte (bit 3: table)
-    lda CV_BC
-    and #$F0
-    ora CV_T0
-    sta battle_cursor
-    lda CV_M0
-    and #$01
-    ora #$08                    ; 8 bytes, 9 when the screen starts mid-byte
-    sta tile_id_base
-    jsr DRAW_MAP_OBJECT
-    lda CV_SAVE+6
-    sta tile_id_base
-    rts
-
-; text_speed_count cells from the row buffer at Y into CV_FLANK at X.
-cv_wincells:
-    lda text_speed_count
-    sta CV_K
-@c:
-    lda ROW_BUFFER,y
-    sta CV_FLANK,x
-    inx
-    iny
-    dec CV_K
-    bne @c
-    rts
-
-; CV_R = tile row 0/1, CV_C = first screen column, CV_N = cells: one run
-; of CV_FLANK into the canvas row, split at the nametable's edge.
-cv_emit:
-    lda CV_N
-    bne @go
-    rts
-@go:
-    ldx vram_queue_write
-@ent:
-    lda CV_C
-    clc
-    adc CV_C0
-    and #$3F
-    sta CV_K                    ; nametable column 0-63
-    and #$20
-    lsr a
-    lsr a
-    lsr a
-    ora CV_HB
-    sta QUEUE,x
-    inx
-    lda CV_R
-    lsr a
-    lda CV_K
-    and #$1F
-    ora CV_LB
-    bcc @r0
-    ora #$20
-@r0:
-    sta QUEUE,x
-    inx
-    lda CV_K
-    and #$1F
-    eor #$1F
-    clc
-    adc #1                      ; room left in this table's row
-    cmp CV_N
-    bcc @k
-    lda CV_N
-@k:
-    sta CV_K
-    sta QUEUE,x
-    inx
-    lda CV_R
-    lsr a
-    lda CV_C
-    bcc @b
-    ora #$20
-@b:
-    tay
-    lda CV_K
-    sta CV_T0
-@d:
-    lda CV_FLANK,y
-    sta QUEUE,x
-    inx
-    iny
-    dec CV_T0
-    bne @d
-    lda CV_C
-    clc
-    adc CV_K
-    sta CV_C
-    lda CV_N
-    sec
-    sbc CV_K
-    sta CV_N
-    bne @ent
-    lda #0
-    sta QUEUE,x
-    stx vram_queue_write
-    rts
-
-; ----------------------------------------------------------------------
-; Step B: cv_sm with the battle screen's hook (appended, so that the code
-; above keeps its addresses and an older build's RAM image in a save state
-; stays compatible).  While the battle screen's kanji state is live, every
-; window row pair goes to the UI bank (UIF_SM: the panel's erase columns,
-; the S P / 残 cells, a window's end) with UI_SMRET = cv_sm's return
-; address low byte ($1D: a line, $82: the window's last row pair).
-; ----------------------------------------------------------------------
-cv_sm_hook:
-    ldx CV_CUR
-    jsr cv_sm_body
     lda UI_BATTLE
     beq @rts
     tsx
@@ -1070,5 +320,203 @@ cv_wincb:
     stx UI_X
     ldx #UIF_WINCB
     jmp CALL_UI_C
+
+; ======================================================================
+; Map text renderer stubs (txr.asm in bank TXR_BANK)
+; ======================================================================
+
+; X = function: map the renderer bank (lock protocol), run it, map the
+; bank that was current.  $10/$11 kept.  A, X, Y lost.  Nothing on the
+; stack: the text task's stack is small (TEXT_RENDERER.md); every wait is
+; the stubs' own, at the original routine's depth.
+txr_call:
+    lda $10
+    sta TXR_S10
+    lda $11
+    sta TXR_S11
+    lda current_prg_bank
+    sta TXR_SB
+    lda #TXR_BANK
+    jsr SET_BANK_LOCK
+    jsr $8000
+    lda TXR_SB
+    jsr SET_BANK_LOCK
+    lda TXR_S10
+    sta $10
+    lda TXR_S11
+    sta $11
+    rts
+
+; TXR_GBUF[TXR_RO..] = TXR_RN bytes of 16 KiB bank A from TXR_RS, every
+; TXR_RST bytes; then the renderer bank again.  Main thread.
+txr_rr:
+    jsr SET_BANK_LOCK
+    lda TXR_RS
+    sta txr_rr_src+1
+    lda TXR_RS+1
+    sta txr_rr_src+2
+    ldx TXR_RO
+    ldy TXR_RN
+txr_rr_src:
+    lda $FFFF
+    sta TXR_GBUF,x
+    inx
+    lda txr_rr_src+1
+    clc
+    adc TXR_RST
+    sta txr_rr_src+1
+    lda txr_rr_src+2
+    adc TXR_RST+1
+    sta txr_rr_src+2
+    dey
+    bne txr_rr_src
+    lda #TXR_BANK
+    jmp SET_BANK_LOCK
+
+; The NMI's "jsr flush_vram_queue" ($EE9E): the game's flush, then the
+; renderer's staged glyph tiles (txr.asm nmi_up, mapped here).
+txr_flush:
+    lda vram_queue_read
+    sta TXR_Q0
+    jsr FLUSH_VRAM_QUEUE
+    lda TXR_UQN
+    beq @rts
+    jsr txr_map6
+    jmp TXR_NMI_UP
+@rts:
+    rts
+
+; text_draw_line's end ($DD03, X = the queue's end): in map mode the
+; renderer translates the line's entries first.
+txr_dlx:
+    bit TXR_ON
+    bpl @c
+    stx TXR_QX
+    ldx #TXF_DL
+@call:
+    jsr txr_call
+    lda TXR_ST
+    beq @done
+@w:
+    jsr WAIT_VBLANK             ; the NMI uploads the batch
+    lda TXR_UQN
+    bne @w
+    ldx #TXF_DLC
+    bne @call
+@done:
+    ldx TXR_QX
+@c:
+    lda #0
+    sta $0400,x
+    stx vram_queue_write
+    rts
+
+; text_render_cell ($DBCA): the renderer's own loop in map mode.
+txr_rcx:
+    bit TXR_ON
+    bmi @m
+    ldx text_line               ; the original's first three instructions
+    lda CELL_ROWS,x
+    sta ptr1_hi
+    jmp RENDER_CELL_LOOP
+@m:
+    ldx #TXF_RC
+@call:
+    jsr txr_call
+    lda TXR_ST
+    beq @end
+    lsr a                       ; 1: uploads, 2: the pause
+    bcc @pause
+@w:
+    jsr WAIT_VBLANK             ; the NMI uploads the batch
+    lda TXR_UQN
+    bne @w
+    beq @cont
+@pause:                         ; the original's per-cell pause, per cell
+    lda input_buttons
+    and #$10
+    bne @cont
+@cell:
+    lda frame_counter
+    lsr a
+    bcs @ns
+    lda #$07
+    jsr SOUND_QUEUE_ADD
+@ns:
+    lda text_speed
+    ldx TXR_Y
+    ldy $0318,x
+    cpy #$0A
+    bne @f
+    clc
+    adc #2
+@f:
+    pha
+    jsr UPDATE_FRAME
+    pla
+    sec
+    sbc #1
+    bpl @f
+    inc TXR_Y
+    dec TXR_WC
+    bne @cell
+@cont:
+    ldx #TXF_RCC
+    bne @call
+@end:
+    lda input_buttons
+    and #$10
+    beq @r
+    jsr WAIT_VBLANK
+@r:
+    lda TXR_RET
+    rts
+
+; text_draw_cursor's tile store ($CD07, "pla / sta $0400,x"): in map
+; mode ▶ ($70) and the blank ($0A) are the fixed set's $0A and $7F.
+txr_cur:
+    pla
+    sta TXR_C0
+    pla
+    sta TXR_C1
+    pla                         ; the tile
+    bit TXR_ON
+    bpl @st
+    cmp #$70
+    bne @b
+    lda #$0A
+    bne @st
+@b:
+    cmp #$0A
+    bne @st
+    lda #$7F
+@st:
+    sta $0400,x
+    lda TXR_C1
+    pha
+    lda TXR_C0
+    pha
+    rts
+
+; load_battle_palette ($DE8D, the map's font load): the renderer's page
+; setup in its place.
+txr_mi:
+    ldx #TXF_MAPINIT
+    jsr txr_call
+    jmp SET_BANK_CURRENT
+
+; redraw_start's first instruction: the full redraw that closes every map
+; window; every page's glyphs are free again.  X and Y kept.
+txr_rd:
+    bit TXR_ON
+    bpl @r
+    stx TXR_RX
+    sty TXR_RY
+    ldx #TXF_RESET
+    jsr txr_call
+    ldx TXR_RX
+    ldy TXR_RY
+@r:
+    rts
 
 cv_ram_end:

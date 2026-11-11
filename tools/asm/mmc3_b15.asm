@@ -134,10 +134,11 @@ ef31_gate:
 ; FLAG_PAGE2 = 0: the NMI that clears the band also clears the flag; the
 ; game keeps OAM slot 0 hidden, so sprite 0 needs no write either.)
 ef08_gate:
-    jsr CV_NMI                  ; v = $1000, the dialogue canvas's arm
+    jsr CV_NMI                  ; v = $1000, the split's arm
+    bit TXR_ON                  ; map mode: the text renderer's parts,
+    bmi @tail                   ; nothing of the hack's NMI
     lda KANJI_BAND
     ora KANJI_REQ
-    ora CV_ROWS                 ; a shown canvas is armed every frame
     bne @go
     lda $39
     cmp KANJI_LAST39
@@ -145,6 +146,7 @@ ef08_gate:
     lda vram_queue_read
     cmp KANJI_QPOS
     bne @go
+@tail:
     jmp ef08_tail
 @go:
     jmp ef08_hook
@@ -645,7 +647,8 @@ cursor_to_ppu:
     ror a
     and #$C0
     ora ptr_lo_
-    jmp CV_CTP                  ; stores $68; the dialogue canvas (map-canvas step 3)
+    sta ppu_addr_lo_shadow
+    rts
 
 ; A = (cursor_y & 1) << 1 | (cursor_y2 & 1): the cursor's nametable.
 nt_bits:
@@ -858,7 +861,7 @@ attr_table_hi:
 ; screen below; this starts them 17 rows below the player (an up step
 ; draws 8 rows above its position).  Returns A = 17 rows.
 redraw_start:
-    lsr CV_REDIR                ; the dialogue canvas closes as the redraw passes
+    jsr TXR_RD                  ; the map's text glyphs free again (TEXT_RENDERER.md)
     inc text_y
     lda #$02
     jsr $D7A9                   ; cursor_add_x: cursor = text + 2 rows
@@ -950,14 +953,8 @@ tile_address_end:
     nop
 
 ; ----------------------------------------------------------------------
-; Map-canvas step 3: text_init's window rows go through the canvas code
-; (RAM): "jsr cursor_to_ppu / jsr tile_address" at $CA59 and both
-; "jsr scroll_map" ($CB1B, $CB80).
-.base $CA59
-    jsr CV_TI
-    nop
-    nop
-    nop
+; text_init's "jsr scroll_map" ($CB1B, $CB80): step B's battle row hook
+; (RAM, cv_sm).
 .base $CB1B
     jsr CV_SM
 .base $CB80
