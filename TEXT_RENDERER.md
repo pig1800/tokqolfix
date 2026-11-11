@@ -216,6 +216,107 @@ About 1,600 bytes become free.
    renderer can scroll as the original: a line moving into part 3 is
    re-uploaded into `$2800`.  Should it?
 
+## Decisions (user, 2026-11-12)
+
+1. The first bank has 111 free tiles.  The user's 47 counted a kanji as
+   2 tiles.
+2. In `$2000`, `$2800` and `$3000`, kana start at `$7E` and go down.
+   `$7F` is blank in every bank.
+3. The band page for non-map scenes moves to `$3800` (`CHR_BAND_LO` 14).
+4. Kanji names in map menus come later, after this engine
+   (`namekanjilist.csv`).
+5. Dialogue scrolling comes later.  The kanji crossing part 2 and part
+   3 needs its own study.  Until then the current flip to a fresh
+   window at each wait stays.
+
+## Implementation design
+
+### Pages and tiles
+
+| Part | Rows | R0 (1 KiB bank) | Kana from | Pinned |
+|---|---|---|---|---|
+| 1 | 0-8 | 4 (`$1000`) | `$7A` | `$00-$0B` fixed, `$7B-$7E` コマンド, `$7F` blank |
+| 2 | 9-14 | 8 (`$2000`) | `$7E` | `$00-$0B`, `$7F` |
+| 3 | 15-20 | 10 (`$2800`) | `$7E` | `$00-$0B`, `$7F` |
+| 4 | 21-29 | 12 (`$3000`) | `$7E` | `$00-$0B`, `$7F` |
+
+- **The fixed set.**  The old codes `$6D $0B $6E $6F $0C $0D $7D $7E $0E
+  $0F $70 $71` become new `$00-$0B`, and the old `$0A` (blank) becomes
+  `$7F`.  These tiles are the same in every page, so a fixed code needs
+  no part.
+- **Pinned in part 1.**  The old `$4B $24 $68 $6B` (コマンド) are pinned at
+  `$7B-$7E`.
+- **Glyph bytes.**  Every text tile is 1bpp: plane 0 only, plane 1 stays
+  zero.
+  - **Kana:** 8 bytes from bank 9 `$BA00 + 8 * code`.
+  - **Kanji:** code = glyph-bank index * 512 + local.  The bank is 23 +
+    (code high byte >> 1); high-byte bit 0 selects the `+256` half.  Byte
+    j is at `$8C00 + half + j * 359 + (local & $FF)`.  Bytes 0-7 are the
+    top-left tile, 8-15 the top-right, 16-23 the bottom-left and 24-31
+    the bottom-right.
+  - **Kanji tile order in a page:** 8x16, so t is the top-left, t+1 the
+    bottom-left, t+2 the top-right and t+3 the bottom-right.  Groups are
+    4-aligned from `$0C`.
+
+### Kanji in the line buffers
+
+- **Codes.**  The overlay writes logical codes into `$0300`/`$0318`: `$80
+  + 2e` for the left half and `$81 + 2e` for the right half.  e is the
+  entry index in the page record, and `REG_LO/HI[e]` = the glyph code.
+  The engine's line-end markers (`$FA-$FF`, control bytes stored in the
+  top row) are unchanged.
+- **Top or bottom.**  In map mode a text line's top row is an odd screen
+  row, and NT row parity equals screen row parity (`scroll_y` is a
+  multiple of 16).  So the row parity tells top from bottom.
+
+### Hooks
+
+| Site | Change |
+|---|---|
+| `load_battle_palette` `$DE8D` (the map's font load, from `screen_refresh` and at boot) | map init: page 1 lower = fixed set + コマンド, rest zero; allocator reset; `TXR_ON` = 1 |
+| `set_ppu_scroll` `$C2AB` (already `jmp cv_fill`; every `clear_screen`, the start of every non-map screen) | with `TXR_ON`: the font back into page 1 (128 tiles, rendering off), `TXR_ON` = 0 |
+| `text_draw_line` end `$DD03` | with `TXR_ON`: translate the entries from `vram_queue_write` to X before the commit |
+| `text_render_cell` `$DBCA` | with `TXR_ON`: the renderer's own cell loop (a kanji's two columns in one flush; waits as the original) |
+| `text_draw_cursor` `$CD0B` (the tile store) | fixed-code map (▶ `$70` to `$0A`, blank `$0A` to `$7F`, ▼ `$71` to `$0B`) |
+| `flush_vram_queue` end `$D9EA` | NMI glyph uploads from the staging queue, within the vblank budget |
+| overlay `KANJI_EC` and the page logic | with `TXR_ON`: logical codes, `REG[e]`; no band and no tile plan |
+| IRQ (`cv_irq`, `cv_nmi`, `irq_arm0`) | with `TXR_ON`: stage 0 at the pre-render clock, then R0 = 8 / 10 / 12 in the hblank of lines 71 / 119 / 167 (reload N = 70, then latch 47 twice); the NMI selects R0 = 4 |
+| canvas (`cv_ti`, `cv_ctp`, `cv_split`, `cv_flanks`, `cv_emit`) | removed; `cv_sm`'s step-B battle hook stays |
+
+### Translation and allocation (bank 26, main thread)
+
+- **Per entry.**  NT address to screen row (`ntrow` - `top`, mod 60;
+  `top` = `ppu_ctrl` bit 1 * 30 + `scroll_y` / 8), then the part.  Each
+  byte is looked up:
+  - below `$80`: fixed set, else kana;
+  - `$80-$F9`: kanji half;
+  - `$FA` and up: unchanged.
+- **Misses.**  A miss allocates a tile and stages the glyph.  The entry
+  is committed only after the NMI has uploaded the staged tiles (waits
+  with `wait_vblank_queued`; direct writes in busy or rendering-off
+  frames).
+- **Lookups.**  Kana: one tile per part from the top down, a per-part
+  map.  Kanji: a per-part list (glyph to group).
+- **Full page:** read the part's visible rows back from VRAM (after the
+  queue is flushed), keep the tiles still shown, and free the rest.
+
+### RAM
+
+- **Code.**  The canvas-only code goes.  What stays in RAM is the IRQ,
+  the NMI arm and stream step, the fill and font restore, the uploader,
+  the stubs into bank 26, and the bank reader.
+- **Tables** (about 800 bytes): kana maps, kanji lists, group bitmaps,
+  `REG`, the staging queue.  They fill the rest of `$7900-$7F9B`, plus
+  `$0780-$07FF`.
+
+### Order
+
+1. Pages, init, restore and the IRQ split.  Canvas off.  Kana and
+   frames through the hooks.
+2. Kanji through the overlay, no half-kanji.
+3. Canvas code removed, gates (glyph truth, IRQ lines, deadline, taint,
+   RAM).
+
 ## Work order (after the answers)
 
 1. **Pages and IRQ.**
