@@ -739,7 +739,8 @@ game opens window `$21` (なかまにいれる / にがす), rows 12-17 columns
 on the reward window's bottom row: columns 20-29 of row 12 show `$21`'s
 top border, so the two boxes share an edge.  The original had two rows
 between them.  The message window starts at row 18, so `$21` cannot move
-down.  Open question for the user.
+down.  The user keeps it: windows overlaying each other is how the
+original's windows behave.
 
 RAM: `UI_RAM2` `$7F9E-$7FBF` (34 bytes: `UI_MC_LO`, `UI_MC_HI`, `UI_PRES`,
 `KANJI_PMASK`; `kanji.inc`).  The canvas RAM code still ends at `$7F93`
@@ -774,9 +775,9 @@ lint OK; results in `out/test/stepD_g1`, states `out/user/m7`):
 
 ## Questions for the user
 
-- The reward window and the prisoner window `$21` share row 12 now (see
-  "Step B item 8").  Keep that, or move the reward window up one row
-  (rows 1-11, the top border on row 1), which leaves `$21` clear?
+None open.  The user's direction after item 8 (2026-11-11): the code as it
+stands is final; no further architecture rework is planned.  All branches
+were merged (fast-forward) into `master` and pushed.
 
 ## Work order
 
