@@ -410,6 +410,30 @@ Checks (battery-save boot, `out/test/txr`):
 | Army screen round trip | identical |
 | Map page switches | 5,169, all in lines 71, 119, 167 |
 
+### Third round (2026-11-12): the user's states
+
+States `out/user/txr/s1`-`s4` (Mesen slots 1-4, the user's; the RAM
+image installed with `tools/mss_canvas.py --keep` into `k1`-`k4`).
+
+| Path | Result |
+|---|---|
+| s1 random battle, s2 boss battle (saved on the black screen before them) | battle text drawn by the battle's own code (the font back in page 1); after the victory the map setup runs again and the map menu and messages are right |
+| s3 shop: buying, back to the previous menu, buying again | right (武器屋 何 他 入用; the gold window straddles parts 2 and 3) |
+| s4 record office, saving | right; ▼ at the page wait (fixed: `$71` was not translated) |
+| New game, story scenes (frames 20-2340) | pixel-identical to `a1cf5e6` |
+| New game, the first town's long speech | **bug**: some kanji blank in parts 3 and 4 |
+
+The bug: a dialogue that flips through many pages in one window keeps
+every earlier page's kana and kanji allocated, and parts 3 and 4 fill up.
+Freeing is needed after all, but only when a part is full.
+
+The fix is a read-back GC, run only on an allocation failure:
+1. Upload the staged tiles.
+2. Read the part's visible rows back from VRAM, one row per NMI.
+3. Keep the tiles still shown, plus the cells of the current entry
+   already translated.
+4. Free every other kana tile and kanji group, then retry.
+
 ## Work order (after the answers)
 
 1. **Pages and IRQ.**
