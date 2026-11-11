@@ -34,4 +34,4 @@ assets/screens/
 assets/fonts/kana_8x8.png
 assets/fonts/kanji_16x16_bank01.png
 assets/fonts/kanji_16x16_bank02.png
-decomp/main.lst
+decomp/*.lst
