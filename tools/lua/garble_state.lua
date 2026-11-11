@@ -63,7 +63,7 @@ local function onMapper(addr, value)
 end
 
 local page_prev = {1, 1}
-local counts = {pool_outside=0, pool_glyph_changed=0, pool_on_band=0, pool_not_uploaded=0, kanji_left=0, kanji_on_scene=0, not_uploaded=0, band_mismatch=0, released_shown=0, active_outside=0, glyph_changed=0}
+local counts = {battle_glyph_changed=0, battle_not_uploaded=0, pool_outside=0, pool_glyph_changed=0, pool_on_band=0, pool_not_uploaded=0, kanji_left=0, kanji_on_scene=0, not_uploaded=0, band_mismatch=0, released_shown=0, active_outside=0, glyph_changed=0}
 -- Battle pool kanji (revision 18): tiles $A4-$DF on the scene page while
 -- the pool is armed ($0178 bit 6).  Inside the window (or a cell that
 -- showed the kanji before its border was erased) the tile must be drawn
@@ -93,6 +93,32 @@ local function pool_cell(a, t, x, ytop, pg_top, pg_bot, isin, bad)
   end
   if not nz then
     counts.pool_not_uploaded = counts.pool_not_uploaded + 1; bad[#bad+1] = string.format("pool_not_uploaded (%d,%d) t=%02X", x, ytop, t)
+  end
+end
+-- Battle screen (step B item 7): while UI_BATTLE ($7FC8) is set the UI bank
+-- owns plane 0 of tiles $A4-$FF (23 kanji groups: the command window's
+-- fixed kanji, the subwindows' and the messages' kanji).  A cell showing
+-- such a tile must keep its glyph while it keeps the tile (no kanji
+-- rewritten under a shown cell), and its group must not be blank.  P0
+-- cells show plane 0, P1 cells plane 1 (S, P); P2 (gauges) and P3 (the
+-- portrait) are not checked, they do not show plane 0.
+local bmarks, bsigs = {}, {}
+local function battle_cell(a, t, x, ytop, pal, bad)
+  if pal > 1 then bmarks[a] = nil; bsigs[a] = nil; return end
+  local off = pal == 0 and 0 or 8
+  local sg = {}
+  for i = 0, 7 do sg[#sg+1] = emu.read(0x1000 + t * 16 + off + i, emu.memType.nesChrRam) end
+  sg = table.concat(sg, ",")
+  if bmarks[a] == t and bsigs[a] and bsigs[a] ~= sg then
+    counts.battle_glyph_changed = counts.battle_glyph_changed + 1; bad[#bad+1] = string.format("battle_glyph_changed (%d,%d) t=%02X", x, ytop, t)
+  end
+  bmarks[a] = t; bsigs[a] = sg
+  if pal == 0 then
+    local base, nz = 0xA4 + ((t - 0xA4) & 0xFC), false
+    for q = 0, 3 do for i = 0, 7 do if emu.read(0x1000 + (base + q) * 16 + i, emu.memType.nesChrRam) ~= 0 then nz = true; break end end end
+    if not nz then
+      counts.battle_not_uploaded = counts.battle_not_uploaded + 1; bad[#bad+1] = string.format("battle_not_uploaded (%d,%d) t=%02X", x, ytop, t)
+    end
   end
 end
 local frames_bad = 0
@@ -201,9 +227,15 @@ local function onFrame()
           local h = t >= 0x80 and 2 or 1
           local pg_top, pg_bot = pt[h], pb[h]
           local active = t < 0x80 and (A[t >> 3] & (0x80 >> (t & 7))) ~= 0
-          local pool = t >= 0xA4 and t <= 0xDF and (rd(0x178) & 0x40) ~= 0
+          local battle = rd(0x7FC8) ~= 0 and t >= 0xA4
+          local pool = not battle and t >= 0xA4 and t <= 0xDF and (rd(0x178) & 0x40) ~= 0
           if not pool and pmarks[a] then pmarks[a] = nil; psigs[a] = nil end
-          if pool then
+          if not battle and bmarks[a] then bmarks[a] = nil; bsigs[a] = nil end
+          if battle then
+            local at = ppu((a & 0xFC00) + 0x3C0 + (trow >> 2) * 8 + (tcol >> 2))
+            local pal = (at >> (((trow & 2) << 1) | (tcol & 2))) & 3
+            battle_cell(a, t, x, ytop, pal, bad)
+          elseif pool then
             pool_cell(a, t, x, ytop, pg_top, pg_bot, inside[a], bad)
           elseif active and inside[a] then
             if pg_top == 2 and pg_bot == 2 then

@@ -19,8 +19,13 @@
 ;   $E0-$FE             the bank-9 block, every glyph in plane 1 (bars, S.P)
 ; Battle path (UIF_BINFO_ENTER / _EXIT around the screen): on the way back
 ; every battle name whose plane-1 tiles the screen used is streamed again
-; (the game's put_officer_name), and the pool is blanked and marked usable.
+; (the game's put_officer_name), the pool is blanked and marked usable, and
+; the battle screen's fixed kanji are written again (ui_battle.asm).
 ; Nothing here touches CHR RAM beyond the two pattern tables.
+;
+; The battle screen itself (step B item 7: command window, tactic and item
+; windows, the slot table of the 23 plane-0 groups $A4-$FF) is in
+; ui_battle.asm.
 ; ======================================================================
 .include "../../decomp/include/hardware.inc"
 .include "../../decomp/include/ram.inc"
@@ -72,7 +77,7 @@ ui_dispatch:
     rts
 ui_fns:
     .dw ui_info_draw-1, ui_binfo_enter-1, ui_binfo_exit-1, ui_army-1
-    .dw ui_info_enter-1
+    .dw ui_info_enter-1, ui_bstart-1, ui_wincb-1, ui_sm-1
 
 ; ======================================================================
 ; UIF_INFO_ENTER: the info screen, before battle_intro_screen.  Its block
@@ -113,7 +118,8 @@ ui_binfo_enter:
 ;   it (UI_NOMIR);
 ; - plane 0 and 1 of the pool $A4-$DF are cleared: no message is shown
 ;   now, the pool is marked checked and blank, so the next battle message
-;   uses it (not the band page);
+;   uses it (not the band page); then the 15 fixed command kanji go back to
+;   groups 8-22 and the slot table is reset (battle_state_direct);
 ; - the P2 colours 1-3 come back (decision 6).
 ; ======================================================================
 ui_binfo_exit:
@@ -160,9 +166,7 @@ ui_binfo_exit:
     bne @pool16
     dex
     bne @pool
-    lda KANJI_WIN_COL
-    ora #WINCOL_POOL_OK|WINCOL_CHECKED
-    sta KANJI_WIN_COL
+    jsr battle_state_direct     ; the fixed kanji, the slot table, the pool
     jsr ppu_end
     ldx #2
 @p2:
@@ -1032,5 +1036,7 @@ info_runs:
     .db $23,$43,$4C, $0D
     .db $23,$4F,1, $6F
     .db $FF
+
+.include "ui_battle.asm"
 
 .include "../../decomp/build/kanji/ui_data.inc"

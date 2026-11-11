@@ -149,7 +149,7 @@ the code and the traces say (kanji ROM `5449ff00...`; traces and dumps in
     the battle restores its involatile command kanji when the panel
     returns.
 
-## Plan: battle screen (user, in progress)
+## Plan: battle screen (user; implemented, see "Step B result: the battle screen")
 
 - The command panel needs 15 fixed (involatile) kanji:
   戦 策 略 防 御 道 具 総 攻 撃 退 却 武 将 残.
@@ -382,7 +382,8 @@ Facts found on the way:
 
 ## Step B result: the info screen (2026-11-11)
 
-Work order items 1-6 are done; item 7 (the battle screen) is not started.
+Work order items 1-6 are done; item 7 (the battle screen) is done too (next
+section).
 The original 256 KiB build is still byte-identical (`40f19e17...`).  The
 second round applied the user's layout and behaviour changes (listed
 below).
@@ -448,8 +449,9 @@ How it works:
     `restore_next` and `pick_restore` restore nothing, so a sync ends at
     once.
   - The map path still mirrors the font reload on the way back.
-- **The battle tactic subwindow's S P cell** (`$27E4`) changes palette
-  exactly when a window draws rows 18-19.  The canvas RAM code's `cv_sm`
+- **The battle tactic subwindow's S P cell** (`$27E4`; item 7 reworked this
+  as `UI_SPST`, see the battle screen's result) changes palette exactly
+  when a window draws rows 18-19.  The canvas RAM code's `cv_sm`
   (every window row pair goes through it) queues the attribute right after
   the row pair.  The value comes from `UI_SPP`: P1 with the tactic window's
   top row, P0 with the next window's (the command panel's border replaces
@@ -483,7 +485,7 @@ decomp regeneration must keep them, as it keeps `SAVE_SLOTS` and
 | `b14_officer_info_screen` `$8518-$857A` | the new driver, padded to `$857B` |
 | `b14_battle_officer_info` `$AA1A-$AA60` | `call_ui` enter/exit, no slot 0/1 streaming; the original wrapper is 71 bytes, not `$AA5E` |
 | `b14_battle_start` `$9B89` | `jsr b14_k_battle_start` |
-| `b14_battle_tactic_subwindow` `$9EB0` | `jsr b14_k_tactic_window` |
+| `b14_battle_tactic_subwindow` `$9EB0` | `jsr b14_k_tactic_window` (item 7 reverted it) |
 | `$AE3C` (`b14_loc_AE33` tail) | `jmp b14_k_gauge_colour` |
 | army status `$95C4` | `jsr CALL_UI_ARMY` |
 | `$BFD8-$BFFF` | the helpers.  This was the MMC1 reset stub and vectors, dead in the MMC3 target.  `b14_data_BFD9` stays as an equate for bank 15's MMC1 register writes |
@@ -520,11 +522,157 @@ Gates (kanji ROM `8f34d763...`):
   - `canvas_check` (item path) 0 missing, 0 mismatches, 0 late.
 - **Army status screen:** SP / MSP visible.
 
-Next: work order item 7, the battle screen.
+## Step B result: the battle screen (2026-11-11)
+
+Work order item 7.  The user's details: the fixed kanji fill the kanji area
+from the back (道具 in the last two groups, 残 third from the last), every
+kanji is in 8x16 order, and the command window erases columns 25-29 when
+it is drawn over the tactic or item window.
+
+**Kanji area.**  Plane 0 of the 23 groups `$A4 + 4k` (k = 0-22), tiles in
+8x16 order (`t` TL, `t+1` BL, `t+2` TR, `t+3` BR).  The battle's cells are
+P0, which shows plane 0 only, so the gauges (`$E0-$EE`) and S, P (`$F6`,
+`$F7`) keep their plane 1 underneath.
+
+| Groups | Tiles | Content |
+|---|---|---|
+| 0-7 | `$A4-$C3` | free: the subwindows' kanji (and the messages' pool) |
+| 8-14 | `$C4-$DF` | 総 攻 撃 退 却 武 将: only the first command window (`$11`) shows them; the only fixed kanji the messages' pool reaches |
+| 15-19 | `$E0-$F3` | 戦 策 略 防 御 |
+| 20 | `$F4-$F7` | 残 (the tactic window's title) |
+| 21-22 | `$F8-$FF` | 道 具 |
+
+The order within the groups is `UI_FIXED` in `kanji_build.py`; words read
+forwards (策 then 略).
+
+**Windows.**
+- Command windows `$11` / `$12`: 戦う 総攻撃 / 策略 退却 / 防御 武将 /
+  道具 (`$12`: the left column).  う is the kana tile.
+- Tactic window `$17`: the title is 残り SP (残's lower half on the border
+  row 18, its upper half in row 17 above the window; り, S, P, the digits
+  as before).  Each tactic line is two kanji, の and 計, from column 12 and
+  column 21.
+- Item window `$16`: the item names from the word list (all item types
+  now; `UI_ITEM_TYPES`), kana in the lower row; an item without an entry
+  keeps its kana name.
+- The four window templates in the fixed bank call the UI bank once per
+  line (`$F8 cv_wincb n`: n = 0-3 a command line, `$10` a tactic line,
+  `$20` an item line).  `cv_wincb` is in the canvas RAM code; the patches
+  are `battle_templates` in `kanji_build.py`.
+
+**Slot table** (WRAM, `UI_SLOT` / `UI_GF`, `ui_battle.asm`):
+- `UI_SLOT[k]` is the glyph in group k: `$FF` unknown, `$FE` a message
+  kanji that may be on screen (`kanji_overlay` marks the pool slots it
+  prints into).
+- A window's first line places all its glyphs before any of its rows is
+  drawn.  A glyph already in some group is used from there, with no upload
+  (the tactic window shares 火 between two tactics, 計 between all, and
+  将 of 干将 with the fixed 将).  Otherwise it takes the lowest group that
+  may be rewritten: not shown by a window on screen, not used by this
+  window, no message kanji.  The command windows always use their own
+  groups and restore a fixed kanji that was taken.
+- A kanji that has no such group yet is drawn blank, and the line is drawn
+  again when the window's last row pair is queued.  At that point the old
+  window is gone, so the group is free.  No frame shows a wrong glyph.
+  Opening a window over the command window, its kanji beyond the 8 free
+  groups (plus 残 under `$11`, plus the six `$11`-only ones under `$12`)
+  fill in after the wipe.  Closing it, the command kanji it took fill in
+  after the wipe.
+- Uploads go through the VRAM queue, one glyph (44 bytes) per NMI.  Two
+  per NMI overran vblank by up to two lines.
+- Battle start (`UIF_BSTART`, rendering off) and the info screen's battle
+  exit write all 15 fixed kanji directly.  After a round the window area is
+  blank (window `$14`), so the command window restores the fixed kanji the
+  messages took before it is drawn.
+
+**Each window row pair** (canvas `cv_sm` hook, `UIF_SM`):
+- `$11` / `$12`: the columns right of the window up to 29 are blanked in
+  the same flush (`$11`: 25-29, `$12`: 18-29).  The original left the
+  tactic and item windows' text there.
+- The row pair 18-19: the tactic window turns its S P cell P1 (`$27E4`
+  `$4A`) and the cell of 残's upper half P0 (`$27E3` `$02`; rows 16-17 are
+  the gauges' P2), and writes that half in row 17.  The next window
+  covering rows 18-19 sets `$0A` / `$0A` and blanks row 17 again.  This
+  replaces step B's `UI_SPP`.
+
+**Hack state.**  `UI_BATTLE` is set by `UIF_BSTART` and the battle path's
+exit, and cleared by `pal_copy` (the next `load_text_graphics`: the map's,
+or the info screen's once its screen is off).  While it is set,
+`pool_off` leaves the pool armed: the battle owns `$A4-$FF`, and the
+pool's blank check is cancelled at the battle start.
+
+**The S P cell and 計.**  The cell (rows 18-19, columns 18-19) must hold
+no plane-0 glyph (decision 9), but the first tactic's 計 ends at column 18
+of row 19: its top-right quarter lies in the cell and vanished.  Every
+even-aligned cell of row 19 holds tactic text except columns 28-29 (the
+border), so the cell cannot move.  The fix uses the plane trick: 計's
+top-right tile also gets the glyph in plane 1 (8 bytes, written with the
+tactic window's uploads, only when 計 is in groups 0-14, whose plane 1
+nothing shows).  Both planes set is colour 3, which is white in P0 as well,
+so 計 looks the same everywhere.
+
+**Not done: decision 7 in battle** (window borders one row down).  The
+window engine draws a text line's two rows in two different row pairs: a
+metarow is the lower row of one line and the upper row of the next.
+Moving the windows down one row would need the engine's row mapping
+changed for battle windows, and the dialogue line addresses too (`$D170`,
+`$D39E`, the overlay's `window_geometry`).  The battle's kanji are plane 0
+in P0 cells and need no attribute alignment.  Open question for the user.
+
+RAM: `UI_RAM` `$7FC0-$7FFE` (63 bytes, `kanji.inc`).  The canvas RAM code
+ends at `$7F93`.
+
+Hand edits for item 7 (bank 14, `.ifdef KANJI_TARGET`):
+
+| Where | What |
+|---|---|
+| `b14_battle_start` `$9B8F` | `jsr b14_k_fade_in` (screen off, then `UIF_BSTART`) |
+| `b14_battle_tactic_subwindow` `$9EB0` | back to the original `jsr b14_battle_open_list_window` (step B's `b14_k_tactic_window` is gone) |
+| `$BFD8-$BFFF` | `b14_k_gauge_colour`, `b14_k_battle_start`, `b14_k_fade_in` |
+
+Other changes: `ui_battle.asm` (new, included by `ui.asm`), `hack.asm`
+(`pal_copy`, `pool_off`), `kanji_overlay.asm` (pool slot marking),
+`canvas_ram.asm` (`cv_sm_hook`, `cv_wincb`), `kanji_build.py` (templates,
+`UI_FIXED`, all item types), `bank15_lint.py` (the template ranges),
+`kanji_common.py` (`kanjiwordlist.csv` may be UTF-8 and comma-separated,
+as the user's spreadsheet now saves it).
+
+Gates (kanji ROM `21ae4e88...`; the original still byte-identical, bank-15
+lint OK; results in `out/test/stepC_g6`, states `out/user/m7` = the m6
+states with the new canvas image):
+- **Standard suite:** `band_check` +1: 1,253, 0 mismatches; `garble_run`
+  0; `vblank_deadline` 0 (standard path, bt, nb, bb); `zp`, `mask`,
+  `palette` 0; `canvas_check` (item path) as before (152 canvas frames, 0
+  missing, 0 unlike, 0 late).
+- **`garble_state`:** battle paths bt, nb, bb, lv 0; the town and shop
+  paths unchanged (n1 / p1-p4 42 / 85 / 44 / 90 / 123, sv 0).  The gate has
+  a battle rule now: while `UI_BATTLE` is set, a cell showing a tile of
+  `$A4-$FF` must keep its glyph as long as it keeps the tile (plane 0 in P0
+  cells, plane 1 in P1 cells; gauges and portrait not checked), and its
+  group must not be blank.  Revision 18's `pool_outside` rule (no pool tile
+  outside the message window) no longer holds: the command window shows
+  総攻撃 退却 武将 from `$C4-$DF`.
+- **Custom battle path** (tactic window, an item window with 21 distinct
+  kanji poked into 劉備's items, info screen and back, a round):
+  `garble_state` 0.
+- **`taint_check`:** 0 / 0.  `UI_RAM` counts as protocol RAM now (the UI
+  bank counts as game code there, and the canvas hook and the overlay
+  write its state).  Min SP `$0D` / `$12` / `$0D` (step B `$0F` / `$12` /
+  `$0F`): the battle start's fixed-kanji upload, with the NMI on top, is
+  two bytes deeper.
+- **`ram_gate`** (run alone; it fails with an empty log among the parallel
+  jobs, as in step B): 0 / 0 / 0, min SP `$14`.
+- **PPU write timing** on the custom path (`out/test/stepC/vbtime.lua`):
+  the battle frames end their writes by line 253 (step B 252).  The only
+  writes in visible lines are the info screen's build with rendering off
+  (frames 126-127, as in step B).  Two glyph uploads per NMI overran by up
+  to two lines; one per NMI is what the code does.
 
 ## Questions for the user
 
-None open.  The strategist battle state is the user's slot 1 (copy:
+- Decision 7 in battle (window borders one row down) needs the window
+  engine's row mapping changed; see "Not done" in the battle screen's
+  result.  Wanted?  The strategist battle state is the user's slot 1 (copy:
 `out/test/stepA/user_slot1.mss`).
 
 ## Work order
@@ -553,7 +701,7 @@ None open.  The strategist battle state is the user's slot 1 (copy:
 4. Name the routines, update this file with the new labels, run the
    original-build check and `bank15_lint`, commit.  Then compact.
 
-### Step B: items 1-6 done 2026-11-11 (see "Step B result"); item 7 next
+### Step B: done 2026-11-11 (items 1-6: "Step B result: the info screen"; item 7: "Step B result: the battle screen")
 
 1. Font: add the 32 missing kanji (kanji font build).
 2. Path flag (map entry `$84F8` vs battle wrapper `$8518`).

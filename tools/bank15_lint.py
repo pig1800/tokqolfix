@@ -34,6 +34,10 @@ PATCHES = [
     (0xD1C8, 0xD1CA),   # jsr page_flip (kanji page flip after the <PAGE> wait)
     (0xDBED, 0xDBEE),   # text_render_cell: jmp render_ctl (battle pool tiles)
     (0xD416, 0xD426),   # text_redraw_lines: keep cells below $FA (battle pool scroll)
+    (0xEA9C, 0xEAB3),   # window $11 template: UI-bank line CALLs (step B item 7)
+    (0xEAC8, 0xEADF),   # window $12 template
+    (0xEB23, 0xEB3A),   # window $16 template (battle items)
+    (0xEB43, 0xEB6C),   # window $17 template (battle tactics; title 残り)
     (0xEF0B, 0xEF0F),   # jmp ef08_gate + nop nop
     (0xEF31, 0xEF33),   # jmp ef31_gate
     (0xF004, 0xF039),   # reset: MMC3 registers + hack RAM clear (rewritten)

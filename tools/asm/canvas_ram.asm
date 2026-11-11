@@ -45,6 +45,7 @@ ROW_BOTTOM        = $DBC8       ;   and for row 1
 LINE_OFFSET       = $DD0B       ; text_draw_line's row-buffer offset by text_line
 ROW_BUFFER        = $0300
 QUEUE             = $0400
+CALL_UI_C         = $C48D       ; call_ui (mmc3_b15.asm; checked by kanji_build.py)
 C343_PLAIN        = $FFE0       ; c343_plain (mmc3_b15.asm; checked by kanji_build.py)
 
 ; IRQ delays (calibrated: the second $2006 write lands at dots 257-320).
@@ -1042,48 +1043,32 @@ cv_emit:
     rts
 
 ; ----------------------------------------------------------------------
-; Step B: cv_sm with the battle attribute hook (appended, so that the
-; code above keeps its addresses and an older build's RAM image in a save
-; state stays compatible).  The battle tactic window's S P cell (rows
-; 18-19, columns 18-19, attribute $27E4 of nametable 1) changes palette
-; when a window draws that row pair: UI_SPP = the value (P1 with the
-; tactic window's top row, P0 with the next window's), then 0.
-; scroll_map has just queued the pair; its second row's address is in
-; ppu_addr_lo/hi_shadow (row 19 of nametable 1: $266x).  The attribute
-; entry follows it in the queue, so both are flushed in the same NMI.
+; Step B: cv_sm with the battle screen's hook (appended, so that the code
+; above keeps its addresses and an older build's RAM image in a save state
+; stays compatible).  While the battle screen's kanji state is live, every
+; window row pair goes to the UI bank (UIF_SM: the panel's erase columns,
+; the S P / 残 cells, a window's end) with UI_SMRET = cv_sm's return
+; address low byte ($1D: a line, $82: the window's last row pair).
 ; ----------------------------------------------------------------------
 cv_sm_hook:
     ldx CV_CUR
     jsr cv_sm_body
-    lda UI_SPP
-    bne cv_spp
-    rts
-cv_spp:
-    lda ppu_addr_hi_shadow
-    cmp #$26
-    bne @rts
-    lda ppu_addr_lo_shadow
-    and #$E0
-    cmp #$60
-    bne @rts
-    ldx vram_queue_write
-    lda #$27
-    sta $0400,x
-    inx
-    lda #$E4
-    sta $0400,x
-    inx
-    lda #$01
-    sta $0400,x
-    inx
-    lda UI_SPP
-    sta $0400,x
-    inx
-    lda #0
-    sta $0400,x
-    stx vram_queue_write
-    sta UI_SPP
+    lda UI_BATTLE
+    beq @rts
+    tsx
+    lda $0101,x
+    sta UI_SMRET
+    ldx #UIF_SM
+    jmp CALL_UI_C
 @rts:
     rts
+
+; Battle window templates ($11, $12, $16, $17; kanji_build patches them):
+; "$F8 cv_wincb n" calls the UI bank for line kind n with the row-buffer
+; index X (returned in X).
+cv_wincb:
+    stx UI_X
+    ldx #UIF_WINCB
+    jmp CALL_UI_C
 
 cv_ram_end:

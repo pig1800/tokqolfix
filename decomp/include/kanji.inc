@@ -257,6 +257,9 @@ UIF_BINFO_ENTER   = 1       ; battle wrapper, before the info screen
 UIF_BINFO_EXIT    = 2       ; battle wrapper, after it (rendering off)
 UIF_ARMY          = 3       ; army status screen: flush, SP / MSP cells P1
 UIF_INFO_ENTER    = 4       ; info screen, before battle_intro_screen
+UIF_BSTART        = 5       ; battle start, rendering off: the fixed kanji
+UIF_WINCB         = 6       ; battle window line (template CALL, X in UI_X)
+UIF_SM            = 7       ; battle window metarow drawn (canvas cv_sm)
 UI_RAM            = $7FC0   ; battery RAM after the canvas RAM code
 UI_PATH           = UI_RAM+0 ; 1 = the info screen was opened from a battle
 UI_P2             = UI_RAM+1 ; 3 bytes: the battle's P2 colours 1-3
@@ -265,6 +268,25 @@ UI_NOMIR          = UI_RAM+5 ; 1: the block writer does not mirror to the band
                             ; page (the battle start's and the info screen's
                             ; uploads; pal_copy clears it)
 UI_TACT           = UI_RAM+6 ; info screen: bit n = tactic line n drawn
-UI_SPP            = UI_RAM+7 ; battle tactic window: attribute value for the
-                            ; S P cell ($27E4), written with the next window
-                            ; row pair 18-19 (canvas cv_sm), then 0
+UI_SPST           = UI_RAM+7 ; battle: 1 = the tactic window's S P / 残 cells
+                            ; are set (P1 at $27E4, P0 at $27E3, 残's top
+                            ; half in row 17), written with a window's row
+                            ; pair 18-19 (canvas cv_sm, UIF_SM)
+; Battle screen (step B item 7).  Kanji area: plane 0 of the 23 groups
+; $A4 + 4k (k = 0-22, tiles in 8x16 order t, t+1, t+2, t+3 = TL, BL, TR, BR);
+; groups 8-22 hold the 15 fixed command kanji, filled from the back.
+UI_BATTLE         = UI_RAM+8 ; 1 = the battle screen's kanji state is live
+UI_X              = UI_RAM+9 ; template CALL: the row-buffer index X
+UI_SMRET          = UI_RAM+10 ; cv_sm's return address low byte ($82: the
+                            ; window's last row pair)
+UI_PEND           = UI_RAM+11 ; bit n: line n has a kanji still drawn blank
+UI_WIN            = UI_RAM+12 ; the window being drawn (text_mode), 0: none
+UI_BMODE          = UI_RAM+13 ; 0: window start, 1: window end
+UI_BLINE          = UI_RAM+14 ; the line being drawn
+UI_BQ             = UI_RAM+15 ; glyph uploads queued since the last flush
+UI_BE             = UI_RAM+16 ; scratch
+UI_SLOT           = UI_RAM+17 ; 23: glyph in plane 0 of group k; $FF unknown,
+                            ; $FE a message kanji (maybe on screen)
+UI_GF             = UI_RAM+40 ; 23: bit 0 a window on screen shows group k,
+                            ; bit 1 the window being drawn uses it
+UI_RAM_END        = UI_RAM+63

@@ -1566,7 +1566,8 @@ bitmask:
 ; record's terminator.
 pal_copy:
     lda #0                      ; step B: the uploads before this load were
-    sta UI_NOMIR                ; the one-shot no-mirror ones
+    sta UI_NOMIR                ; the one-shot no-mirror ones; the battle
+    sta UI_BATTLE               ; screen's kanji state ends (UIF_BSTART)
     ldx text_graphics_index
     lda KANJI_PAL_LO,x
     sta ppu_update_ptr_lo
@@ -1926,6 +1927,8 @@ tile_ppuaddr:
 ; queue or CHR animation, NMI): no pool until the next check.
 ; ----------------------------------------------------------------------
 pool_off:
+    lda UI_BATTLE               ; step B: the battle screen manages the
+    bne pool_rts                ; tiles itself (UI bank, UI_SLOT)
     lda KANJI_WIN_COL
     and #<~WINCOL_POOL_OK
     sta KANJI_WIN_COL

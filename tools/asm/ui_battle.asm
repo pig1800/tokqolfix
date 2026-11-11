@@ -1,0 +1,1117 @@
+; ======================================================================
+; Battle screen (step B item 7, INFO_SCREEN.md "Step B result: the battle
+; screen").  Included by ui.asm.
+;
+; Kanji area: plane 0 of the 23 groups $A4 + 4k (k = 0-22), tiles in 8x16
+; order (t TL, t+1 BL, t+2 TR, t+3 BR).  P0 cells show plane 0 only, so
+; the gauges ($E0-$EE) and S, P ($F6, $F7) keep their plane 1.
+;   groups 0-7    free: the subwindows' kanji (and the messages' pool)
+;   groups 8-22   the 15 fixed command kanji, filled from the back
+;                 (ui_fixed_g): 道具 in 21-22, 残 in 20, then 御 防 略 策
+;                 戦, then the first command window's 将 武 却 退 撃 攻 総
+;                 (8-14: the only fixed ones the messages' pool $A4-$DF
+;                 reaches)
+; UI_SLOT[k] = the glyph in group k ($FF unknown, $FE a message kanji that
+; may be on screen).  UI_GF[k]: GF_REF = a window on screen shows it,
+; GF_NREF = the window being drawn uses it.  A group on screen, or with a
+; message kanji, is never rewritten: the new window draws that kanji blank
+; and fills it in once its last row pair is drawn (the old window is gone
+; then; UI_PEND = its lines).  Subwindows take the lowest free group; the
+; command windows use their fixed groups and restore the ones that were
+; taken.
+;
+; Window templates (fixed bank, patched by kanji_build): "$F8 cv_wincb n"
+; per line; n = 0-3 command window line, $10 tactic line, $20 item line.
+; The canvas code's cv_sm hook calls UIF_SM after every row pair.
+; ======================================================================
+B_TOP       = $08           ; 2: row-buffer pointer, top row
+B_BOT       = $0A           ; 2: row-buffer pointer, bottom row
+B_MODE      = UI_BMODE
+B_LINE      = UI_BLINE
+B_Q         = UI_BQ
+B_E         = UI_BE
+GF_REF      = $01
+GF_NREF     = $02
+
+TEXT_PUT    = $D340         ; text_put_tile (fixed bank)
+SP_OWNER_X6 = $DEBC         ; battle_sp_owner_x6 (fixed bank): Y = 6 * owner
+NGROUPS     = 23
+G_FIXED     = 8             ; group of ui_fixed_g[0]
+F_ZAN       = 12            ; ui_fixed_g index of 残 (group 20)
+F_DOU       = 13            ;   道 (group 21); 具 = 14 (group 22)
+WIN_LINE0   = $266C         ; line 0's top row (19), column 12, nametable 1
+ZAN_TOP     = $262E         ; row 17, columns 14-15: 残's top half
+ZAN_TILE    = $F4           ; group 20's first tile
+
+; ZP_PTR = ui_glyphs + 32 * A (inline: the battle start's stack is deep).
+.macro M_GPTR
+    ldx #0
+    stx ZP_PTR+1
+    asl a
+    rol ZP_PTR+1
+    asl a
+    rol ZP_PTR+1
+    asl a
+    rol ZP_PTR+1
+    asl a
+    rol ZP_PTR+1
+    asl a
+    rol ZP_PTR+1
+    clc
+    adc #<ui_glyphs
+    sta ZP_PTR
+    lda ZP_PTR+1
+    adc #>ui_glyphs
+    sta ZP_PTR+1
+.endm
+
+; ----------------------------------------------------------------------
+; UIF_BSTART: b14_battle_start after battle_intro_screen_body (rendering
+; off): the 15 fixed kanji, the slot table, the pool.
+; ----------------------------------------------------------------------
+ui_bstart:
+    jsr ppu_begin
+    jsr battle_state_direct
+    jmp ppu_end
+
+; Busy mode: the fixed kanji to plane 0 of groups 8-22 (plane 1 kept), the
+; state reset and the hooks on.
+battle_state_direct:
+    jsr battle_state_reset
+    ldx #0
+@fix:
+    stx ZP_I
+    txa
+    asl a
+    asl a
+    adc #$C4                    ; group 8 + X
+    sta ZP_T
+    lda ui_fixed_g,x
+    sta UI_SLOT+G_FIXED,x
+    M_GPTR                      ; (inline: the battle start's stack is
+    ldy #0                      ; deep, and the NMI comes on top)
+@tile:
+    lda ZP_T
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora #$10
+    sta PPUADDR
+    lda ZP_T
+    asl a
+    asl a
+    asl a
+    asl a
+    sta PPUADDR
+    ldx #8
+@b:
+    lda (ZP_PTR),y
+    sta PPUDATA
+    iny
+    dex
+    bne @b
+    inc ZP_T
+    cpy #32
+    bne @tile
+    ldx ZP_I
+    inx
+    cpx #15
+    bne @fix
+    rts
+
+; The slot table unknown, no window, no pending pool check, the pool
+; handed over (the hack leaves the tiles to this code while UI_BATTLE is
+; set: pool_off), the hooks on.
+battle_state_reset:
+    ldx #NGROUPS-1
+@slot:
+    lda #$FF
+    sta UI_SLOT,x
+    lda #0
+    sta UI_GF,x
+    dex
+    bpl @slot
+    sta UI_SPST
+    sta UI_PEND
+    sta UI_WIN
+    sta B_MODE
+    sta B_Q
+    lda KANJI_CODE_HI           ; load_text_graphics posted a pool check
+    cmp #POOL_CHECK_CODE
+    bne @nocheck
+    lda KANJI_REQ
+    cmp #REQ_UPLOAD
+    bne @nocheck
+    lda #REQ_NONE
+    sta KANJI_REQ
+@nocheck:
+    lda KANJI_WIN_COL
+    ora #WINCOL_POOL_OK|WINCOL_CHECKED
+    sta KANJI_WIN_COL
+    lda #1
+    sta UI_BATTLE
+    rts
+
+
+; ZP_PTR = ui_glyphs + 32 * A.
+glyph_ptr:
+    ldx #0
+    stx ZP_PTR+1
+    asl a
+    rol ZP_PTR+1
+    asl a
+    rol ZP_PTR+1
+    asl a
+    rol ZP_PTR+1
+    asl a
+    rol ZP_PTR+1
+    asl a
+    rol ZP_PTR+1
+    clc
+    adc #<ui_glyphs
+    sta ZP_PTR
+    lda ZP_PTR+1
+    adc #>ui_glyphs
+    sta ZP_PTR+1
+    rts
+
+; ----------------------------------------------------------------------
+; Glyph A to plane 0 of group X through the VRAM queue (rendering on):
+; four 8-byte entries, 44 bytes, then a flush (WAIT_VBLANK): one glyph per
+; NMI (two overran vblank by up to two lines).  UI_SLOT[X] = A.
+; ----------------------------------------------------------------------
+q_glyph:
+    sta UI_SLOT,x
+    pha
+    txa
+    asl a
+    asl a
+    adc #$A4
+    sta ZP_T
+    pla
+    jsr glyph_ptr
+    ldy #0
+    ldx vram_queue_write
+@tile:
+    lda ZP_T
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora #$10
+    sta $0400,x
+    inx
+    lda ZP_T
+    asl a
+    asl a
+    asl a
+    asl a
+    sta $0400,x
+    inx
+    lda #8
+    sta $0400,x
+    inx
+@b:
+    lda (ZP_PTR),y
+    sta $0400,x
+    inx
+    iny
+    tya
+    and #7
+    bne @b
+    inc ZP_T
+    cpy #32
+    bne @tile
+    lda #0
+    sta $0400,x
+    stx vram_queue_write
+    inc B_Q
+q_flush:
+    lda B_Q
+    beq @rts
+    lda #0
+    sta B_Q
+    jmp WAIT_VBLANK
+@rts:
+    rts
+
+; C set when group X may be rewritten now.  Window start (B_MODE 0): not
+; used by this window, not shown by a window on screen, no message kanji.
+; Window end (B_MODE 1, the old window is gone): not used by this window.
+grp_safe:
+    lda UI_GF,x
+    and #GF_NREF
+    bne @no
+    lda B_MODE
+    bne @yes
+    lda UI_GF,x
+    and #GF_REF
+    bne @no
+    lda UI_SLOT,x
+    cmp #$FE
+    beq @no
+@yes:
+    sec
+    rts
+@no:
+    clc
+    rts
+
+set_nref:
+    lda UI_GF,x
+    ora #GF_NREF
+    sta UI_GF,x
+    rts
+
+; ----------------------------------------------------------------------
+; Glyph A for this window: a group that holds it, else the lowest group
+; that may be rewritten (uploaded now), else none yet (drawn blank and
+; filled in at the window's end).
+; ----------------------------------------------------------------------
+need:
+    cmp #$FF
+    beq @rts                    ; (no kanji)
+    sta ZP_G
+    ldx #NGROUPS-1
+@find:
+    lda UI_SLOT,x
+    cmp ZP_G
+    beq @have
+    dex
+    bpl @find
+    ldx #0
+@alloc:
+    jsr grp_safe
+    bcs @got
+    inx
+    cpx #NGROUPS
+    bne @alloc
+@rts:
+    rts
+@got:
+    jsr set_nref
+    lda ZP_G
+    jmp q_glyph
+@have:
+    jmp set_nref
+
+; Fixed kanji A (ui_fixed_g index) in its own group, restored when that
+; may be rewritten (always at the window's end).
+need_fixed:
+    clc
+    adc #G_FIXED
+    tax
+    jsr set_nref
+    lda ui_fixed_g-G_FIXED,x
+    cmp UI_SLOT,x
+    beq @rts
+    sta ZP_G
+    lda B_MODE
+    bne @put
+    lda UI_GF,x
+    and #GF_REF
+    bne @rts
+    lda UI_SLOT,x
+    cmp #$FE
+    beq @rts
+@put:
+    lda ZP_G
+    jmp q_glyph
+@rts:
+    rts
+
+; ----------------------------------------------------------------------
+; Every glyph of window UI_WIN (need / need_fixed).
+; ----------------------------------------------------------------------
+win_glyphs:
+    lda UI_WIN
+    cmp #$16
+    bne @not16
+    jmp wg_items
+@not16:
+    cmp #$17
+    bne @panel
+    jmp wg_tactics
+@panel:                         ; command window $11 / $12: its lines
+    lda #0
+    sta ZP_K
+@line:
+    ldx ZP_K
+    lda panel_line,x
+    sta ZP_A
+    lda panel_line+4,x
+    sta ZP_A+1
+    ldy #0
+@ent:
+    lda (ZP_A),y
+    iny
+    cmp #$FF
+    beq @next
+    cmp #$FE
+    bne @nokana
+    iny                         ; (a kana)
+    bne @ent
+@nokana:
+    cmp #$FD
+    bne @kanji
+    lda UI_WIN
+    cmp #$11
+    beq @ent                    ; the right column: window $11 only
+    bne @next
+@kanji:
+    sty ZP_J
+    jsr need_fixed
+    ldy ZP_J
+    jmp @ent
+@next:
+    inc ZP_K
+    lda ZP_K
+    cmp #4
+    bne @line
+    rts
+
+wg_tactics:
+    lda #F_ZAN                  ; the title's 残
+    jsr need_fixed
+    lda #F_DOU                  ; 道具: the command window's, still shown
+    jsr need_fixed
+    lda #F_DOU+1
+    jsr need_fixed
+    lda #0
+    sta ZP_K
+@ent:
+    lda ZP_K
+    jsr tactic_of
+    beq @done
+    ldy ZP_N
+    lda ui_tactic_g1,y
+    jsr need
+    ldy ZP_N
+    lda ui_tactic_g2,y
+    jsr need
+    lda #UI_G_KEI
+    jsr need
+    inc ZP_K
+    lda ZP_K
+    cmp #6
+    bne @ent
+@done:
+; 計's top-right tile in plane 1 as well: the first tactic's 計 ends at
+; column 18 of row 19, inside the S P cell (P1 while this window is open,
+; S and P are plane 1).  Both planes set is colour 3, white in P0 too.
+; Only in groups 0-14, whose plane 1 nothing shows.
+    ldx #NGROUPS-1
+@kei:
+    lda UI_SLOT,x
+    cmp #UI_G_KEI
+    bne @knext
+    lda UI_GF,x
+    and #GF_NREF
+    bne @kfound
+@knext:
+    dex
+    bpl @kei
+    rts
+@kfound:
+    cpx #15
+    bcs @krts
+    txa
+    asl a
+    asl a
+    adc #$A6                    ; the group's third tile (TR)
+    sta ZP_T
+    lda #UI_G_KEI
+    jsr glyph_ptr
+    ldx vram_queue_write
+    lda ZP_T
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora #$10
+    sta $0400,x
+    inx
+    lda ZP_T
+    asl a
+    asl a
+    asl a
+    asl a
+    ora #8                      ; plane 1
+    sta $0400,x
+    inx
+    lda #8
+    sta $0400,x
+    inx
+    ldy #16                     ; the TR quarter's 8 rows
+@kb:
+    lda (ZP_PTR),y
+    sta $0400,x
+    inx
+    iny
+    cpy #24
+    bne @kb
+    lda #0
+    sta $0400,x
+    stx vram_queue_write
+    lda #1
+    sta B_Q
+    jmp q_flush
+@krts:
+    rts
+
+wg_items:
+    lda #0
+    sta ZP_K
+@ent:
+    lda ZP_K
+    jsr item_of
+    beq @done
+    lda #0
+    sta ZP_J
+@tok:
+    ldy ZP_J
+    lda (ZP_A),y
+    cmp #$FF
+    beq @next
+    inc ZP_J
+    cmp #$FE
+    bne @k
+    inc ZP_J                    ; (a kana)
+    bne @tok
+@k:
+    jsr need
+    jmp @tok
+@next:
+    inc ZP_K
+    lda ZP_K
+    cmp #8
+    bne @ent
+@done:
+    rts
+
+; A = entry 0-5 of the S.P owner's tactic list: ZP_N = the tactic (Z set:
+; none).
+tactic_of:
+    sta ZP_N
+    jsr SP_OWNER_X6
+    tya
+    bmi @none
+    clc
+    adc ZP_N
+    tay
+    lda $65A0,y
+    sta ZP_N
+    rts
+@none:
+    lda #0
+    sta ZP_N
+    rts
+
+; A = entry 0-7 of text_actor's items: ZP_N = the item (Z set: none),
+; ZP_A = its name string.
+item_of:
+    sta ZP_N
+    lda text_actor
+    asl a
+    asl a
+    asl a
+    adc ZP_N
+    tay
+    lda $6100,y
+    and #$7F
+    sta ZP_N
+    beq @rts
+    tay
+    lda ui_item_lo,y
+    sta ZP_A
+    lda ui_item_hi,y
+    sta ZP_A+1
+    lda ZP_N
+@rts:
+    rts
+
+; ----------------------------------------------------------------------
+; UIF_WINCB: a battle window line (template "$F8 cv_wincb n"; X in UI_X).
+; The window's first line also starts the window: its glyphs are placed
+; and uploaded before any of its rows is drawn.
+; ----------------------------------------------------------------------
+ui_wincb:
+    ldy text_col
+    lda ($16),y                 ; n
+    inc text_col
+    sta ZP_C
+    lda UI_BATTLE
+    bne @live
+    jsr battle_state_reset      ; (a save state from an earlier build)
+@live:
+    lda $54
+    bne @draw
+    jsr win_begin
+@draw:
+    lda #$00
+    sta B_TOP
+    lda #$18
+    sta B_BOT
+    lda #$03
+    sta B_TOP+1
+    sta B_BOT+1
+    lda $54
+    sta B_LINE
+    ldy UI_X
+    lda ZP_C
+    cmp #$10
+    beq @tactic
+    bcs @item
+    jsr draw_panel_line
+    jmp @out
+@tactic:
+    lda battle_anim
+    jsr draw_tactic_pair
+    jmp @out
+@item:
+    lda battle_anim
+    jsr draw_item_pair
+@out:
+    sty UI_X
+    ldx UI_X
+    rts
+
+win_begin:
+    lda vram_queue_write        ; (our entries come first in their flush)
+    cmp vram_queue_read
+    beq @empty
+    jsr WAIT_VBLANK
+@empty:
+    lda text_mode
+    sta UI_WIN
+    ldx #NGROUPS-1
+@nref:
+    lda UI_GF,x
+    and #GF_REF
+    sta UI_GF,x
+    dex
+    bpl @nref
+    lda #0
+    sta UI_PEND
+    sta B_MODE
+    sta B_Q
+    jsr win_glyphs
+    jmp q_flush
+
+; ----------------------------------------------------------------------
+; Line drawing into the row buffers (B_TOP / B_BOT), Y = index (column -
+; the window's left column; +$30 in the second buffer pair).  Y returns
+; past the line.
+; ----------------------------------------------------------------------
+; Command window line ZP_C (0-3): its words (panel_line); the right column
+; (window $11) at 6 cells after the line's start (column 18).
+draw_panel_line:
+    sty ZP_X
+    ldx ZP_C
+    lda panel_line,x
+    sta ZP_A
+    lda panel_line+4,x
+    sta ZP_A+1
+    lda #0
+    sta ZP_J
+@ent:
+    ldy ZP_J
+    inc ZP_J
+    lda (ZP_A),y
+    ldy ZP_X
+    cmp #$FF
+    beq @done
+    cmp #$FE
+    bne @nokana
+    ldy ZP_J
+    inc ZP_J
+    lda (ZP_A),y
+    ldy ZP_X
+    jsr put_kana
+    sty ZP_X
+    jmp @ent
+@nokana:
+    cmp #$FD
+    bne @kanji
+    lda UI_WIN
+    cmp #$11
+    bne @done
+    lda ZP_X
+    and #$30
+    ora #8
+    sta ZP_X
+    jmp @ent
+@kanji:
+    clc
+    adc #G_FIXED
+    tax
+    lda ui_fixed_g-G_FIXED,x
+    cmp UI_SLOT,x
+    bne @blank
+    jsr put_group
+    sty ZP_X
+    jmp @ent
+@blank:
+    jsr put_blank
+    sty ZP_X
+    jmp @ent
+@done:
+    rts
+
+; Tactic entries A and A+1 (one line): the first at Y, the second at
+; column 21.  No tactic: nothing (and no count, as the original).
+draw_tactic_pair:
+    sta ZP_K
+    jsr @one
+    bcc @rts
+    tya
+    and #$30
+    ora #$0B
+    tay
+    inc ZP_K
+@one:
+    sty ZP_X
+    lda ZP_K
+    jsr tactic_of
+    ldy ZP_X
+    lda ZP_N
+    beq @none
+    lda B_MODE
+    bne @nocount                ; (drawn again at the window's end)
+    inc battle_anim
+@nocount:
+    ldx ZP_N
+    lda ui_tactic_g1,x
+    jsr put_glyph_cell
+    ldx ZP_N
+    lda ui_tactic_g2,x
+    jsr put_glyph_cell
+    lda #T_NO
+    jsr put_kana
+    lda #UI_G_KEI
+    jsr put_glyph_cell
+    sec
+    rts
+@none:
+    clc
+@rts:
+    rts
+
+; Item entries A and A+1 likewise.
+draw_item_pair:
+    sta ZP_K
+    jsr @one
+    bcc @rts
+    tya
+    and #$30
+    ora #$0B
+    tay
+    inc ZP_K
+@one:
+    sty ZP_X
+    lda ZP_K
+    jsr item_of
+    ldy ZP_X
+    lda ZP_N
+    beq @none
+    lda B_MODE
+    bne @nocount
+    inc battle_anim
+@nocount:
+    lda #0
+    sta ZP_J
+@tok:
+    sty ZP_X
+    ldy ZP_J
+    lda (ZP_A),y
+    iny
+    sty ZP_J
+    ldy ZP_X
+    cmp #$FF
+    beq @end
+    cmp #$FE
+    bne @k
+    ldy ZP_J
+    lda (ZP_A),y
+    iny
+    sty ZP_J
+    ldy ZP_X
+    jsr put_kana
+    jmp @tok
+@k:
+    jsr put_glyph_cell
+    jmp @tok
+@end:
+    sec
+    rts
+@none:
+    clc
+@rts:
+    rts
+
+; Glyph A at Y: this window's group that holds it, else blank.
+put_glyph_cell:
+    cmp #$FF
+    beq put_blank
+    sta ZP_G
+    ldx #NGROUPS-1
+@find:
+    lda UI_SLOT,x
+    cmp ZP_G
+    bne @no
+    lda UI_GF,x
+    and #GF_NREF
+    bne put_group
+@no:
+    dex
+    bpl @find
+; A blank 16x16 cell at Y; the line is drawn again at the window's end.
+put_blank:
+    lda #T_BLANK
+    sta (B_TOP),y
+    sta (B_BOT),y
+    iny
+    sta (B_TOP),y
+    sta (B_BOT),y
+    iny
+    ldx B_LINE
+    lda line_bit,x
+    ora UI_PEND
+    sta UI_PEND
+    rts
+; Group X's tiles at Y (8x16 order).
+put_group:
+    txa
+    asl a
+    asl a
+    adc #$A4
+    sta (B_TOP),y
+    adc #1
+    sta (B_BOT),y
+    iny
+    adc #1
+    sta (B_TOP),y
+    adc #1
+    sta (B_BOT),y
+    iny
+    rts
+line_bit:
+    .db $01, $02, $04, $08
+
+; Kana game code A at Y: lower row, the voicing mark above it (as the
+; game's text_put_tile).
+put_kana:
+    cmp #$80
+    bcc @plain
+    and #$7F
+    cmp #$62
+    bcc @dak
+    sbc #$0A                    ; (C set)
+    pha
+    lda #T_HANDAK
+    bne @mark
+@dak:
+    pha
+    lda #T_DAK
+@mark:
+    sta (B_TOP),y
+    pla
+@plain:
+    sta (B_BOT),y
+    iny
+    rts
+
+; Command window lines: ui_fixed_g index (the kanji in its group), $FE
+; kana, $FD the right column (window $11 only), $FF end.
+panel_line:
+    .db <pl0, <pl1, <pl2, <pl3
+    .db >pl0, >pl1, >pl2, >pl3
+pl0: .db 7, $FE,$3F, $FD, 0, 1, 2, $FF  ; 戦う   総攻撃
+pl1: .db 8, 9, $FD, 3, 4, $FF           ; 策略   退却
+pl2: .db 10, 11, $FD, 5, 6, $FF         ; 防御   武将
+pl3: .db 13, 14, $FF                    ; 道具
+
+; ----------------------------------------------------------------------
+; UIF_SM: a battle window row pair was queued (canvas cv_sm; the ppu_addr
+; shadow is its second row at the window's left column).
+; - Command windows: the columns right of the window up to 29 blank, in
+;   the same flush (the tactic and item windows are wider; the original
+;   left their text there).
+; - The row pair 18-19: the tactic window's S P / 残 cells (UI_SPST).
+; - The window's last row pair (UI_SMRET = $82): the window's end.
+; ----------------------------------------------------------------------
+ui_sm:
+    lda text_mode
+    cmp #$11
+    beq @erase
+    cmp #$12
+    bne @noerase
+@erase:
+    lda ppu_addr_lo_shadow
+    and #$1F
+    clc
+    adc text_speed_count
+    sta B_E                     ; first column to blank
+    lda #30
+    sec
+    sbc B_E
+    beq @noerase
+    bcc @noerase
+    sta ZP_N
+    lda ppu_addr_lo_shadow
+    and #$E0
+    sec
+    sbc #$20
+    ora B_E
+    sta ZP_T                    ; first row
+    ldx vram_queue_write
+    jsr sm_blank_run
+    lda ZP_T
+    ora #$20
+    sta ZP_T                    ; second row
+    jsr sm_blank_run
+    lda #0
+    sta $0400,x
+    stx vram_queue_write
+@noerase:
+    lda ppu_addr_hi_shadow
+    cmp #$26
+    bne @nosp
+    lda ppu_addr_lo_shadow
+    and #$E0
+    cmp #$60
+    bne @nosp
+    ldy #0
+    lda text_mode
+    cmp #$17
+    bne @want
+    iny
+@want:
+    cpy UI_SPST
+    beq @nosp
+    sty UI_SPST
+    ldy #0
+    lda UI_SPST
+    beq @sp0
+    ldy #10
+@sp0:
+    lda #10
+    sta B_E
+    ldx vram_queue_write
+@sp:
+    lda sp_off,y
+    sta $0400,x
+    inx
+    iny
+    dec B_E
+    bne @sp
+    lda #0
+    sta $0400,x
+    stx vram_queue_write
+@nosp:
+    lda UI_SMRET
+    cmp #$82
+    bne @rts
+    jmp win_end
+@rts:
+    rts
+
+; A row of ZP_N blanks at ppu_addr_hi_shadow:ZP_T, queued at X.
+sm_blank_run:
+    lda ppu_addr_hi_shadow
+    sta $0400,x
+    inx
+    lda ZP_T
+    sta $0400,x
+    inx
+    lda ZP_N
+    sta $0400,x
+    inx
+    tay
+    lda #T_BLANK
+@b:
+    sta $0400,x
+    inx
+    dey
+    bne @b
+    rts
+
+; $27E3 (rows 16-19, columns 12-15) and $27E4 (columns 16-19): the battle's
+; own $0A / $0A; open: rows 16-17 columns 14-15 P0 (残's top half), rows
+; 18-19 columns 18-19 P1 (S P).  Row 17 columns 14-15: blank / 残's top.
+sp_off:
+    .db $27,$E3,2, $0A,$0A
+    .db >ZAN_TOP,<ZAN_TOP,2, T_BLANK,T_BLANK
+sp_on:
+    .db $27,$E3,2, $02,$4A
+    .db >ZAN_TOP,<ZAN_TOP,2, ZAN_TILE,ZAN_TILE+2
+
+; The window's last row pair is queued, so the old window is gone, and so
+; are the message kanji.  A window of ours: its groups are the ones shown
+; now; its kanji drawn blank get their group and their lines are drawn
+; again.  Another window (message, blank): ours are covered.
+win_end:
+    ldx #NGROUPS-1
+@msg:
+    lda UI_SLOT,x
+    cmp #$FE
+    bne @keep
+    lda #$FF
+    sta UI_SLOT,x
+@keep:
+    dex
+    bpl @msg
+    lda UI_WIN
+    cmp text_mode
+    beq @ours
+    ldx #NGROUPS-1
+    lda #0
+@clr:
+    sta UI_GF,x
+    dex
+    bpl @clr
+    sta UI_WIN
+    rts
+@ours:
+    jsr nref_to_ref
+    lda UI_PEND
+    beq @done
+    lda #1
+    sta B_MODE
+    sta B_Q
+    jsr q_flush                 ; (the last row pair goes in its own flush)
+    jsr win_glyphs
+    jsr q_flush
+    lda #0
+    sta B_LINE
+@line:
+    ldx B_LINE
+    lda line_bit,x
+    and UI_PEND
+    beq @next
+    jsr redraw_line
+@next:
+    inc B_LINE
+    lda B_LINE
+    cmp #4
+    bne @line
+    jsr nref_to_ref
+@done:
+    lda #0
+    sta UI_PEND
+    sta UI_WIN
+    sta B_MODE
+    rts
+
+; GF_REF = GF_NREF for every group.
+nref_to_ref:
+    ldx #NGROUPS-1
+@g:
+    lda UI_GF,x
+    and #GF_NREF
+    beq @set
+    lda #GF_NREF|GF_REF
+@set:
+    sta UI_GF,x
+    dex
+    bpl @g
+    rts
+
+; Line B_LINE again (its kanji now in CHR), from column 12 to the window's
+; last inner column, both rows, then a flush.
+redraw_line:
+    ldx #31
+    lda #T_BLANK
+@fill:
+    sta LBUF_T,x
+    sta LBUF_B,x
+    dex
+    bpl @fill
+    lda #<LBUF_T
+    sta B_TOP
+    lda #>LBUF_T
+    sta B_TOP+1
+    lda #<LBUF_B
+    sta B_BOT
+    lda #>LBUF_B
+    sta B_BOT+1
+    ldy #2                      ; column 12
+    lda UI_WIN
+    cmp #$16
+    beq @item
+    cmp #$17
+    beq @tactic
+    lda B_LINE
+    sta ZP_C
+    jsr draw_panel_line
+    jmp @queue
+@tactic:
+    lda B_LINE
+    asl a
+    jsr draw_tactic_pair
+    jmp @queue
+@item:
+    lda B_LINE
+    asl a
+    jsr draw_item_pair
+@queue:
+    lda text_speed_count        ; columns 12 .. left + width - 2
+    sec
+    sbc #3
+    sta ZP_N
+    lda B_LINE
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a                       ; $40 * line
+    clc
+    adc #<WIN_LINE0
+    sta ZP_T
+    lda #>WIN_LINE0
+    adc #0
+    sta ZP_C
+    ldx vram_queue_write
+    jsr @head
+    ldy #2
+@t:
+    lda LBUF_T,y
+    sta $0400,x
+    inx
+    iny
+    dec ZP_J
+    bne @t
+    lda ZP_T
+    clc
+    adc #$20
+    sta ZP_T
+    lda ZP_C
+    adc #0
+    sta ZP_C
+    jsr @head
+    ldy #2
+@b:
+    lda LBUF_B,y
+    sta $0400,x
+    inx
+    iny
+    dec ZP_J
+    bne @b
+    lda #0
+    sta $0400,x
+    stx vram_queue_write
+    jmp WAIT_VBLANK
+@head:
+    lda ZP_C
+    sta $0400,x
+    inx
+    lda ZP_T
+    sta $0400,x
+    inx
+    lda ZP_N
+    sta $0400,x
+    sta ZP_J
+    inx
+    rts

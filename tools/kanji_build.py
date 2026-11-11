@@ -97,7 +97,10 @@ CV_RAM_PAGES = 7
 # tables (ui_data.inc, generated here).
 UI_BANK = 28
 UI_RAM = 0x7FC0                 # kanji.inc UI_RAM: the UI bank's battery-RAM state
-UI_ITEM_TYPES = ("weapon", "armor", "helmet")
+UI_ITEM_TYPES = ("weapon", "armor", "helmet", "consumable", "keyitem")
+# The battle command window's 15 fixed kanji in group order 8-22 (step B
+# item 7, ui_battle.asm): filled from the back, 道具 last, 残 before them.
+UI_FIXED = "総攻撃退却武将戦策略防御残道具"
 # Decision 11: every UI glyph of the bank-9 block ($E0-$FE, CPU $BE00) is
 # moved to plane 1 in the kanji target's copy.
 UI_BLOCK_PLANE1 = range(0xEF, 0xFB)
@@ -122,7 +125,7 @@ INFO_ATTR_CELLS = (
 CV_LABELS = ("cv_irq", "cv_ctp", "cv_ti", "cv_sm", "cv_nmi", "cv_split",
              "cv_w1", "cv_w2", "cv_stage", "cv_flanks", "cv_force",
              "cv_force_end", "cv_reload", "cv_irq_end", "cv_ram_end",
-             "cv_stream", "cv_sforce", "cv_sreload", "cv_fill")
+             "cv_stream", "cv_sforce", "cv_sreload", "cv_fill", "cv_wincb")
 
 # The reset code's mapper writes and RAM-clear setup ($F004-$F039) are
 # rewritten by the fixed-bank source; these are the original bytes.
@@ -146,6 +149,11 @@ PATCH_SITES = {
     0xFFFE: bytes((0x79, 0xEE)),             # IRQ vector: the NMI handler
     0xDBED: bytes((0x7C, 0xDC)),             # text_render_cell: jmp loc_DC7C
     0xD416: bytes.fromhex("a5f4c907d004a90ad007bd19031002a90a"),  # text_redraw_lines cell copy
+    # battle window templates $11, $12, $16, $17 (the patched lengths)
+    0xEA9C: bytes.fromhex("02fd0ffa1a1a103f0a0a193f143f9311fa15123239120a1a"),
+    0xEAC8: bytes.fromhex("02fd08fa1a1a103ffa1512323912fae13f913bfa9e3f92ff"),
+    0xEB23: bytes.fromhex("02fd14faf89186f89186faf89186f89186faf89186f89186"),
+    0xEB43: bytes.fromhex("02fd146d0c0c0c2314320af6f70a0a0a0a0c0c0c0c0c6efaf88a96f823b7f823b7faf823b7f823b7faf8"),
 }
 
 
@@ -228,7 +236,7 @@ def write_hook_constants(labels: dict[str, int]) -> None:
     # The UI functions and flags (kanji.inc) for bank 14's step-B sites.
     inc = ROOT / "decomp" / "include" / "kanji.inc"
     for line in inc.read_text(encoding="utf-8").splitlines():
-        m = re.match(r"^(UIF_[A-Z_]+|UI_RAM|UI_NOMIR|UI_SPP)\s*=\s*(\S+)", line)
+        m = re.match(r"^(UIF_[A-Z_]+|UI_RAM|UI_NOMIR)\s*=\s*(\S+)", line)
         if m:
             lines.append(f"{m.group(1)} = {m.group(2)}")
     text = "".join(line + "\n" for line in lines)
@@ -395,6 +403,11 @@ def build_ui_data() -> int:
     lines += [".db " + ",".join(f"${v:02X}" for v in g1[j:j + 16]) for j in (0, 16)]
     lines.append("ui_tactic_g2:")
     lines += [".db " + ",".join(f"${v:02X}" for v in g2[j:j + 16]) for j in (0, 16)]
+    if sorted(UI_FIXED) != sorted(kanji_common.UI_COMMANDS) or len(set(UI_FIXED)) != 15:
+        raise SystemExit("UI_FIXED must hold the 15 command kanji once each")
+    lines.append("ui_fixed_g:")
+    lines.append(".db " + ",".join(f"${gid(ch):02X}" for ch in UI_FIXED)
+                 + "  ; " + UI_FIXED)
     # Items: bank 12 $A3C8/$A438 -> name at +2.  Equipment with a word-list
     # entry: its kanji (glyph ids; kana as $FE <game code>), else the kana
     # name; $FF ends.
@@ -595,8 +608,42 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     apply_patch(bank, 0xDBED, bytes((labels["render_ctl"] & 0xFF,
                                      labels["render_ctl"] >> 8)))
 
+    # Battle windows (step B item 7): one UI-bank CALL per line,
+    # "$F8 cv_wincb n" (ui_battle.asm); the tactic window's title のこり
+    # becomes 残り (残's lower half, group 20 = tiles $F4-$F7; its upper half
+    # is written in row 17 by UIF_SM).
+    if labels["call_ui"] != 0xC48D:
+        raise SystemExit(f"call_ui moved to ${labels['call_ui']:04X}: "
+                         "update CALL_UI_C in canvas_ram.asm")
+    cv = read_labels(OUT / "canvas_ram.lst")
+    cb = bytes((0xF8, cv["cv_wincb"] & 0xFF, cv["cv_wincb"] >> 8))
+    for addr, data in battle_templates(cb).items():
+        apply_patch(bank, addr, data)
+
 
     write_bank("bank15.bin", bytes(bank))
+
+
+def battle_templates(cb: bytes) -> dict[int, bytes]:
+    """Window templates $11, $12 (command windows), $16 (items), $17
+    (tactics) with the UI-bank line CALL cb + n."""
+    end = bytes((0xFF,))
+
+    def lines(*ns: int) -> bytes:
+        return b"".join(bytes((0xFA,)) + cb + bytes((n,)) for n in ns)
+    title = bytes.fromhex("6D0C0C0C F5F732 0A F6F7 0A0A0A0A 0C0C0C0C0C6E")
+    out = {
+        0xEA9C: bytes.fromhex("02FD0F") + lines(0, 1, 2, 3) + end,
+        0xEAC8: bytes.fromhex("02FD08") + lines(0, 1, 2, 3) + end,
+        0xEB23: bytes.fromhex("02FD14") + lines(0x20, 0x20, 0x20, 0x20) + end,
+        0xEB43: (bytes.fromhex("02FD14") + title + bytes.fromhex("FAF88A96")
+                 + cb + bytes((0x10,)) + lines(0x10, 0x10) + end),
+    }
+    room = {0xEA9C: 44, 0xEAC8: 24, 0xEB23: 32, 0xEB43: 48}
+    for addr, data in out.items():
+        if len(data) > room[addr]:
+            raise SystemExit(f"battle template ${addr:04X}: {len(data)} bytes, room {room[addr]}")
+    return out
 
 
 def build_bank31() -> None:

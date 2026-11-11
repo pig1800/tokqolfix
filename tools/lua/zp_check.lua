@@ -52,7 +52,7 @@ end
 local function on(addr, fn) emu.addMemoryCallback(fn, emu.callbackType.exec, addr, addr, emu.memType.nesMemory, emu.cpuType.nes) end
 local A_ENTRY = 0xB800  -- @overlay_entry@
 local A_DISPATCH = 0xBB28  -- @text_dispatch@
-local A_CTRL = 0xBCE6  -- @ctrl_store@
+local A_CTRL = 0xBCED  -- @ctrl_store@
 local A_WAIT = 0xFFE6  -- @wait_text@
 local A_SCROLL = 0xD2AC  -- @scroll_text@
 on(A_ENTRY, function() take("entry") end)

@@ -3091,7 +3091,11 @@ b14_battle_start:
     jsr find_party_member
 .endif
     jsr battle_intro_screen_body
+.ifdef KANJI_TARGET
+    jsr b14_k_fade_in           ; step B: + the battle screen's fixed kanji
+.else
     jsr screen_fade_in
+.endif
     lda #$91
     sta ppu_ctrl_shadow
     jsr b14_delay_frames        ; bank 13 target
@@ -3603,11 +3607,7 @@ b14_loc_9EA8:
 b14_battle_tactic_subwindow:
     jsr wait_vblank
     ldx #$17
-.ifdef KANJI_TARGET
-    jsr b14_k_tactic_window     ; step B: S and P are plane 1 (decision 11)
-.else
     jsr b14_battle_open_list_window
-.endif
     bcs b14_battle_cmd_retry
     lda text_menu_index
     asl a
@@ -8073,22 +8073,13 @@ b14_k_gauge_colour:
     sta $03EB
     sta vram_dma_pending
     rts
-; b14_k_tactic_window: the tactic subwindow (window X = $17).  S and P are
-; plane 1 (decision 11), so the cell of its S P (rows 18-19, columns 18-19,
-; attribute $27E4) is P1 while it is open.  The attribute is written when
-; a window draws rows 18-19 (canvas cv_sm, UI_SPP): P1 ($4A) with this
-; window's top row, P0 ($0A, the battle's own value) with the next
-; window's.  Carry as b14_battle_open_list_window returns it.
-b14_k_tactic_window:
-    lda #$4A
-    sta UI_SPP
-    ldx #$17
-    jsr b14_battle_open_list_window
-    php
-    lda #$0A
-    sta UI_SPP
-    plp
-    rts
+; b14_k_fade_in: screen_fade_in (rendering off, busy), then UIF_BSTART:
+; the battle screen's 15 fixed command kanji (plane 0 of groups 8-22),
+; its slot table and hooks (UI bank, ui_battle.asm).
+b14_k_fade_in:
+    jsr screen_fade_in
+    ldx #UIF_BSTART
+    jmp CALL_UI
 ; b14_k_battle_start: the battle start's block write of tiles $00-$0F
 ; (battle_intro_screen_body) is not mirrored to the band page; pal_copy
 ; clears the flag.

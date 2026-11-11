@@ -132,10 +132,18 @@ WORDLIST = ROOT / "kanjiwordlist.csv"
 
 
 def wordlist() -> list[tuple[str, str, str]]:
-    """kanjiwordlist.csv (cp932, tab-separated): (type, kana, kanji)."""
+    """kanjiwordlist.csv: (type, kana, kanji).  cp932 and tab-separated, or
+    UTF-8 (with or without a BOM) and comma-separated, as a spreadsheet
+    saves it."""
+    raw = WORDLIST.read_bytes()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("cp932")
+    sep = "	" if "	" in text.splitlines()[0] else ","
     rows = []
-    for line in WORDLIST.read_text(encoding="cp932").splitlines()[1:]:
-        parts = line.split("	")
+    for line in text.splitlines()[1:]:
+        parts = line.split(sep)
         if len(parts) >= 3 and parts[0].strip():
             rows.append((parts[0].strip(), parts[1].strip(), parts[2].strip()))
     return rows

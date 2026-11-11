@@ -709,6 +709,10 @@ KANJI_EC:
     bcc @slot
     sbc #POOL_SLOTS
 @slot:
+    tax                         ; step B: the battle screen's slot table
+    lda #$FE                    ; (UI bank): a message kanji, maybe shown
+    sta UI_SLOT,x
+    txa
     asl a
     asl a                       ; C clear (slot < 64)
     adc #POOL_FIRST
