@@ -78,6 +78,7 @@ ui_dispatch:
 ui_fns:
     .dw ui_info_draw-1, ui_binfo_enter-1, ui_binfo_exit-1, ui_army-1
     .dw ui_info_enter-1, ui_bstart-1, ui_wincb-1, ui_sm-1, ui_info_busy-1
+    .dw ui_bsetup-1, ui_bsetup_end-1
 
 ; ======================================================================
 ; UIF_INFO_ENTER: the info screen, before battle_intro_screen.  Its block
@@ -102,6 +103,73 @@ ui_info_busy:
     lda #1
     sta UI_NOMIR
     jmp ppu_begin
+
+; ======================================================================
+; UIF_BSETUP: battle_setup_slots is next (bank 14 b14_k_setup).  It rolls
+; the enemy slots (one frame each, $DF32: unchanged), then draws every slot
+; (sprite, name, troops), paced by the queue waits at $E0A3, $E200 and
+; $E238: about 4 frames a slot.  With the screen off (always so far; a
+; scripted battle's intro event could leave it on) that pacing is not
+; needed: busy mode, and those three waits are wait_vblank now (fixed
+; bank), whose busy path flushes at once.  UIF_BSETUP_END leaves busy mode
+; when the slot loop ends.
+; ======================================================================
+ui_bsetup:
+    lda ppu_mask_shadow
+    and #$18
+    bne @rts                    ; shown: as the original
+    lda #1
+    sta UI_BSBUSY
+    jmp ppu_begin
+@rts:
+    rts
+
+; UIF_BSETUP_END: bank 15 $E10F, after the last slot, before
+; battle_setup_intro (its fade and messages need the NMI's PPU work).
+; Each wait the name loop no longer yields for resumed the main task, and
+; that steps the RNG (read_input_state) and nmi_frame_counter
+; (task_scheduler $C046).  They are replayed, so the battle goes on with
+; the same random numbers as before (the surprise roll next, then every
+; roll of the battle): $E0A3 once per slot, $E200 and $E238 once each per
+; slot shown (battle_draw_slot_troops).  Nothing in the loop reads them.
+READ_INPUT_STATE = $FA9D        ; the per-frame RNG step (fixed bank)
+ui_bsetup_end:
+    lda UI_BSBUSY
+    beq @rts
+    lda #0
+    sta UI_BSBUSY
+    jsr ppu_end
+    lda #0
+    sta ZP_N
+    ldx #9
+@slot:
+    inc ZP_N                    ; $E0A3
+    txa                         ; battle_current_actor's actor: party
+    cmp #5                      ; order for slots 0-4, slot + 2 after
+    bcs @enemy
+    ldy $6097,x
+    jmp @actor
+@enemy:
+    adc #2                      ; (C set: + 3 - 1)
+    sbc #0
+    tay
+@actor:
+    tya
+    bmi @next                   ; (no actor)
+    lda $609C,y
+    bpl @next                   ; (not present)
+    inc ZP_N                    ; $E200, $E238
+    inc ZP_N
+@next:
+    dex
+    bpl @slot
+@step:
+    jsr READ_INPUT_STATE
+    inc nmi_frame_counter
+    dec ZP_N
+    bne @step
+@rts:
+    rts
 
 ; ======================================================================
 ; UIF_BINFO_ENTER: the battle wrapper, before the info screen (rendering

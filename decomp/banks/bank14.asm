@@ -2336,7 +2336,11 @@ b14_data_95C2:
     sta input_buttons
     ldx #$0D
     jsr text_init
+.ifdef KANJI_TARGET
+    jsr wait_vblank             ; QoL: busy (army screen): flushes at once
+.else
     jsr wait_vblank_queued
+.endif
     jsr draw_string             ; inline pointer/data follows the JSR
 
 b14_data_95F0:
@@ -2392,7 +2396,11 @@ b14_loc_963F:
 ;   Flush the VRAM queue, then print gold $6076.
 ; ----------------------------------------------------------------------
 b14_print_gold:
+.ifdef KANJI_TARGET
+    jsr wait_vblank             ; QoL: the same unless busy; then it flushes at once
+.else
     jsr wait_vblank_queued
+.endif
     jsr read_inline_block_3     ; inline pointer/data follows the JSR
 
 b14_data_964F:
@@ -2404,7 +2412,11 @@ b14_data_964F:
 ;   Flush the VRAM queue, then print food $6079.
 ; ----------------------------------------------------------------------
 b14_print_food:
+.ifdef KANJI_TARGET
+    jsr wait_vblank             ; QoL: the same unless busy; then it flushes at once
+.else
     jsr wait_vblank_queued
+.endif
     jsr read_inline_block_3     ; inline pointer/data follows the JSR
 
 b14_data_965C:
@@ -2416,7 +2428,11 @@ b14_data_965C:
 ;   Flush the VRAM queue, then print experience $6070.
 ; ----------------------------------------------------------------------
 b14_print_exp:
+.ifdef KANJI_TARGET
+    jsr wait_vblank             ; QoL: the same unless busy; then it flushes at once
+.else
     jsr wait_vblank_queued
+.endif
     jsr read_inline_block_3     ; inline pointer/data follows the JSR
 
 b14_data_9669:
@@ -2428,7 +2444,11 @@ b14_data_9669:
 ;   Window $0F CALL: S.P $61FB as 3 digits.
 ; ----------------------------------------------------------------------
 b14_wincb_print_sp:
+.ifdef KANJI_TARGET
+    jsr wait_vblank             ; QoL: the same unless busy; then it flushes at once
+.else
     jsr wait_vblank_queued
+.endif
     jsr read_inline_block_3     ; inline pointer/data follows the JSR
 
 b14_data_9676:
@@ -2441,7 +2461,11 @@ b14_data_9676:
 ;   b14_calc_tactic_points) as 3 digits.
 ; ----------------------------------------------------------------------
 b14_wincb_print_sp_factor:
+.ifdef KANJI_TARGET
+    jsr wait_vblank             ; QoL: the same unless busy; then it flushes at once
+.else
     jsr wait_vblank_queued
+.endif
     jsr read_inline_block_3     ; inline pointer/data follows the JSR
 
 b14_data_9683:
@@ -2499,7 +2523,11 @@ b14_loc_96BD:
     inx
     lda $60A8,y                 ; Party member class/officer id.
     jsr put_officer_name
+.ifdef KANJI_TARGET
+    jsr wait_vblank             ; QoL: busy (army screen): flushes at once
+.else
     jsr wait_vblank_queued
+.endif
     txa
     and #$F8
     ora #$08
@@ -2519,7 +2547,11 @@ b14_loc_96BD:
     jsr read_stack_arg
     lda #$7C
     jsr text_put_tile
+.ifdef KANJI_TARGET
+    jsr wait_vblank             ; QoL: busy (army screen): flushes at once
+.else
     jsr wait_vblank_queued
+.endif
     pla
     tay
     lda #$60
@@ -3318,7 +3350,11 @@ b14_loc_9CB8:
     sta $6097,y                 ; Party member order (actor ids).
     cpy #$04
     bne b14_loc_9C93
+.ifdef KANJI_TARGET
+    jsr b14_k_setup             ; QoL: busy mode for the slot setup (screen off)
+.else
     jsr battle_setup_slots
+.endif
     lda #$00
     sta $AA
     sta $7D
@@ -8110,6 +8146,12 @@ b14_k_battle_start:
     lda #1
     sta UI_NOMIR
     jmp find_party_member
+; b14_k_setup: UIF_BSETUP (busy mode while the screen is off; bank 15's
+; slot loop calls UIF_BSETUP_END at its end), then battle_setup_slots.
+b14_k_setup:
+    ldx #UIF_BSETUP
+    jsr CALL_UI
+    jmp battle_setup_slots
     .pad $C000
 b14_data_BFD9 = $BFD9           ; (bank 15's MMC1 register writes name it)
 .else

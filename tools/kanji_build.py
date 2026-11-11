@@ -159,7 +159,14 @@ PATCH_SITES = {
     # window $22's template pointer (data_EDA1 / data_EDD1 + $22): $EC34
     0xEDC3: bytes((0x34,)),
     0xEDF3: bytes((0xEC,)),
+    # battle setup: jsr wait_vblank_queued (the name loop's three sites),
+    # the loop's end
+    0xE0A3: bytes((0x20, 0xA7, 0xC0)),
+    0xE200: bytes((0x20, 0xA7, 0xC0)),
+    0xE238: bytes((0x20, 0xA7, 0xC0)),
+    0xE10F: bytes.fromhex("e00af0034ca3e0"),   # cpx #$0A / beq intro / jmp loc_E0A3
 }
+BSETUP_WAITS = (0xE0A3, 0xE200, 0xE238)   # not $DF32: the enemy rolls keep their frames
 
 
 def prg() -> bytes:
@@ -647,6 +654,26 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     # text_init reads a template, as its CALLs need).
     apply_patch(bank, 0xEDA1 + 0x22, bytes((REWARD_TPL & 0xFF,)))
     apply_patch(bank, 0xEDD1 + 0x22, bytes((REWARD_TPL >> 8,)))
+
+    # Battle setup in busy mode (QoL): the name loop's queue waits become
+    # wait_vblank ($C09F; with the NMI on and not busy it falls into
+    # wait_vblank_queued, so nothing changes there), and the loop's end
+    # calls UIF_BSETUP_END (X = $0A at that point) before
+    # battle_setup_intro: "cpx #$0A / bne loc_E0A3 / jsr call_ui".  The
+    # enemy loop's wait ($DF32) stays: its troop rolls see the same RNG
+    # steps as before, and UIF_BSETUP_END replays the steps the name loop
+    # no longer yields for.
+    uif = {}
+    for line in (ROOT / "decomp" / "include" / "kanji.inc").read_text(encoding="utf-8").splitlines():
+        m = re.match(r"^(UIF_[A-Z_]+)\s*=\s*(\d+)", line)
+        if m:
+            uif[m.group(1)] = int(m.group(2))
+    if uif.get("UIF_BSETUP_END") != 0x0A:
+        raise SystemExit("UIF_BSETUP_END must be 10: bank 15 $E10F calls call_ui with X = $0A")
+    for addr in BSETUP_WAITS:
+        apply_patch(bank, addr, bytes((0x20, 0x9F, 0xC0)))
+    apply_patch(bank, 0xE10F, bytes((0xE0, 0x0A, 0xD0, 0x90, 0x20,
+                                     labels["call_ui"] & 0xFF, labels["call_ui"] >> 8)))
 
 
     write_bank("bank15.bin", bytes(bank))

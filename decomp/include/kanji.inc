@@ -263,6 +263,10 @@ UIF_SM            = 7       ; battle window metarow drawn (canvas cv_sm)
 UIF_INFO_BUSY     = 8       ; info screen after battle_intro_screen: busy mode
                             ; until UIF_INFO_DRAW ends (the game's waits flush
                             ; at once)
+UIF_BSETUP        = 9       ; battle_setup_slots is next: busy mode while the
+                            ; screen is off (the slots' waits flush at once)
+UIF_BSETUP_END    = 10      ; its slot loop ended (bank 15 $E10F, X = $0A
+                            ; there): busy mode off again
 ; The reward window (victory) and the message pool (step B item 8).
 UI_RAM2           = $7F9E   ; battery RAM after the canvas RAM code (below UI_RAM)
 UI_MC_LO          = UI_RAM2+0 ; 15: text code of the message kanji in pool slot k
@@ -304,4 +308,6 @@ UI_SLOT           = UI_RAM+17 ; 23: glyph in plane 0 of group k; $FF unknown,
                             ; $FE a message kanji (maybe on screen)
 UI_GF             = UI_RAM+40 ; 23: bit 0 a window on screen shows group k,
                             ; bit 1 the window being drawn uses it
-UI_RAM_END        = UI_RAM+63
+UI_BSBUSY         = UI_RAM+63 ; UIF_BSETUP entered busy mode (UIF_BSETUP_END
+                            ; leaves it only then)
+UI_RAM_END        = UI_RAM+64
