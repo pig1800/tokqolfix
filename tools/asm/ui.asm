@@ -3,12 +3,12 @@
 ; info screen.  PRG bank UI_BANK, assembled for $8000; the fixed bank's
 ; call_ui maps it (game lock protocol) and calls $8000 with X = function.
 ;
-; The info screen (b14_officer_info_screen) calls UIF_INFO_DRAW right after
-; battle_intro_screen, while rendering is still off: this bank uploads the
-; kanji and writes the whole layout with direct PPU access (nmi_busy set,
-; as the game's own copy_to_vram), then the game draws the portrait and the
-; two name windows.  No CHR register is switched while the screen is shown
-; and no scanline IRQ runs (decision 13).
+; The info screen (b14_officer_info_screen) stays black while it is built:
+; the game draws the portrait and the two name windows, then UIF_INFO_DRAW
+; uploads the kanji and writes everything else with direct PPU access
+; (nmi_busy set, as the game's own copy_to_vram), and only then is
+; rendering turned on.  No CHR register is switched while the screen is
+; shown and no scanline IRQ runs (decision 13).
 ;
 ; CHR (decisions 3, 5, 11; tile order t, t+1, t+2, t+3 = TL, BL, TR, BR):
 ;   plane 1 of $10-$1B  the name (the original engine, $A9 = $10)
@@ -17,9 +17,10 @@
 ;   plane 0 of $A4-$DF  15 groups: the equipment kanji and 計 (P0 cells),
 ;                       one group per distinct kanji
 ;   $E0-$FE             the bank-9 block, every glyph in plane 1 (bars, S.P)
-; The battle path (UIF_BINFO_ENTER / _EXIT around the screen) saves plane 1
-; of $1C-$7F and plane 0 of $A4-$DF to spare CHR RAM first and puts them
-; back afterwards, so every battle name and the pool are as they were.
+; Battle path (UIF_BINFO_ENTER / _EXIT around the screen): on the way back
+; every battle name whose plane-1 tiles the screen used is streamed again
+; (the game's put_officer_name), and the pool is blanked and marked usable.
+; Nothing here touches CHR RAM beyond the two pattern tables.
 ; ======================================================================
 .include "../../decomp/include/hardware.inc"
 .include "../../decomp/include/ram.inc"
@@ -44,7 +45,6 @@ LBUF_T      = $0600         ; line buffer, top row
 LBUF_B      = $0620         ; line buffer, bottom row
 UI_NG       = $0640         ; plane-0 groups used on this screen
 UI_GMAP     = $0641         ; 15: glyph in each plane-0 group
-CBUF        = $0650         ; 8: CHR copy buffer
 
 T_BLANK     = $0A
 T_NO        = $23           ; の
@@ -52,6 +52,7 @@ T_DAK       = $72           ; ゛
 T_HANDAK    = $73           ; ゜
 T_FULL      = $F4           ; bar, 26 points
 T_HALF      = $F3           ; bar, 13 points
+PUT_OFFICER_NAME = $D4A1      ; fixed bank (step A name)
 LABEL_TILE  = $1C
 TACT_TILE   = $50
 POOL_GROUPS = 15
@@ -71,7 +72,17 @@ ui_dispatch:
     rts
 ui_fns:
     .dw ui_info_draw-1, ui_binfo_enter-1, ui_binfo_exit-1, ui_army-1
-    .dw ui_info_late-1
+    .dw ui_info_enter-1
+
+; ======================================================================
+; UIF_INFO_ENTER: the info screen, before battle_intro_screen.  Its block
+; write of tiles $00-$0F is not mirrored to the band page (the battle and
+; the info screen show no band); pal_copy clears the flag again.
+; ======================================================================
+ui_info_enter:
+    lda #1
+    sta UI_NOMIR
+    rts
 
 ; ======================================================================
 ; UIF_BINFO_ENTER: the battle wrapper, before the info screen (rendering
@@ -93,17 +104,66 @@ ui_binfo_enter:
 
 ; ======================================================================
 ; UIF_BINFO_EXIT: the battle wrapper, after the info screen (rendering off:
-; ppu_bg_sprites_off).  The battle's CHR and P2 colours back; the pool is
-; unchecked (the next battle message checks it again).
+; ppu_bg_sprites_off).  Busy mode throughout:
+; - every battle slot whose name (read from the battle nametable at the
+;   slot's position, data_E17C / data_E186) has a kanji in a plane-1 group
+;   this screen used is streamed again by put_officer_name to the same
+;   tiles ($A9 = its first tile).  In busy mode its wait_vblank flushes at
+;   once, so the stream costs no frame.  The block writer does not mirror
+;   it (UI_NOMIR);
+; - plane 0 and 1 of the pool $A4-$DF are cleared: no message is shown
+;   now, the pool is marked checked and blank, so the next battle message
+;   uses it (not the band page);
+; - the P2 colours 1-3 come back (decision 6).
 ; ======================================================================
 ui_binfo_exit:
-    lda UI_PATH
-    beq @p2x
     jsr ppu_begin
-    sec
-    jsr chr_save_restore
+    lda #1
+    sta UI_NOMIR
+    lda current_bank_a          ; put_officer_name ends in set_bank_current,
+    pha                         ; which maps current_bank_a
+    lda #UI_BANK
+    sta current_bank_a
+    lda #0
+    sta ZP_I                    ; slot
+@slot:
+    jsr slot_name_dirty         ; C set: stream it, Y = actor, ZP_T = tile
+    bcc @next
+    lda ZP_T
+    sta $A9
+    lda #1
+    sta $AA
+    ldx #0
+    jsr PUT_OFFICER_NAME
+@next:
+    inc ZP_I
+    lda ZP_I
+    cmp #10
+    bne @slot
+    pla
+    sta current_bank_a
+    sta current_bank_b
+    lda #0
+    sta UI_NOMIR
+    ; the pool: 60 tiles, both planes
+    lda #$1A
+    sta PPUADDR
+    lda #$40
+    sta PPUADDR
+    ldx #60
+    lda #0
+@pool:
+    ldy #16
+@pool16:
+    sta PPUDATA
+    dey
+    bne @pool16
+    dex
+    bne @pool
+    lda KANJI_WIN_COL
+    ora #WINCOL_POOL_OK|WINCOL_CHECKED
+    sta KANJI_WIN_COL
     jsr ppu_end
-@p2x:
     ldx #2
 @p2:
     lda UI_P2,x
@@ -112,7 +172,93 @@ ui_binfo_exit:
     bpl @p2
     lda #0
     sta UI_PATH
-    ; fall through
+    rts
+
+; Battle slot ZP_I: C set when its name must be streamed again; then Y =
+; its actor and ZP_T = the name's first tile.  The name's kanji k sits at
+; column 2k of the slot's position (top row t, t+2).
+slot_name_dirty:
+    ldx ZP_I
+    cpx #5
+    bcs @enemy
+    ldy $6097,x                 ; party slots: the party order
+    bmi @no
+    bpl @actor
+@enemy:
+    txa                         ; enemy slots 5-9: actors 7-11
+    clc
+    adc #2
+    tay
+@actor:
+    lda $609C,y                 ; present (as battle_setup_names asks)
+    bpl @no
+    lda ppu_ctrl_shadow         ; +1 (a queued vertical run may have left +32)
+    and #$FB
+    sta PPUCTRL
+    lda PPUSTATUS
+    lda $E17C,x                 ; data_E17C / data_E186: the name's address
+    sta PPUADDR
+    lda $E186,x
+    sta PPUADDR
+    lda PPUDATA                 ; (read buffer)
+    lda PPUDATA
+    sta ZP_T                    ; first tile
+    sta ZP_J                    ; tile expected for kanji k
+    ldx #3
+@kanji:
+    lda ZP_J
+    cmp #$10
+    bcc @no                     ; not a plane-1 name tile
+    cmp #$80
+    bcs @no
+    jsr group_dirty
+    bcs @yes
+    dex
+    beq @no
+    lda PPUDATA                 ; skip the right half
+    lda PPUDATA
+    sec
+    sbc ZP_J
+    cmp #4                      ; the next kanji: tile + 4
+    bne @no
+    lda ZP_J
+    clc
+    adc #4
+    sta ZP_J
+    jmp @kanji
+@yes:
+    sec
+    rts
+@no:
+    clc
+    rts
+
+; A = a plane-1 tile $10-$7F: C set when this screen wrote its group.
+; Groups $10-$4F (the name, the labels) always; tactic line n's groups
+; $50 + 8n and $54 + 8n when the line was drawn (UI_TACT bit n).
+group_dirty:
+    cmp #$50
+    bcc @yes
+    sec
+    sbc #$50
+    lsr a
+    lsr a
+    lsr a                       ; line n
+    sty ZP_K
+    tay
+    lda tact_bit,y
+    ldy ZP_K
+    and UI_TACT
+    beq @no
+@yes:
+    sec
+    rts
+@no:
+    clc
+    rts
+tact_bit:
+    .db $01, $02, $04, $08, $10, $20
+
 pool_unchecked:
     lda KANJI_WIN_COL
     and #<~(WINCOL_POOL_OK|WINCOL_CHECKED)
@@ -165,130 +311,6 @@ ppu_end:
     sta PPUCTRL
     lda UI_BUSY
     sta nmi_busy
-    rts
-
-; A = select ($80 | register), X = 1 KiB CHR bank (main-thread protocol).
-set_chr:
-    sta MMC3_SEL
-    sta MMC3_SELECT
-    stx MMC3_DATA
-    rts
-
-; ======================================================================
-; The battle's CHR around the info screen: C clear = save, C set =
-; restore.  Plane 1 of $1C-$7F (the battle names beyond the info screen's
-; own name) <-> spare $0000-$031F, plane 0 of $A4-$DF (the pool) <-> spare
-; $0400-$05DF, with sprite banks R2/R3 = CHR_SPARE/+1 meanwhile.
-; ======================================================================
-chr_save_restore:
-    ror ZP_C
-    lda #$82
-    ldx #CHR_SPARE
-    jsr set_chr
-    lda #$83
-    ldx #CHR_SPARE+1
-    jsr set_chr
-    lda #$1C
-    ldx #$00
-    ldy #100
-    jsr @region8
-    lda #$A4
-    ldx #$04
-    ldy #60
-    jsr @region0
-    lda #$82
-    ldx #0
-    jsr set_chr
-    lda #$83
-    ldx #1
-    jmp set_chr
-@region8:
-    pha
-    lda #8
-    bne @region
-@region0:
-    pha
-    lda #0
-@region:
-    sta ZP_K                    ; plane offset
-    pla
-    sta ZP_T
-    stx ZP_A+1
-    lda #0
-    sta ZP_A
-    sty ZP_N
-@tile:
-    jsr tile_addr               ; ZP_PTR = CHR address of ZP_T, plane ZP_K
-    bit ZP_C
-    bmi @back
-    ldx ZP_PTR+1
-    ldy ZP_PTR
-    jsr read8
-    ldx ZP_A+1
-    ldy ZP_A
-    jsr write8
-    jmp @next
-@back:
-    ldx ZP_A+1
-    ldy ZP_A
-    jsr read8
-    ldx ZP_PTR+1
-    ldy ZP_PTR
-    jsr write8
-@next:
-    lda ZP_A
-    clc
-    adc #8
-    sta ZP_A
-    bcc @nc
-    inc ZP_A+1
-@nc:
-    inc ZP_T
-    dec ZP_N
-    bne @tile
-    rts
-
-; ZP_PTR = $1000 + 16 * ZP_T + ZP_K
-tile_addr:
-    lda ZP_T
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    ora #$10
-    sta ZP_PTR+1
-    lda ZP_T
-    asl a
-    asl a
-    asl a
-    asl a
-    ora ZP_K
-    sta ZP_PTR
-    rts
-
-; X:Y = PPU address: 8 bytes to CBUF / from CBUF.
-read8:
-    stx PPUADDR
-    sty PPUADDR
-    lda PPUDATA                 ; the read buffer's stale byte
-    ldx #0
-@r:
-    lda PPUDATA
-    sta CBUF,x
-    inx
-    cpx #8
-    bne @r
-    rts
-write8:
-    stx PPUADDR
-    sty PPUADDR
-    ldx #0
-@w:
-    lda CBUF,x
-    sta PPUDATA
-    inx
-    cpx #8
-    bne @w
     rts
 
 ; ======================================================================
@@ -539,11 +561,6 @@ ui_info_draw:
     sta KANJI_REQ
 @nocheck:
     jsr pool_unchecked
-    lda UI_PATH
-    beq @nosave
-    clc
-    jsr chr_save_restore        ; the battle's CHR to the spare page
-@nosave:
     ; the 13 label kanji, plane 1 of $1C-$4F
     lda #0
     sta ZP_I
@@ -578,16 +595,18 @@ ui_info_draw:
     cpx #64
     bne @attr
     jsr draw_stats
+    jsr draw_troops
     lda #0
     sta UI_NG
+    sta UI_TACT
     jsr draw_tactics
     jsr draw_equipment
     jmp ppu_end
 
 ; ----------------------------------------------------------------------
 ; The five stat lines (b14_wincb_stat_value_bar's values): 3 digits at
-; column 16 of the line's lower row, a blank, then a bar of $F4 per 26
-; points and $F3 for a remainder of 13 or more.
+; columns 17-19 (the kanji lines' upper row), a blank, then from column 21
+; a bar of $F4 per 26 points and $F3 for a remainder of 13 or more.
 ; ----------------------------------------------------------------------
 draw_stats:
     lda #0
@@ -641,10 +660,10 @@ draw_stats:
     bne @stat
     rts
 
-; Digits at column 16 of rows 5, 7, 9, 11 (the kanji lines' lower rows)
+; Digits at column 17 of rows 4, 6, 8, 10 (the kanji lines' upper rows)
 ; and 12 (S.P).
 stat_lo:
-    .db $B0, $F0, $30, $70, $90
+    .db $91, $D1, $11, $51, $91
 stat_hi:
     .db $20, $20, $21, $21, $21
 
@@ -725,50 +744,37 @@ buf_num3:
     inc ZP_X
     rts
 
-; ======================================================================
-; UIF_INFO_LATE: after the name windows (rendering on).  The kanji name's
-; window clears rows 14-15 at columns 2-9 (its second line), so 兵士数 and
-; the troop maximum are queued here, as the original's window $2D came
-; after it: rows 14-15, columns 2-7, the digits in row 15 from column 8.
-; ======================================================================
-ui_info_late:
+; ----------------------------------------------------------------------
+; 兵士数 (rows 15-16, columns 2-7) and text_actor's 24-bit troop maximum
+; ($6160 + 4 * actor, low byte first) as 6 digits, leading zeros blank, in
+; row 15 from column 8.  Drawn after the name windows: the kanji name's
+; window clears rows 14-15 at columns 2-9 (its second line).
+; ----------------------------------------------------------------------
+draw_troops:
+    lda #<troop_runs
+    sta ZP_PTR
+    lda #>troop_runs
+    sta ZP_PTR+1
+    jsr write_runs
     jsr troops_digits
-    ldx vram_queue_write
-    ldy #0
-@hdr:
-    lda late_runs,y
-    sta $0400,x
+    lda #$21
+    sta PPUADDR
+    lda #$E8
+    sta PPUADDR
+    ldx #0
+@w:
+    lda LBUF_B,x
+    sta PPUDATA
     inx
-    iny
-    cpy #9                      ; $21C2, 6 tiles: the top row
-    bne @hdr
-@hdr2:
-    lda late_runs,y
-    sta $0400,x
-    inx
-    iny
-    cpy #18                     ; $21E2, 12 tiles: the bottom row ...
-    bne @hdr2
-    ldy #0
-@dig:
-    lda LBUF_B,y                ; ... and the 6 digits
-    sta $0400,x
-    inx
-    iny
-    cpy #6
-    bne @dig
-    lda #0
-    sta $0400,x
-    stx vram_queue_write
+    cpx #6
+    bne @w
     rts
-late_runs:
-    .db $21,$C2,6,  $38,$3A,$3C,$3E,$40,$42
-    .db $21,$E2,12, $39,$3B,$3D,$3F,$41,$43
+troop_runs:
+    .db $21,$E2,6, $38,$3A,$3C,$3E,$40,$42  ; 兵士数 rows 15-16
+    .db $22,$02,6, $39,$3B,$3D,$3F,$41,$43
+    .db $FF
 
-; ----------------------------------------------------------------------
-; へいしすう: text_actor's 24-bit troop maximum ($6160 + 4 * actor, low
-; byte first) as 6 digits, leading zeros blank, into LBUF_B[0..6).
-; ----------------------------------------------------------------------
+; LBUF_B[0..6) = the troop maximum's 6 digits.
 troops_digits:
     lda text_actor
     asl a
@@ -860,6 +866,11 @@ draw_tactics:
     lda ui_tactic_g1,y
     cmp #$FF
     beq @next
+    ldx ZP_I                    ; this line's plane-1 groups are used
+    lda tact_bit,x
+    ora UI_TACT
+    sta UI_TACT
+    ldy ZP_G
     ; plane-1 kanji
     lda ZP_I
     asl a
@@ -988,8 +999,9 @@ equip_hi:
 ; ----------------------------------------------------------------------
 ; The static layout (nametable 0).  Label kanji k: top t, t+2, bottom
 ; t+1, t+3 with t = $1C + 4k (武 力 知 攻 撃 装 度 兵 士 数 備 策 略).
-; The windows sit one tile lower than the original's (decision 7): the
-; titles are 16x16 kanji on the top border, every line two rows.
+; The windows' lines are two rows and their bottom borders one row lower
+; than the original's (decision 7); the top borders are at rows 15 / 19,
+; under the lower half of the 16x16 titles.
 ; ----------------------------------------------------------------------
 info_runs:
     .db $20,$8A,4, $1C,$1E,$20,$22          ; 武力   rows 4-5
@@ -1001,18 +1013,19 @@ info_runs:
     .db $21,$4A,6, $1C,$1E,$30,$32,$34,$36  ; 武装度 rows 10-11
     .db $21,$6A,6, $1D,$1F,$31,$33,$35,$37
     .db $21,$8A,3, $F6,$F8,$F7              ; S.P    row 12
-    ; (兵士数, rows 14-15: queued by ui_info_late after the name windows)
-    ; さくりゃく window: columns 16-29, rows 14-28, 策略 at columns 20-23
-    .db $21,$D0,14, $6D,$0C,$0C,$0C,$48,$4A,$4C,$4E,$0C,$0C,$0C,$0C,$0C,$6E
-    .db $21,$F0,14, $7D,$0A,$0A,$0A,$49,$4B,$4D,$4F,$0A,$0A,$0A,$0A,$0A,$7E
+    ; さくりゃく window: columns 16-29, top border row 15, bottom row 28;
+    ; 策略 at rows 14-15, columns 21-24 (on the border)
+    .db $21,$D5,4, $48,$4A,$4C,$4E
+    .db $21,$F0,14, $6D,$0C,$0C,$0C,$0C,$49,$4B,$4D,$4F,$0C,$0C,$0C,$0C,$6E
     .db $22,$10,$CC, $7D                    ; column 16, rows 16-27
     .db $22,$1D,$CC, $7E                    ; column 29, rows 16-27
     .db $23,$90,1, $0B
     .db $23,$91,$4C, $0D
     .db $23,$9D,1, $6F
-    ; そうび window: columns 2-15, rows 18-26, 装備 at columns 6-9
-    .db $22,$42,14, $6D,$0C,$0C,$0C,$30,$32,$44,$46,$0C,$0C,$0C,$0C,$0C,$6E
-    .db $22,$62,14, $7D,$0A,$0A,$0A,$31,$33,$45,$47,$0A,$0A,$0A,$0A,$0A,$7E
+    ; そうび window: columns 2-15, top border row 19, bottom row 26;
+    ; 装備 at rows 18-19, columns 7-10 (on the border)
+    .db $22,$47,4, $30,$32,$44,$46
+    .db $22,$62,14, $6D,$0C,$0C,$0C,$0C,$31,$33,$45,$47,$0C,$0C,$0C,$0C,$6E
     .db $22,$82,$C6, $7D                    ; column 2, rows 20-25
     .db $22,$8F,$C6, $7E                    ; column 15, rows 20-25
     .db $23,$42,1, $0B

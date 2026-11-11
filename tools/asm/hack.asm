@@ -820,6 +820,9 @@ mark_upload:
 ; groups one tile at a time).  Carry set when nothing is stale.
 ; ----------------------------------------------------------------------
 restore_next:
+    lda text_graphics_index     ; step B: the battle and the info screen
+    cmp #POOL_SET               ; keep no band page (a sync is done at once)
+    beq @none
     ldx #0
 @lower:
     lda KANJI_A,x
@@ -836,6 +839,7 @@ restore_next:
     inx
     cpx #4
     bne @upper
+@none:
     sec
     rts
 @found:
@@ -1480,6 +1484,8 @@ fn_block_post:
     lda KANJI_M1
     cmp #$80
     bcs @upper                  ; upper tiles: scene page only (R1)
+    ldx UI_NOMIR                ; step B: the battle start's and the info
+    bne @stale                  ; screen's uploads: no band page to keep
     lsr a
     lsr a
     lsr a
@@ -1491,6 +1497,7 @@ fn_block_post:
     and KANJI_A,x
     beq @copy
     ; active kanji tile: keep the glyph, leave it stale for later
+@stale:
     lda KANJI_M1
     jsr mark_stale
     jmp @next
@@ -1558,6 +1565,8 @@ bitmask:
 ; $F3/$F4 point at the palette record, $03E0+ receives it, Y ends at the
 ; record's terminator.
 pal_copy:
+    lda #0                      ; step B: the uploads before this load were
+    sta UI_NOMIR                ; the one-shot no-mirror ones
     ldx text_graphics_index
     lda KANJI_PAL_LO,x
     sta ppu_update_ptr_lo
@@ -1634,6 +1643,9 @@ ltg_mask_end:
 pick_restore:
     lda #$FF
     sta KANJI_PICK
+    lda text_graphics_index     ; step B: no band-page restores in the battle
+    cmp #POOL_SET               ; and the info screen (a pending sync ends)
+    beq @rts_pick
     ldx #0
 @lower:
     lda KANJI_STALE,x
@@ -1653,6 +1665,7 @@ pick_restore:
     inx
     cpx #4
     bne @upper
+@rts_pick:
     rts
 @found:
     ldy #0

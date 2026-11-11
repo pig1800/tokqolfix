@@ -855,16 +855,23 @@ b14_party_status_update:
 ; ----------------------------------------------------------------------
 b14_officer_info_screen:
 .ifdef KANJI_TARGET
-    ; Step B (INFO_SCREEN.md): the UI bank draws the screen while rendering
-    ; is still off (after battle_intro_screen): the kanji labels, values and
-    ; bars, the equipment and tactic windows with kanji, the attributes.
-    ; The game draws the portrait and the two name windows; windows $2D,
-    ; $09, $0B, $0A and the attribute and dakuten strings are not used.
+    ; Step B (INFO_SCREEN.md): the screen stays black until it is complete.
+    ; The game loads the portrait (status_message without its
+    ; rendering-on) and draws the two name windows; the UI bank draws the
+    ; rest (kanji labels, values and bars, the equipment and tactic windows
+    ; with kanji, 兵士数, the attributes); then rendering is turned on.
+    ; Windows $2D, $09, $0B, $0A and the attribute and dakuten strings are
+    ; not used.  UIF_INFO_ENTER: battle_intro_screen's block write is not
+    ; mirrored to the band page.
     jsr compact_items_actor
-    jsr battle_intro_screen
-    ldx #UIF_INFO_DRAW
+    ldx #UIF_INFO_ENTER
     jsr CALL_UI
-    jsr status_message
+    jsr battle_intro_screen
+    jsr draw_string             ; status_message's string
+    .dw $D0BC                   ; (its inline word at $CF94)
+    ldy text_actor              ; load_actor_portrait, without loc_C139
+    lda $60A8,y                 ; Party member class/officer id.
+    jsr text_load_page
     jsr wait_vblank
     lda #$A1
     sta input_buttons
@@ -883,8 +890,10 @@ b14_k_info_kanji_name:
     sta $A9
     ldx #$08
     jsr text_init
-    ldx #UIF_INFO_LATE          ; 兵士数 and the troops (after window $08,
-    jsr CALL_UI                 ; whose second line clears rows 14-15)
+    ldx #UIF_INFO_DRAW          ; everything else, still black
+    jsr CALL_UI
+    jsr screen_fade_in_step     ; rendering on
+    jsr wait_vblank
     lda #$80                    ; as the original leaves it
     sta input_buttons
     jmp loc_D44C
@@ -3076,7 +3085,11 @@ b14_data_9B87:
 ;   battle flags, attribute layout $A59E.
 ; ----------------------------------------------------------------------
 b14_battle_start:
+.ifdef KANJI_TARGET
+    jsr b14_k_battle_start      ; step B: no band-page mirror (UI_NOMIR)
+.else
     jsr find_party_member
+.endif
     jsr battle_intro_screen_body
     jsr screen_fade_in
     lda #$91
@@ -5078,9 +5091,11 @@ b14_data_AA15:
 b14_battle_officer_info:
 .ifdef KANJI_TARGET
     ; Step B: UIF_BINFO_ENTER sets the battle-path flag and text_busy = 0
-    ; and keeps the P2 colours 1-3; UIF_BINFO_EXIT (rendering off) puts the
-    ; battle's CHR back (every name's plane 1, the pool's plane 0) and the
-    ; three colours (decision 6).  The rest is the original.
+    ; and keeps the P2 colours 1-3.  UIF_BINFO_EXIT (rendering off) streams
+    ; again every battle name the screen wrote over (plane 1), blanks the
+    ; pool and puts the three colours back (decision 6); it replaces the
+    ; original's streaming of slots 0 and 1.  text_actor = slot 0's actor
+    ; and text_menu_sub = 1 as the original leaves them.
     jsr battle_slot_actor
     sty text_actor
     ldx #UIF_BINFO_ENTER
@@ -5093,16 +5108,11 @@ b14_battle_officer_info:
     jsr text_hide
     lda #$91
     sta ppu_ctrl_shadow
-    lda #$10
-    sta $A9
     lda #$00
     jsr battle_slot_actor
     sty text_actor
-    jsr put_officer_name_actor
     lda #$01
     sta text_menu_sub
-    jsr battle_slot_actor
-    jsr put_officer_name
     lda #$00
     sta $AA
     jsr load_actor_portrait
@@ -8063,23 +8073,29 @@ b14_k_gauge_colour:
     sta $03EB
     sta vram_dma_pending
     rts
-; b14_k_tactic_window: the tactic subwindow (window X = $17) with the cell of
-; its S P (rows 18-19, columns 18-19) in P1 while it is open: S and P are
-; plane 1 (decision 11).  Carry as b14_battle_open_list_window returns it.
+; b14_k_tactic_window: the tactic subwindow (window X = $17).  S and P are
+; plane 1 (decision 11), so the cell of its S P (rows 18-19, columns 18-19,
+; attribute $27E4) is P1 while it is open.  The attribute is written when
+; a window draws rows 18-19 (canvas cv_sm, UI_SPP): P1 ($4A) with this
+; window's top row, P0 ($0A, the battle's own value) with the next
+; window's.  Carry as b14_battle_open_list_window returns it.
 b14_k_tactic_window:
-    jsr draw_string             ; inline pointer/data follows the JSR
-    .dw b14_k_sp_p1
+    lda #$4A
+    sta UI_SPP
     ldx #$17
     jsr b14_battle_open_list_window
     php
-    jsr draw_string             ; inline pointer/data follows the JSR
-    .dw b14_k_sp_p0
+    lda #$0A
+    sta UI_SPP
     plp
     rts
-b14_k_sp_p1:
-    .db $27, $E4, $01, $4A, $FF ; rows 16-19, columns 16-19: P2 P2 / P0 P1
-b14_k_sp_p0:
-    .db $27, $E4, $01, $0A, $FF ; the battle's own value: P2 P2 / P0 P0
+; b14_k_battle_start: the battle start's block write of tiles $00-$0F
+; (battle_intro_screen_body) is not mirrored to the band page; pal_copy
+; clears the flag.
+b14_k_battle_start:
+    lda #1
+    sta UI_NOMIR
+    jmp find_party_member
     .pad $C000
 b14_data_BFD9 = $BFD9           ; (bank 15's MMC1 register writes name it)
 .else

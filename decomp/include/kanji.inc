@@ -252,14 +252,19 @@ HACK_INIT         = $800C   ; hack bank entry, reset: clear the hack state, inst
 ; calls it through the fixed bank's call_ui (X = function).
 ; ----------------------------------------------------------------------
 UI_BANK           = 28
-UIF_INFO_DRAW     = 0       ; info screen, rendering off: CHR and the layout
+UIF_INFO_DRAW     = 0       ; info screen, still black: CHR and the layout
 UIF_BINFO_ENTER   = 1       ; battle wrapper, before the info screen
 UIF_BINFO_EXIT    = 2       ; battle wrapper, after it (rendering off)
 UIF_ARMY          = 3       ; army status screen: flush, SP / MSP cells P1
-UIF_INFO_LATE     = 4       ; info screen, after the name windows: 兵士数
+UIF_INFO_ENTER    = 4       ; info screen, before battle_intro_screen
 UI_RAM            = $7FC0   ; battery RAM after the canvas RAM code
 UI_PATH           = UI_RAM+0 ; 1 = the info screen was opened from a battle
 UI_P2             = UI_RAM+1 ; 3 bytes: the battle's P2 colours 1-3
 UI_BUSY           = UI_RAM+4 ; nmi_busy around the renderer's PPU access
-CHR_SPARE         = 12      ; 1 KiB CHR banks 12/13 (unused page 3): the
-                            ; battle's CHR the info screen overwrites
+UI_NOMIR          = UI_RAM+5 ; 1: the block writer does not mirror to the band
+                            ; page (the battle start's and the info screen's
+                            ; uploads; pal_copy clears it)
+UI_TACT           = UI_RAM+6 ; info screen: bit n = tactic line n drawn
+UI_SPP            = UI_RAM+7 ; battle tactic window: attribute value for the
+                            ; S P cell ($27E4), written with the next window
+                            ; row pair 18-19 (canvas cv_sm), then 0

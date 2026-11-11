@@ -763,7 +763,8 @@ cv_ti:
 ; in the dialogue (window frames 76-95 bytes).
 ; ----------------------------------------------------------------------
 cv_sm:
-    ldx CV_CUR
+    jmp cv_sm_hook              ; step B (in place of "ldx CV_CUR", so every
+cv_sm_body:                     ; label keeps its address); flags from it
     bmi @plain
     cpx CV_MROWS
     bcc @old
@@ -1038,6 +1039,51 @@ cv_emit:
     lda #0
     sta QUEUE,x
     stx vram_queue_write
+    rts
+
+; ----------------------------------------------------------------------
+; Step B: cv_sm with the battle attribute hook (appended, so that the
+; code above keeps its addresses and an older build's RAM image in a save
+; state stays compatible).  The battle tactic window's S P cell (rows
+; 18-19, columns 18-19, attribute $27E4 of nametable 1) changes palette
+; when a window draws that row pair: UI_SPP = the value (P1 with the
+; tactic window's top row, P0 with the next window's), then 0.
+; scroll_map has just queued the pair; its second row's address is in
+; ppu_addr_lo/hi_shadow (row 19 of nametable 1: $266x).  The attribute
+; entry follows it in the queue, so both are flushed in the same NMI.
+; ----------------------------------------------------------------------
+cv_sm_hook:
+    ldx CV_CUR
+    jsr cv_sm_body
+    lda UI_SPP
+    bne cv_spp
+    rts
+cv_spp:
+    lda ppu_addr_hi_shadow
+    cmp #$26
+    bne @rts
+    lda ppu_addr_lo_shadow
+    and #$E0
+    cmp #$60
+    bne @rts
+    ldx vram_queue_write
+    lda #$27
+    sta $0400,x
+    inx
+    lda #$E4
+    sta $0400,x
+    inx
+    lda #$01
+    sta $0400,x
+    inx
+    lda UI_SPP
+    sta $0400,x
+    inx
+    lda #0
+    sta $0400,x
+    stx vram_queue_write
+    sta UI_SPP
+@rts:
     rts
 
 cv_ram_end:
