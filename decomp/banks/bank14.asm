@@ -867,6 +867,8 @@ b14_officer_info_screen:
     ldx #UIF_INFO_ENTER
     jsr CALL_UI
     jsr battle_intro_screen
+    ldx #UIF_INFO_BUSY          ; busy until UIF_INFO_DRAW ends: the waits
+    jsr CALL_UI                 ; below flush at once (no frame each)
     jsr draw_string             ; status_message's string
     .dw $D0BC                   ; (its inline word at $CF94)
     ldy text_actor              ; load_actor_portrait, without loc_C139

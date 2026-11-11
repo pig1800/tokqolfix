@@ -423,6 +423,22 @@ How it works:
   `copy_to_vram` does.  Only then does `screen_fade_in_step` turn rendering
   on.  Windows `$2D`, `$09`, `$0B`, `$0A` and the attribute and dakuten
   strings are no longer called.
+- **Busy-mode build** (QoL, after item 8).  The game's steps above wait
+  with `wait_vblank`, one queue chunk per frame: the portrait 7 frames,
+  the name windows and the name's CHR stream 4, plus single waits.  With
+  the screen off that pacing is not needed: `wait_vblank`'s busy path
+  (`nmi_busy` set) flushes the queue and the stream at once.
+  `UIF_INFO_BUSY` (after `battle_intro_screen`) enters busy mode, and
+  `UIF_INFO_DRAW`'s `ppu_end` leaves it.  The black period is 5 frames on
+  the battle path (was 15) and 6 on the map path (was 16): what is left is
+  `battle_intro_screen`'s own last wait and about 3 frames of work (the
+  portrait, the name stream, the UI draw).  `UIF_INFO_BUSY` also sets
+  `UI_NOMIR`: the direct stream goes through the block writer, which would
+  otherwise mirror the name glyphs to the band page.  The finished screen
+  is byte-identical to before (all PPU memory, the 16 KiB of CHR RAM, the
+  palette), on both paths and after the return to the map; gates as after
+  item 8 (`out/test/stepD_g2`; the battle -> info -> battle path's min SP
+  `$0B`, the same as before).
 - **Plane-0 kanji** take the pool `$A4-$DF`, one group per distinct kanji.
 - **The battle path:**
   - `UIF_BINFO_ENTER` sets the path flag, `text_busy` = 0 and keeps P2
@@ -482,7 +498,7 @@ decomp regeneration must keep them, as it keeps `SAVE_SLOTS` and
 
 | Where | What |
 |---|---|
-| `b14_officer_info_screen` `$8518-$857A` | the new driver, padded to `$857B` |
+| `b14_officer_info_screen` `$8518-$857A` | the new driver, padded to `$857B` (with `UIF_INFO_BUSY` after `battle_intro_screen`) |
 | `b14_battle_officer_info` `$AA1A-$AA60` | `call_ui` enter/exit, no slot 0/1 streaming; the original wrapper is 71 bytes, not `$AA5E` |
 | `b14_battle_start` `$9B89` | `jsr b14_k_battle_start` |
 | `b14_battle_tactic_subwindow` `$9EB0` | `jsr b14_k_tactic_window` (item 7 reverted it) |

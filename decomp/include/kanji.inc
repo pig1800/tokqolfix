@@ -260,6 +260,9 @@ UIF_INFO_ENTER    = 4       ; info screen, before battle_intro_screen
 UIF_BSTART        = 5       ; battle start, rendering off: the fixed kanji
 UIF_WINCB         = 6       ; battle window line (template CALL, X in UI_X)
 UIF_SM            = 7       ; battle window metarow drawn (canvas cv_sm)
+UIF_INFO_BUSY     = 8       ; info screen after battle_intro_screen: busy mode
+                            ; until UIF_INFO_DRAW ends (the game's waits flush
+                            ; at once)
 ; The reward window (victory) and the message pool (step B item 8).
 UI_RAM2           = $7F9E   ; battery RAM after the canvas RAM code (below UI_RAM)
 UI_MC_LO          = UI_RAM2+0 ; 15: text code of the message kanji in pool slot k

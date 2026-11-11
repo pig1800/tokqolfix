@@ -77,7 +77,7 @@ ui_dispatch:
     rts
 ui_fns:
     .dw ui_info_draw-1, ui_binfo_enter-1, ui_binfo_exit-1, ui_army-1
-    .dw ui_info_enter-1, ui_bstart-1, ui_wincb-1, ui_sm-1
+    .dw ui_info_enter-1, ui_bstart-1, ui_wincb-1, ui_sm-1, ui_info_busy-1
 
 ; ======================================================================
 ; UIF_INFO_ENTER: the info screen, before battle_intro_screen.  Its block
@@ -88,6 +88,20 @@ ui_info_enter:
     lda #1
     sta UI_NOMIR
     rts
+
+; ======================================================================
+; UIF_INFO_BUSY: the info screen after battle_intro_screen (rendering off).
+; Busy mode until UIF_INFO_DRAW's end: the game's own steps (the portrait,
+; the two name windows, the name's CHR stream) wait with wait_vblank, whose
+; busy path flushes the queue and the stream at once instead of one chunk
+; per frame (15 black frames before, see INFO_SCREEN.md).  Those direct
+; flushes go through the block writer: no mirror to the band page (pal_copy
+; in battle_intro_screen cleared UI_NOMIR; the next pal_copy clears it).
+; ======================================================================
+ui_info_busy:
+    lda #1
+    sta UI_NOMIR
+    jmp ppu_begin
 
 ; ======================================================================
 ; UIF_BINFO_ENTER: the battle wrapper, before the info screen (rendering
@@ -298,6 +312,8 @@ ppu_begin:
     sta UI_BUSY
     lda #1
     sta nmi_busy
+; (already busy: the PPU state only)
+ppu_setup:
     sta MMC3_IRQ_OFF
     lda #MMC3_R0
     sta MMC3_SEL
@@ -549,7 +565,13 @@ buf_kana:
 ; off).  Everything but the portrait and the two name windows.
 ; ======================================================================
 ui_info_draw:
-    jsr ppu_begin
+    lda nmi_busy                ; busy since UIF_INFO_BUSY: ppu_end ends it
+    beq @begin
+    jsr ppu_setup
+    jmp @busy
+@begin:
+    jsr ppu_begin               ; (a save state from an earlier build)
+@busy:
     ; The hack's state for a screen without a band: no band, no pending
     ; pool check (load_text_graphics posted one for set 8), the pool
     ; unchecked (this screen writes it).
