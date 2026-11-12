@@ -381,7 +381,7 @@ REG_HI            = $07C0   ;     (high)
 TXR_CT            = $07E7   ; text_render_cell: 2 top tiles
 TXR_CB            = $07E9   ; text_render_cell: 2 bottom tiles
 TXR_EL            = $07EB   ; text_draw_line: bytes in TXR_EB
-TXR_UPF           = $07EC   ; NMI: bit 7 = the uploader wrote the pattern table last
+TXR_UB            = $07EC   ; NMI: the uploader's budget left (UP_* units)
 TXR_ST            = $07ED   ; a renderer call's status for its stub (0 done, 1 uploads, 2 pause)
 TXR_WC            = $07EE   ; text_render_cell: cells to pause for
 TXR_S10           = $07EF   ; txr_call: $10, $11 and the bank, kept (not on the stack)
@@ -411,8 +411,18 @@ TXR_MARK          = TXR_UQ  ; GC: 16-byte bitmap of the tiles shown (the staging
 ; Battery RAM (the canvas code's old space, after the RAM image), from the
 ; top down to TXR_TABLES:
 TXR_NG            = 28      ; kanji groups per part: tiles $0C-$7B
-TXR_UQMAX         = 5       ; staged tiles per batch
-TXR_UQ            = $7F65   ; 5 x 11: staged tiles (R0 value, PPU hi, PPU lo, 8 bytes)
+TXR_UQSZ          = 55      ; staging bytes: records kana R0, tile, code (3); kanji R0 | $80, tile t, glyph code lo, hi (4)
+TXR_UQ            = $7F65   ; 55: the staged records (TXR_SN bytes; the NMI: TXR_UQN left from TXR_UQR)
+; The NMI uploader's budget (TEXT_RENDERER.md "Upload speed", B + D), in
+; units of 16 cycles: the uploads start about line 250 and end by line
+; 259.5 (the force and the arm follow; PPU access before the pre-render
+; line), one unit fewer per byte the game flushed in that NMI.
+UP_UNITS          = 67
+UP_KANA           = 11      ; a kana record (txr.asm up_kana; ~161 cycles measured)
+UP_KANJI          = 31      ; a kanji record, 4 tiles (hack.asm mk_run; page crossings and a bank switch included)
+UP_KRUN           = 3       ; a run of kanji records: mk_run's call and exit
+UP_CELLS          = 14      ; text_render_cell's released cells, flushed by the NMI (rel_flush)
+HACK_MKUP         = $B900   ; hack.asm mk_run (every hack bank, the upper half: R7)
 TXR_EB            = $7F35   ; 48: text_draw_line's entries, out of the queue
 TXR_GBUF          = $7F15   ; 32: glyph bytes read by txr_rr
 TXR_NM            = TXR_GBUF ; TXF_NAME: kanji count (0: none or no room), 3 codes lo, 3 hi

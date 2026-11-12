@@ -1143,3 +1143,83 @@ Checks (`out/test/opt`):
 | Lowest stack push (menu cycle) | `$010C`, the same fixed-bank routine as before |
 | Original build | byte-identical |
 
+### B + D done: bigger batches, glyphs read in the NMI
+
+**Staging (main thread).**
+- The 55 bytes of `TXR_UQ` hold references, not glyph bytes:
+  - a kana is `R0, tile, code` (3 bytes);
+  - a kanji is `R0 | $80, tile t, glyph code lo, hi` (4 bytes).
+- So one batch holds up to 13 kanji (it held 1 before).
+- The main thread no longer copies glyphs into the buffer.
+- `TXR_SN` / `TXR_UQN` now count bytes.
+- **Rendering off or busy** (`is_direct`): `stage_kana` / `stage_kanji`
+  write the glyph at once, with the same routines as the map setup and
+  the boot menus.  Normal play never takes this path; a test forced it
+  (below).
+
+**NMI** (`nmi_up`).  As many records as a budget allows (`UP_*`, units of
+16 cycles, in `kanji.inc`): `UP_UNITS` = 67, one unit less per byte the
+game flushed.
+
+| Item | Charge | Measured |
+|---|---|---|
+| kana (`up_kana`) | 11 | ~161 cycles |
+| kanji (`mk_run`) | 31 | ~400-500 cycles (page crossings, a bank switch) |
+| a run of kanji: the call and exit | 3 | |
+| released cells (C) | 14 | |
+
+- **Kana** (`txr.asm` `up_kana`): read from bank 26's font copy, which
+  moved to `$8400`, in the half the NMI maps.  Unrolled per 256-byte page
+  of the font.
+- **Kanji** (`hack.asm` `mk_run`, `$B900` in every hack bank = `HACK_MKUP`):
+  - read straight from the glyph tables, all 4 tiles unrolled;
+  - two variants: the low half and the +256 half;
+  - it runs from `$A000-$BFFF` and maps R6 and R7 to each glyph's bank;
+    R7 changes under its own feet, which works because the code is
+    identical in banks 23-25;
+  - it maps R6 back to the renderer bank before returning;
+  - the game's NMI end restores both halves.
+- The second hack segment now ends at `$BEFB` (palette tables at
+  `$BF00`).
+
+**Per frame**, uploads start about line 250.8 (kana) or 251.4 (kanji):
+
+| Frame | Last upload write | Force | Arm |
+|---|---|---|---|
+| 2 kanji | 258.6 | | 259.8 |
+| 6 kana (injected batch) | 259.5 | 260.4 | 260.8 |
+| 1 kanji + 3 kana (injected batch) | 259.4 | 260.4 | 260.7 |
+
+The IRQ reload is still about 0.8 lines before the pre-render line's
+clock.  The game's own long-flush frames end the force near line 261.8.
+
+**Results** (`out/test/opt`, each build with its own RAM image):
+
+| Update | Before (fff6861) | C | C + E | C + E + B + D |
+|---|---|---|---|---|
+| Shop greeting and item list, from `u3b` (last upload frame) | 100 | 79 | 79 | 74 |
+| Command window, first open (frames from the first publish to complete) | 14 | 14 | 11 | 8 |
+| Command window, opened again | 13 | 13 | 0 uploads (the game's row pace) | 0 uploads |
+| Menu cycle x4, 4,233 frames: U + P frames | | 441 | 165 | 117 |
+| New-game path, frames 1-4300: U frames | 248 | 115 | 115 | 113 |
+
+**Checks:**
+- Same pictures as C + E: shop, command window, menu cycle, GC test,
+  new-game path every 20th frame from 2000 to 4300.  The only
+  differences are the cursor blink and NPC sprites.
+- A battle from `r17_pre_battle_normal`: identical every 30th frame
+  (frames 30-1470).  The hack banks' second segment moved.
+- **Forced screen-off test.**  The mask shadow `$FE` was set to 0 before
+  opening the command window and restored after.  The glyphs were
+  written directly (8 times), and the windows are the same picture as a
+  normal run.
+- GC with a part made full: right.  `TXR_FULL` 0 everywhere.
+- Lowest stack push `$010C`.
+- Original build byte-identical.
+
+**Limits:**
+- About 2 kanji (8 tiles), or 6 kana, or 1 kanji + 3 kana per frame.
+  The fixed cost before the first upload (OAM DMA, the game's flush and
+  task timers, the split's setup) leaves about 9 lines.
+- A cold window with many new kanji still takes a frame per 2 kanji.
+

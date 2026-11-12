@@ -148,8 +148,6 @@ cv_reload:                      ; (label for the gates)
     lda KANJI_NFLAGS
     ora #FLAG_ARMED
     sta KANJI_NFLAGS
-    lda #0
-    sta TXR_UPF
     cli                         ; stage 0 may preempt the rest of the NMI
 cvn_rts:
     rts
@@ -237,68 +235,53 @@ cvb_cancel:
     sta MMC3_IRQ_OFF
     rts
 
-; The staged glyph tiles after the game's flush (txr_flush, RAM, saved
-; the read index in TXR_Q0): 8 tiles after an empty flush, one fewer per 8
-; bytes flushed, none with a palette or CHR-stream step pending (they
-; follow in this NMI).  R0 = page 1 again after.
+; The staged records after the game's flush (TEXT_RENDERER.md "Upload
+; speed", B + D): kana from this bank's font copy (up_kana), kanji straight
+; from the glyph tables (hack.asm mk_run), as many as the budget allows:
+; UP_UNITS less one unit per byte the game flushed (X, kept).  R0 = page 1
+; again after.
 nmi_up:
-    ; After the game's NMI work (ef08_gate, normal frames only: no cycle
-    ; before the game's raster loops), rendering on, vblank: 6 tiles after
-    ; an empty flush, one fewer per 8 bytes flushed (the palette may have
-    ; gone up too); the rest next frame.  X = bytes flushed, kept.
     stx TXR_Q0
     txa
-    cmp #48
+    cmp #UP_UNITS-UP_KANA+1
     bcc @go
-    jmp @rts
+    jmp @rts                    ; a long flush: the batch waits a frame
 @go:
-    lsr a
-    lsr a
-    lsr a
     eor #$FF
     sec
-    adc #6
-    sta TXR_I                   ; tiles this NMI (1-6)
+    adc #UP_UNITS
+    sta TXR_UB                  ; UP_UNITS - X
     lda ppu_ctrl_shadow
     and #$FB
     sta PPUCTRL                 ; +1 increments
-    lda #MMC3_R0
-    sta MMC3_SELECT
+    lda #MMC3_R7                ; a hack bank's upper half (mk_run; this
+    sta MMC3_SELECT             ; NMI never reads $A000-$BFFF otherwise;
+    lda #KANJI_HACK_BANK*2+1    ; the game's NMI end maps the bank back)
+    sta MMC3_DATA
     bit PPUSTATUS
     ldx TXR_UQR
 @rec:
     lda TXR_UQ,x
-    sta MMC3_DATA
-    lda TXR_UQ+1,x
-    sta PPUADDR
-    lda TXR_UQ+2,x
-    sta PPUADDR
-    lda TXR_UQ+3,x
-    sta PPUDATA
-    lda TXR_UQ+4,x
-    sta PPUDATA
-    lda TXR_UQ+5,x
-    sta PPUDATA
-    lda TXR_UQ+6,x
-    sta PPUDATA
-    lda TXR_UQ+7,x
-    sta PPUDATA
-    lda TXR_UQ+8,x
-    sta PPUDATA
-    lda TXR_UQ+9,x
-    sta PPUDATA
-    lda TXR_UQ+10,x
-    sta PPUDATA
-    txa
-    clc
-    adc #11
-    tax
-    dec TXR_UQN
-    beq @done
-    dec TXR_I
+    bmi @kanji
+    jsr up_kana
+    jmp @next
+@kanji:
+    lda TXR_UB                  ; mk_run's call and first bank switch
+    sec
+    sbc #UP_KRUN
+    bcc @done
+    sta TXR_UB
+    lda #$FF
+    sta KANJI_T0                ; (no glyph bank mapped at $8000)
+    jsr HACK_MKUP
+@next:
+    bcs @done                   ; no time left: the rest next NMI
+    lda TXR_UQN
     bne @rec
 @done:
     stx TXR_UQR
+    lda #MMC3_R0
+    sta MMC3_SELECT
     lda #CHR_SCENE_LO
     sta MMC3_DATA
     lda MMC3_SEL
@@ -306,8 +289,8 @@ nmi_up:
     sta MMC3_SELECT
     ; text_render_cell's cells held for this batch (TXR_HB bit 7): put
     ; back now that the glyphs are in CHR, and flushed here when the time
-    ; allows (two tiles' worth left: up to 4 one-byte entries) and nothing
-    ; queued before them is still waiting; else the game's next flush.
+    ; allows (UP_CELLS left: up to 4 one-byte entries) and nothing queued
+    ; before them is still waiting; else the game's next flush.
     lda TXR_UQN
     bne @rts                    ; the batch goes on next frame
     lda TXR_HB
@@ -317,8 +300,8 @@ nmi_up:
     sta $0400,y
     lda #0
     sta TXR_HB
-    lda TXR_I
-    cmp #3
+    lda TXR_UB
+    cmp #UP_CELLS
     bcc @rts
     lda vram_queue_read
     cmp TXR_HI
@@ -326,6 +309,92 @@ nmi_up:
     jsr rel_flush
 @rts:
     ldx TXR_Q0
+    rts
+
+; The kana records of TXR_UQ from X on (R0, tile, code): the glyph's 8
+; bytes from this bank's font copy (in the NMI's half).  Stops at a kanji
+; record or the batch's end (C clear), or when TXR_UB has no UP_KANA left
+; (C set).  X = the next record; Y lost.
+.macro KANA8 src
+    lda src+0,y
+    sta PPUDATA
+    lda src+1,y
+    sta PPUDATA
+    lda src+2,y
+    sta PPUDATA
+    lda src+3,y
+    sta PPUDATA
+    lda src+4,y
+    sta PPUDATA
+    lda src+5,y
+    sta PPUDATA
+    lda src+6,y
+    sta PPUDATA
+    lda src+7,y
+    sta PPUDATA
+.endm
+up_kana:
+uk_rec:
+    lda TXR_UB
+    sec
+    sbc #UP_KANA
+    bcs @fits
+    sec                         ; no time left this NMI: C set
+    rts
+@fits:
+    sta TXR_UB
+    lda #MMC3_R0
+    sta MMC3_SELECT
+    lda TXR_UQ,x
+    sta MMC3_DATA
+    lda TXR_UQ+1,x              ; tile: the PPU address
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora #$10
+    sta PPUADDR
+    lda TXR_UQ+1,x
+    asl a
+    asl a
+    asl a
+    asl a
+    sta PPUADDR
+    lda TXR_UQ+2,x              ; code: page code >> 5, offset (code * 8) & $FF
+    asl a
+    asl a
+    asl a
+    tay
+    lda TXR_UQ+2,x
+    and #$60
+    bne @n0
+    KANA8 font_copy
+    jmp uk_next
+@n0:
+    cmp #$40
+    beq @p2
+    bcs @p3
+    KANA8 font_copy+$100
+    jmp uk_next
+@p2:
+    KANA8 font_copy+$200
+    jmp uk_next
+@p3:
+    KANA8 font_copy+$300
+uk_next:
+    inx
+    inx
+    inx
+    lda TXR_UQN
+    sec
+    sbc #3
+    sta TXR_UQN
+    beq @out
+    lda TXR_UQ,x
+    bmi @out
+    jmp uk_rec
+@out:
+    clc
     rts
 ; The released cells' entries (queue TXR_HI .. TXR_HE: PPU address, count,
 ; bytes; +1 increments) to the PPU; the queue read index past them.
@@ -394,9 +463,16 @@ row_read:
     lda #0
     sta TXR_RBQ
     rts
+; The bank-9 font (1bpp, 128 glyphs), the build's asset (identical to
+; bank 9 $BA00): kana glyphs (the main thread's and the NMI uploader's)
+; and the font restore without a bank switch.  In the first 8 KiB with
+; the NMI code: the NMI maps only that half of this bank at $8000.
+    .align 256
+font_copy:
+    .incbin "../../decomp/build/assets/bank09_kana.bin"
 nmi_code_end:
 .if nmi_code_end > $A000
-.error "the renderer's NMI code must stay in the bank's first 8 KiB"
+.error "the renderer's NMI code and the font copy must stay in the bank's first 8 KiB"
 .endif
 
 ; Part p's R0 value, group-table base, bitmap base, kana-map base (lo/hi).
@@ -906,28 +982,24 @@ read_kanji:
 ; at the original routine's stack depth, then calls the continuation.
 ; ======================================================================
 
-; C clear: room for A more records (written directly first when rendering
-; is off).  C set: no room, the batch is published (TXR_ST = 1).
+; C clear: room for a record of A bytes.  C set: no room, the batch is
+; published (TXR_ST = 1).
 stage_room:
     clc
     adc TXR_SN
-    cmp #TXR_UQMAX+1
+    cmp #TXR_UQSZ+1
     bcc @ok
     jsr stage_out
-    lda TXR_SN                  ; 0 after a direct write
-    bne @wait
+    sec
+    rts
 @ok:
     clc
     rts
-@wait:
-    sec
-    rts
 
-; The batch out: written now (rendering off or busy: TXR_SN = 0 after),
-; or published for the NMI (TXR_ST = 1, TXR_SN kept until the stub's
-; continuation clears it).
+; The batch out: published for the NMI (TXR_ST = 1, TXR_SN kept until the
+; stub's continuation clears it).  Records exist only with rendering on
+; and not busy (otherwise stage_kana / stage_kanji write the glyph at once).
 stage_out:
-    jsr stage_direct
     lda TXR_SN
     beq @rts
     jsr stage_pub
@@ -944,82 +1016,83 @@ stage_pub:
     sta TXR_UQN
     rts
 
-; Rendering off or busy: the staged tiles written now (TXR_SN = 0 after).
-; Otherwise nothing (TXR_SN kept).
-stage_direct:
-    lda TXR_SN
-    beq @rts
+; Z set: the main thread writes CHR itself (rendering off, or busy).
+is_direct:
     lda nmi_busy
-    bne @direct
+    bne @busy
     lda ppu_mask_shadow
     and #$18
-    beq @direct
-@rts:
     rts
-@direct:
-    jsr busy_on
-    ldx #0
-@rec:
-    lda TXR_UQ,x
-    jsr set_r0
-    bit PPUSTATUS
-    lda TXR_UQ+1,x
-    sta PPUADDR
-    lda TXR_UQ+2,x
-    sta PPUADDR
-    ldy #8
-@d:
-    lda TXR_UQ+3,x
-    sta PPUDATA
-    inx
-    dey
-    bne @d
-    inx
-    inx
-    inx
-    dec TXR_SN
-    bne @rec
-    jmp busy_off
+@busy:
+    lda #0
+    rts
 
-; Record TXR_SN = tile TXR_T of part TXR_P, bytes TXR_GBUF+Y .. +7.
-stage_tile:
-    sty TXR_I
-    lda TXR_SN
-    asl a                       ; x 11
-    sta TXR_J
-    asl a
-    asl a
-    adc TXR_J
-    adc TXR_SN
-    tax
+; Kana TXR_B as tile TXR_T of part TXR_P: a record (R0, tile, code), or
+; with rendering off / busy the glyph written now.
+stage_kana:
+    jsr is_direct
+    beq @now
+    ldx TXR_SN
     ldy TXR_P
     lda part_r0,y
     sta TXR_UQ,x
     lda TXR_T
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    ora #$10
     sta TXR_UQ+1,x
-    lda TXR_T
-    asl a
-    asl a
-    asl a
-    asl a
+    lda TXR_B
     sta TXR_UQ+2,x
-    ldy TXR_I
-    lda #8
-    sta TXR_J
-@b:
-    lda TXR_GBUF,y
-    sta TXR_UQ+3,x
-    iny
-    inx
-    dec TXR_J
-    bne @b
-    inc TXR_SN
+    txa
+    clc
+    adc #3
+    sta TXR_SN
     rts
+@now:
+    lda TXR_B
+    jsr read_kana
+    jsr busy_on
+    ldy TXR_P
+    lda part_r0,y
+    jsr set_r0
+    lda TXR_T
+    jsr write_gbuf
+    jmp busy_off
+
+; Kanji TXR_K as group tiles TXR_T .. TXR_T + 3 of part TXR_P: a record
+; (R0 | $80, tile, glyph code lo, hi), or with rendering off / busy the
+; glyph written now (TXR_T + 4 after).
+stage_kanji:
+    jsr is_direct
+    beq @now
+    ldx TXR_SN
+    ldy TXR_P
+    lda part_r0,y
+    ora #$80
+    sta TXR_UQ,x
+    lda TXR_T
+    sta TXR_UQ+1,x
+    lda TXR_K
+    sta TXR_UQ+2,x
+    lda TXR_K+1
+    sta TXR_UQ+3,x
+    txa
+    clc
+    adc #4
+    sta TXR_SN
+    rts
+@now:
+    jsr read_kanji              ; TXR_GBUF[0-31]
+    jsr busy_on
+    ldy TXR_P
+    lda part_r0,y
+    jsr set_r0
+    ldy #0                      ; top-left
+    jsr fix_tile
+    ldy #16                     ; bottom-left
+    jsr fix_tile
+    ldy #8                      ; top-right
+    jsr fix_tile
+    ldy #24                     ; bottom-right
+    jsr fix_tile
+    jmp busy_off
 
 ; ======================================================================
 ; Translation
@@ -1113,7 +1186,7 @@ xlate:
     ldy TXR_B
     lda (PTR),y
     bne @ok
-    lda #1
+    lda #3
     jsr stage_room
     bcs @rts
     jsr alloc_kana
@@ -1121,10 +1194,7 @@ xlate:
     sta TXR_T
     ldy TXR_B
     sta (PTR),y
-    lda TXR_B
-    jsr read_kana
-    ldy #0
-    jsr stage_tile
+    jsr stage_kana
     lda TXR_T
 @ok:
     clc
@@ -1166,23 +1236,12 @@ xlate:
     bcs @rts
     jsr alloc_group
     bcs @full
-    jsr read_kanji
     lda TXR_G
     asl a
     asl a
     adc #$0C
     sta TXR_T
-    ldy #0                      ; top-left
-    jsr stage_tile
-    inc TXR_T
-    ldy #16                     ; bottom-left
-    jsr stage_tile
-    inc TXR_T
-    ldy #8                      ; top-right
-    jsr stage_tile
-    inc TXR_T
-    ldy #24                     ; bottom-right
-    jsr stage_tile
+    jsr stage_kanji
 @have:
     lda TXR_G                   ; t + 2 * right half + bottom row
     asl a
@@ -1812,7 +1871,6 @@ rc_step:
     jmp @wait
     sta TXR_CB+1
 @tr:
-    jsr stage_direct            ; rendering off or busy: the glyphs now
     ldx vram_queue_write
     stx TXR_HE                  ; (the cells' first byte, for now)
     lda #0
@@ -2421,8 +2479,3 @@ ui_mark:
 
     .include "../../decomp/build/kanji/txr_ui.inc"
 
-; The bank-9 font (1bpp, 128 glyphs), the build's asset (identical to
-; bank 9 $BA00): kana glyphs and the font restore without a bank switch.
-    .align 256
-font_copy:
-    .incbin "../../decomp/build/assets/bank09_kana.bin"
