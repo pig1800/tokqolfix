@@ -866,27 +866,41 @@ pl3: .db 13, 14, $FF                    ; 道具
 ; ----------------------------------------------------------------------
 ; UIF_SM: a battle window row pair was queued (canvas cv_sm; the ppu_addr
 ; shadow is its second row at the window's left column).
-; - Command windows: the columns right of the window up to 29 blank, in
-;   the same flush (the tactic and item windows are wider; the original
-;   left their text there).
+; - Command windows: the columns right of the window blank, in the same
+;   flush (the messages, the tactic and item windows are wider; the
+;   original left their text there).  Only up to the rightmost column
+;   another window covered since the last blanking (UI_BRIGHT): between
+;   two officers' command windows nothing is there, and blanking it
+;   anyway (30 bytes a row pair) made the flush overrun vblank (a frame
+;   with the screen scrolled wrong).  cv_sm waits for a flush when the
+;   queue is long (SM_QMAX).
 ; - The row pair 18-19: the tactic window's S P / 残 cells (UI_SPST).
 ; - The window's last row pair (UI_SMRET = $82): the window's end.
 ; ----------------------------------------------------------------------
 ui_sm:
-    lda text_mode
-    cmp #$11
-    beq @erase
-    cmp #$12
-    bne @noerase
-@erase:
     lda ppu_addr_lo_shadow
     and #$1F
     clc
     adc text_speed_count
-    sta B_E                     ; first column to blank
+    sta B_E                     ; the first column right of the window
+    lda text_mode
+    cmp #$11
+    beq @erase
+    cmp #$12
+    beq @erase
+    lda B_E                     ; another window: it covers the columns
+    cmp UI_BRIGHT               ; beside a command window up to B_E
+    bcc @noerase
+    sta UI_BRIGHT
+    bcs @noerase
+@erase:
+    lda UI_BRIGHT
+    cmp #31
+    bcc @cap
     lda #30
+@cap:
     sec
-    sbc B_E
+    sbc B_E                     ; columns to blank (up to 29)
     beq @noerase
     bcc @noerase
     sta ZP_N
@@ -944,6 +958,18 @@ ui_sm:
     lda UI_SMRET
     cmp #$82
     bne @rts
+    lda text_mode               ; a command window's end: beside it is
+    cmp #$11                    ; blank now
+    beq @clean
+    cmp #$12
+    bne @noclean
+@clean:
+    lda ppu_addr_lo_shadow
+    and #$1F
+    clc
+    adc text_speed_count
+    sta UI_BRIGHT
+@noclean:
     lda text_mode
     cmp #$22
     bne @end

@@ -299,6 +299,13 @@ UI_NOMIR          = UI_RAM+5 ; 1: the block writer does not mirror to the band
                             ; page (the battle start's and the info screen's
                             ; uploads; pal_copy clears it)
 UI_TACT           = UI_RAM+6 ; info screen: bit n = tactic line n drawn
+UI_BRIGHT         = UI_TACT  ; battle (the same byte; the info screen clears it): the
+                            ; first column right of every window drawn since a
+                            ; command window last blanked beside itself (UIF_SM)
+SM_QMAX           = 56      ; cv_sm: queued bytes after a battle row pair that
+                            ; make it wait for a flush (the blanking beside a
+                            ; command window; a flush over ~110 bytes ends
+                            ; past vblank: one frame scrolled wrong)
 UI_SPST           = UI_RAM+7 ; battle: 1 = the tactic window's S P / 残 cells
                             ; are set (P1 at $27E4, P0 at $27E3, 残's top
                             ; half in row 17), written with a window's row

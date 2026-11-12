@@ -688,6 +688,44 @@ states with the new canvas image):
   (frames 126-127, as in step B).  Two glyph uploads per NMI overran by up
   to two lines; one per NMI is what the code does.
 
+### Fix (2026-11-12): one frame scrolled wrong at each officer switch
+
+**The user's report:** in battle, moving on from one officer's command to
+the next showed one frame with the vertical scroll wrong.
+
+**Cause:**
+- The game queues the next command window's first three row pairs in one
+  frame: 66 bytes.
+- `ui_sm` (`UIF_SM`, the step-B hook after each row pair) blanked columns
+  18-29 beside every row pair: 2 runs of 12 cells, 30 bytes a pair.
+- That made 156 bytes in one flush.  The game's flush (~15 cycles a byte)
+  ran into line 3 of the next frame.  The scroll was written after the
+  pre-render line's reload, so that frame showed the background about 160
+  pixels off.
+- It was there before the upload work (identical on `fff6861`).
+
+**Fix:**
+- `UI_BRIGHT` (battle; the info screen's `UI_TACT` byte) keeps the first
+  column right of every non-command window drawn since a command window
+  last blanked beside itself.
+  - A command window blanks only up to that column.
+  - At its last row pair it sets `UI_BRIGHT` to its own right edge.
+  - Between officers the game draws the blank window `$14` (columns
+    10-29), so the blanking is still needed there.
+- `cv_sm` (RAM) waits for a flush when more than `SM_QMAX` = 56 bytes are
+  queued after a battle row pair.
+- The officer switch's flushes are now 104, 52, 104 bytes (before: 156,
+  104).  The window is complete one frame later (frame 319 instead of
+  318).
+
+**Checks:**
+- `r17_pre_battle_normal`, frames 200-860, every frame: no transient
+  frame (before: frames 317 and 560 scrolled wrong).
+- The largest flush is 112 bytes, at the battle start as before.
+- Every other frame is identical to the previous build, except the
+  switches' 3-5 frames and the cursor blink one frame later.
+- Lowest stack push `$0112`, as before.
+
 ## Step B item 8: the reward window (2026-11-11)
 
 The user's request: the window after a won battle (top right: 金 / gold,

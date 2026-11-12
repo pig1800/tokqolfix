@@ -309,7 +309,13 @@ cv_sm:
     lda $0101,x
     sta UI_SMRET
     ldx #UIF_SM
-    jmp CALL_UI_C
+    jsr CALL_UI_C
+    lda vram_queue_write        ; a long queue (the blanking beside a
+    sec                         ; command window): flushed now, so the
+    sbc vram_queue_read         ; next row pair cannot push the NMI's
+    cmp #SM_QMAX+1              ; flush past vblank
+    bcc @rts
+    jmp WAIT_VBLANK
 @rts:
     rts
 
