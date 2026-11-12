@@ -1578,18 +1578,46 @@ tactic is used).
 - **The build before round 3 misplaced these frames too:** its later arm
   came after the pre-render line's real clock, so the splits fell one line
   late (72 / 120 / 168).
-- **Fix:** `nmi_map` has its own limit, `CV_MAP_FORCE_MAX` = 106 (its
-  timing is ~2 lines earlier).
-  - The 104-byte scroll is now forced, with `v = $1000` at about line
-    259.9.
-  - The IRQ reload lands at 261.0, before the real clock (261.95).
-  - A 106-byte flush in one entry would put `v = $1000` at about line
-    260.7.
+- **Fix:** `nmi_map` has its own limit, `CV_MAP_FORCE_MAX` (its timing
+  is ~2 lines earlier).  It is 104 since the title fix below.
+  - The 104-byte scroll is now forced.
+  - The IRQ reload lands before the pre-render line's real clock
+    (261.95).
 - **Checked:** every frame of state 1 with A held (30 frames, 120 frames,
   three short holds): splits at 71 / 119 / 167.  The largest map-mode
   flush in the test runs is otherwise 93 bytes.
-- **Above 106 bytes** (not seen in map mode): no force, as before.  The
+- **Above the limit** (not seen in map mode): no force, as before.  The
   arm can then still precede the pre-render line.
 - **Regression:** the pictures are identical to the previous build for
   the greeting, the menu cycle, a battle (frames 197-856) and the new-game
   path.
+
+**Title screen glitch** (the user's report, after round 3).
+- The title (`nmi_mode` `$80`, `TXR_ON` 0) and bank 7's effect
+  (`nmi_mode` 1) split the screen in the NMI with delay loops counted
+  from the NMI's start (`$EF38`, `$EF94`).
+- Round 3's `nmi_gate` added 13 cycles before them: the title's
+  `$2000` / `$2006` writes moved ~39 dots, some into the next line.
+- **Fix:** `nmi_gate`'s non-map path is the original `$EED0-$EEDF` with
+  `ppu_nmi_on` inlined.  With the jump and the `TXR_ON` test, that is
+  exactly the original's 42 cycles to `$EEE0`.
+  - Measured on the title (frames 13-141 from power-on): the split writes
+    land on the same dots as the build before round 3 (the usual ±2-4
+    cycles of NMI latency).
+  - The screenshots are identical.
+- **Space:** `ef08_gate` is gone.
+  - `$EF0B` jumps to the RAM's `cv_nmi`.
+  - Bank 26's `nmi_cvg` picks `nmi_map` (map mode, not busy: from
+    `nmi_gate`), else `EF08_HOOK` / `EF08_TAIL`.
+  - 2 padding bytes keep every later fixed-bank routine at its address,
+    and the RAM image is unchanged.  So save states made on the previous
+    builds still load (the user's states 1 and 2 checked).
+- **Map path cost:** ~30 cycles more to the first upload.
+  - The worst 3-kanji batch puts `v = $1000` at line 260.08 (104 cycles
+    to spare).
+  - The dialogue scroll's 104-byte flush starts the force at line 260.52.
+  - Hence `CV_MAP_FORCE_MAX` 104: a 104-byte flush in one entry starts it
+    at ~261.07, the latest that keeps its scroll writes and the arm in
+    time.
+- **Rule** (the fixed bank's own header says it): nothing may change the
+  cycle count of the game's NMI before its split loops.

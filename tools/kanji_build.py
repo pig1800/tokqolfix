@@ -283,7 +283,7 @@ def assembled_twice(listing: Path) -> list[int]:
 
 def write_hook_constants(labels: dict[str, int]) -> None:
     need = ("main_prg", "nmi_prg", "irq_handler", "far_head", "call_hack", "c343_hook",
-            "ef08_hook", "ef08_gate", "ef08_tail", "nmi_gate", "ef31_hook", "ef31_gate", "chr1_scene", "wait_text", "scroll_text",
+            "ef08_hook", "ef08_tail", "nmi_gate", "ef31_hook", "ef31_gate", "chr1_scene", "wait_text", "scroll_text",
             "page_flip", "window_clear", "ltg_copied", "battle_shake",
             "call_ui", "call_ui_army", "bs_wait")
     for label in need:
@@ -1050,8 +1050,9 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
 
     # NMI: after the nmi_mode branch (normal frames) and the epilogue.  No
     # byte before the game's split-screen loops changes.
-    apply_patch(bank, 0xEF0B, bytes((0x4C, labels["ef08_gate"] & 0xFF,
-                                     labels["ef08_gate"] >> 8, 0xEA, 0xEA)))
+    cvl = read_labels(OUT / "canvas_ram.lst")   # the RAM's cv_nmi: bank 26's nmi_cvg
+    apply_patch(bank, 0xEF0B, bytes((0x4C, cvl["cv_nmi"] & 0xFF,
+                                     cvl["cv_nmi"] >> 8, 0xEA, 0xEA)))
     # Map mode: the renderer's uploads before the original's scroll,
     # PPUMASK, ppu_nmi_on and task timers (nmi_gate, txr.asm nmi_map).
     apply_patch(bank, 0xEED0, bytes((0x4C, labels["nmi_gate"] & 0xFF,

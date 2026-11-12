@@ -12,7 +12,8 @@
 ;   $C489-$C49D  dead rest of set_bank_lock: free
 ;   $C4AD-$C4B9  dead rest of restore_bank_after_nmi: chr1_scene
 ;   $C4BA-$C4CA  NMI hook at loc_EF08 (dead original write_prg_bank body)
-;   $EED0-$EED2  NMI: jmp nmi_gate (map mode: the uploads before $EED0-$EF0A)
+;   $EED0-$EED2  NMI: jmp nmi_gate (map mode: the uploads before $EED0-$EF0A;
+;                elsewhere the original's cycles exactly)
 ;   $D291-$D2B6  NMI epilogue hook at loc_EF31 (dead original $EF-$F7
 ;                dispatcher, replaced by the overlay's text_dispatch)
 ;   $F004-$F039  reset mapper/RAM setup, rewritten
@@ -41,7 +42,6 @@
 .include "../../decomp/include/kanji.inc"
 .include "../../decomp/build/kanji/canvas_ram.inc"
 
-TXR_NMI_MAP       = $8009       ; txr.asm: nmi_map (the renderer bank's entry table)
 
 ; ----------------------------------------------------------------------
 .base $C5A6
@@ -130,37 +130,32 @@ ef31_gate:
     pla
     jmp $EF34
 
-; NMI hook gate at loc_EF08 (normal frames, jumped to from $EF0B): busy
-; NMIs and every mode but the map's (the map's other NMIs leave at
-; nmi_gate).  The renderer bank's nmi_cvg (through the RAM stub) runs the
-; band's force and arm and returns C set when the hack bank's NMI has work
-; (a band shown, a request, $39 moved, VRAM queue traffic); else only the
-; game's own sound-bank switch.
-ef08_gate:
-    jsr CV_NMI                  ; v = $1000, the split's arm; C = hack work
-    bcs @go
-    jmp ef08_tail
-@go:
-    jmp ef08_hook
-
 ; NMI, not busy, after the game's flush, palette DMA and CHR-stream step:
 ; jumped to from $EED0 in place of "sta PPUSCROLL" ($EECE's "lda scroll_x"
 ; ran: A = scroll_x).  Map mode (TXR_ON bit 7): the renderer bank's
-; nmi_map uploads first and runs the original's $EED0-$EF0A (the scroll,
-; PPUMASK, ppu_nmi_on, the frame counter and task timers: no PPU work that
-; must come first) after the uploads (TEXT_RENDERER.md "Upload speed",
-; round 3).  Elsewhere the original.
+; nmi_map (through the RAM's cv_nmi and nmi_cvg) uploads first and runs
+; the original's $EED0-$EF0A (the scroll, PPUMASK, ppu_nmi_on, the frame
+; counter and task timers: no PPU work that must come first) after the
+; uploads (TEXT_RENDERER.md "Upload speed", round 3).  Elsewhere the
+; original $EED0-$EEDF with ppu_nmi_on inlined: with the jump here and the
+; test, exactly its 42 cycles to $EEE0 (the title's split loops at $EF38
+; and $EF94 count cycles from the NMI).
 nmi_gate:
-    bit TXR_ON
-    bpl @orig
-    lda #MMC3_R6
-    sta MMC3_SELECT
-    lda #TXR_BANK*2
-    sta MMC3_DATA
-    jmp TXR_NMI_MAP
-@orig:
-    sta PPUSCROLL
-    jmp $EED3
+    bit TXR_ON                  ; 4
+    bmi @map                    ; 2 (not taken)
+    sta PPUSCROLL               ; 4
+    lda scroll_y                ; 3
+    sta PPUSCROLL               ; 4
+    lda ppu_mask_shadow         ; 3
+    sta PPUMASK                 ; 4
+    lda ppu_ctrl_shadow         ; 3  ppu_nmi_on
+    ora #$80                    ; 2
+    sta ppu_ctrl_shadow         ; 3
+    sta PPUCTRL                 ; 4
+    jmp $EEE0                   ; 3  (+ the jump here: 42, as $EED0-$EEDF)
+@map:
+    jmp CV_NMI                  ; (the RAM image unchanged: old save states run)
+    .db $EA, $EA                ; (the routines below keep their addresses)
 
 ; call_hack: A = function number.  Map hack bank 23, run its $8000
 ; dispatcher, then map the bank that was current.  Falls into map_hack.

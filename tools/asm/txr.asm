@@ -41,7 +41,7 @@ BLANK           = $7F
     jmp txr_dispatch            ; $8000: main thread (txr_call)
     jmp nmi_cvg                 ; $8003: NMI entries, this bank's first 8 KiB
     jmp nmi_live                ; $8006:   mapped at $8000 by the RAM's
-    jmp nmi_map                 ; $8009:   stubs or the fixed bank's nmi_gate
+    jmp nmi_map                 ; $8009:   stubs (unused: nmi_gate goes through cv_nmi)
 txr_dispatch:                   ; (Y kept: TXF_PUT and TXF_LABEL keep it)
     lda txr_fnh,x
     pha
@@ -91,8 +91,8 @@ nm_orig:
 
 
 ; ----------------------------------------------------------------------
-; NMI, map mode (TXR_ON bit 7), not busy: jumped to ($8009) from the fixed
-; bank's nmi_gate in place of $EED0 "sta PPUSCROLL", after the game's
+; NMI, map mode (TXR_ON bit 7), not busy: from the fixed bank's nmi_gate
+; (in place of $EED0 "sta PPUSCROLL", through cv_nmi), after the game's
 ; flush, palette DMA and CHR-stream step; R6 = this bank.  The staged
 ; glyphs first (nmi_up), then the PPU-address force (v = $1000: A12 high
 ; when vblank ends, no MMC3 clock at the pre-render line's first BG
@@ -217,15 +217,22 @@ cv_reload:                      ; (label for the gates)
 cvn_rts:
     rts
 ; ----------------------------------------------------------------------
-; NMI, normal frames (ef08_gate, through the RAM's cv_nmi): busy NMIs and
-; every mode but the map's.  The band's force and arm (nmi_cv), then C
-; set when the hack bank's NMI has work: a band shown, a request, $39
-; moved or VRAM queue traffic (ef08_hook); C clear: ef08_tail, the sound
-; bank only.  (KANJI_BAND = 0 implies FLAG_PAGE2 = 0: the NMI that clears
-; the band also clears the flag; the game keeps OAM slot 0 hidden, so
-; sprite 0 needs no write either.)  A, X.
+; NMI, through the RAM's cv_nmi: from the fixed bank's nmi_gate (map mode,
+; not busy: nmi_map; such NMIs never reach $EF08) or from $EF0B (normal
+; frames, $EF08's push done: busy NMIs and every mode but the map's).
+; There: the band's force and arm (nmi_cv), then ef08_hook when the hack
+; bank's NMI has work (a band shown, a request, $39 moved or VRAM queue
+; traffic), else ef08_tail (the sound bank only).  (KANJI_BAND = 0 implies
+; FLAG_PAGE2 = 0: the NMI that clears the band also clears the flag; the
+; game keeps OAM slot 0 hidden, so sprite 0 needs no write either.)
 ; ----------------------------------------------------------------------
 nmi_cvg:
+    lda nmi_busy
+    bne @ef08
+    bit TXR_ON
+    bpl @ef08
+    jmp nmi_map
+@ef08:
     jsr nmi_cv
     bit TXR_ON
     bmi @no                     ; map mode (busy): nothing of the hack's NMI
@@ -239,11 +246,9 @@ nmi_cvg:
     cmp KANJI_QPOS
     bne @yes
 @no:
-    clc
-    rts
+    jmp EF08_TAIL
 @yes:
-    sec
-    rts
+    jmp EF08_HOOK
 
 ; Busy, or cv_stream ran it in this NMI: nothing.  Map mode: cv_stream's
 ; step only (CV_STRM bit 6: forced there, no uploads after it): R0 = page

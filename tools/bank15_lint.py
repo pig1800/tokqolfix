@@ -48,7 +48,7 @@ PATCHES = [
     (0xE238, 0xE23A),   # same
     (0xE10F, 0xE115),   # slot loop end: cpx #$0A / bne loc_E0A3 / jsr call_ui (UIF_BSETUP_END)
     (0xEED0, 0xEED2),   # jmp nmi_gate (map mode: the uploads first)
-    (0xEF0B, 0xEF0F),   # jmp ef08_gate + nop nop
+    (0xEF0B, 0xEF0F),   # jmp cv_nmi (RAM: bank 26's nmi_cvg) + nop nop
     (0xEF31, 0xEF33),   # jmp ef31_gate
     (0xF004, 0xF039),   # reset: MMC3 registers + hack RAM clear (rewritten)
     (0xFFE0, 0xFFEF),   # block-writer entry, overlay frame wait (padding)

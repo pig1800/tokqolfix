@@ -9,7 +9,7 @@
 ; map text renderer (txr.asm, bank TXR_BANK) owns every text tile.  What
 ; stays here must run with any bank mapped:
 ;   cv_irq    IRQ, KANJI_IRQ_ST != 0: stage 0, the map's part switches
-;   cv_nmi    NMI, normal frames (ef08_gate): the split's force and arm
+;   cv_nmi    NMI, $EF0B and the fixed bank's nmi_gate: bank 26's nmi_cvg
 ;   cv_stream NMI, the game's CHR-stream step (c343_hook)
 ;   cv_fill   set_ppu_scroll (clear_screen): both twins; the font back
 ;   cv_sm     text_init's "jsr scroll_map": step B's battle hook
