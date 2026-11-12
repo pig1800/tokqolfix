@@ -961,3 +961,117 @@ army screen's 大将 / 軍師 at `NAME_FONT_LABELS`).
 - Battle names and messages.
 - A party list of 歩騭 龐統 闞沢 諸葛謹 蔡邕 劉璝.
 - The original build is byte-identical.
+
+## Upload speed (2026-11-12): assessment
+
+The user's question: build the upload list outside vblank and use the
+tightest possible code in vblank.  How many cycles does that save, and
+does it remove a lag frame per screen update?
+
+The list is already built outside vblank.  The main thread stages each
+tile as an 11-byte record (R0 value, PPU address, 8 bytes) in `TXR_UQ`.
+The NMI only copies the records.
+
+Probe: `tools/lua/txr_upload.lua`, classified with `tools/txr_frames.py`.
+Runs: `out/test/opt/` (`cw1`, `cw3`), state `out/user/txr/u3b` with the
+RAM image installed.
+
+### Upload frame, measured
+
+Scanline.fraction, with an empty game queue:
+
+| Step | Line |
+|---|---|
+| NMI | 241.0 |
+| OAM DMA and the game's flush end | 246.2 |
+| mask restored | 246.9 |
+| `ef08_gate` (after the task timers) | 248.2 |
+| `nmi_up` | 249.4 |
+| first pattern byte | 250.1 |
+| last pattern byte, 4 tiles / 5 tiles | 253.6 / 254.6 |
+| split armed, 4 tiles / 5 tiles | 254.4 / 255.4 |
+
+- **Copy loop:** 114 cycles per tile.
+- **Renderer overhead before the first byte:** 1.9 lines (216 cycles).
+- **Deadline:** the force has to end by pre-render dot ~262
+  (`CV_FORCE_MAX`), so uploads could run until about line 260.5.  About
+  6 lines (~680 cycles) of every upload frame go unused.
+
+### Where the frames go
+
+The vblank budget does not set the pace.  Two other things do:
+
+1. **The batch cap.**  `TXR_UQMAX` = 5 tiles, one batch per NMI.  A
+   kanji is 4 tiles, so usually one kanji per frame.
+2. **Cells after their glyphs.**  An entry goes into the queue only after
+   the NMI that uploaded its glyphs, and it is flushed in the NMI after
+   that.  So every update that needs a new glyph costs one extra frame:
+   - a kana with a new glyph: 2 frames (the original pace is 1);
+   - a kanji with a new glyph: 3 frames (the original pace is 2, one per
+     column).
+
+Frame classes (U = upload only, F = cells flushed, B = both, P = publish
+only, . = nothing):
+
+| Update | Frames | Sequence |
+|---|---|---|
+| Shop arrival and greeting, typed (`cw1` 13-80) | 68: 28 U, 6 P, 32 F | `FFFFFUFUFUFUFUFUFFUFUFF.PUFPUFPUFPUFUFF.PUFPUFUFUFUFUFFUFUFUFUUUFUUU` |
+| Command window, glyphs freed at the last close (`cw3` 64-77) | 14 from the first publish, 38 tiles | `PUUUUUUFUUUUBF` |
+
+- The command window uploads its glyphs again at every open.
+  `redraw_start` (the full redraw that closes the map's windows) frees
+  every part's glyphs.  The second open in `cw2` uploaded 14 tiles over 4
+  frames.
+
+### Options
+
+**D. A tighter copy loop alone.**
+- Cost per tile:
+  - now: 114 cycles;
+  - records grouped by part, without the per-tile R0 write and counters:
+    ~93;
+  - a kanji's 4 tiles as one record (shared address high byte): ~82.
+- Saving: 20-30 cycles per tile, about 150 cycles per 5-tile batch.
+- **0 frames by itself:** a 5-tile batch already ends by line 255.4.
+- Generated code (`lda #imm` / `sta PPUDATA`, ~60 cycles per tile) needs
+  ~50 bytes of RAM per tile.  That is not available.
+
+**B. Batches sized by vblank time, not 5 tiles.**
+- Tiles per frame, from line 250.1 to 260.5:
+  - about 10 with today's loop;
+  - 12-14 with D.
+- Estimated command window (cold): 14 frames down to ~7.
+  - Its two glyph groups (20 and 16 tiles) take 2 frames each, instead
+    of 6 and 4.
+  - D does not change that count: 20 tiles still need 2 frames.
+- RAM: the staging area grows from 55 bytes to 130-154.  The renderer's
+  battery RAM (`$7BF5-$7F9B`) and the RAM image are full.  Possible
+  sources:
+  - a smaller kana map (`TXR_KM`: 512 bytes, 4 parts x 128 codes; about
+    17 codes per part are never kana);
+  - kana staged by code, with bank 26's font copy (`$A500`) moved below
+    `$A000` so the NMI can read it.
+
+**C. Glyphs and cells in the same NMI.**
+- The main thread queues the entry together with its batch and holds it,
+  as `dl_hold` does.
+- The NMI uploads the batch.  When the batch is complete and the held
+  bytes fit in the time left, it puts the held byte back and flushes the
+  entry itself.  Otherwise it releases the entry in a later NMI, as today.
+- Effect: one frame less for every update that needs glyphs.
+  - Typed text runs at the original pace: estimated 28 of the 68 frames
+    above.
+  - One character's tiles (at most 4) end by line 253.6, so they always
+    fit.
+- RAM: a few bytes.
+
+**E. Glyphs kept when windows close.**
+- `redraw_start` would stop freeing; the read-back GC frees only when a
+  part is full.
+- Effect: a reopened window or a repeated word needs no uploads.  The
+  command window would open at the original pace after its first open.
+- Cost: the GC runs more often.  It reads one row per NMI, so a pause is
+  6-9 frames when a part fills.  Reading 2-3 rows per NMI would shorten
+  it.
+
+Awaiting the user's choice.
