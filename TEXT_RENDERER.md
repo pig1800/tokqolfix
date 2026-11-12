@@ -1713,8 +1713,9 @@ switched off.**
   overwrite the far pointer of the save man's first message in state r4/s1
   with the message's; `poolprobe.lua` logs the calls): every one of the 18
   that can run without its event context calls `text_scroll_up` from `$D1BD`
-  (4th line) or `$D1E1` (end), where the scan said.  `b11_msg_266` ends the
-  talk early on its second officer name without the event.  Seven
+  (4th line) or `$D1E1` (end), where the scan said.  `b11_msg_266` stops
+  after its third wait when injected (probably its second officer name,
+  which needs the event); its 4-line page is predicted only.  Seven
   messages with a 3-line window (`b10_msg_032` 238 372; `b11_msg_010` 062
   135 219) never call it.
 - **Why it is slow:** 11-12 frames in map mode, 6-7 in battle (the same
