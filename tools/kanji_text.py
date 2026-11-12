@@ -1273,6 +1273,14 @@ def build() -> int:
         for rec in used:
             key = (rec.data, rec.meta_blob)
             stub_addr[key] = 0x8000 + start + len(data_area)
+            if rec.data and rec.data[0] == 0xF9:
+                # A message that is only a JUMP (event code in bank 13/14):
+                # its original three bytes here, no far stub.  The engine
+                # tests $F9 only at a line's start ($D160); behind a stub the
+                # overlay resumes inside the line ($D250), and the jump's
+                # bytes printed as text (b11_msg_105, 2026-11-13).
+                data_area += rec.data[:3]
+                continue
             data_area += bytes((0xF8, far_stub & 0xFF, far_stub >> 8,
                                 rec.data_bank,
                                 rec.data_addr & 0xFF, rec.data_addr >> 8,

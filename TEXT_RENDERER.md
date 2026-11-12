@@ -1622,3 +1622,22 @@ tactic is used).
     time.
 - **Rule** (the fixed bank's own header says it): nothing may change the
   cycle count of the game's NMI before its split loops.
+
+### Fix (2026-11-13): messages that are only a JUMP
+
+**The user's state 1:** talking to the bridge guard in the cave printed
+「ﾌわの1」 and waited.
+- `b11_msg_105` is `<JUMP:23B6>`: event code in bank 13 (here 「何者だ
+  よそ者は帰れ」).
+- The engine tests `$F9` only at a line's start (`$D160`).  Behind its far
+  stub, the overlay resumes the message inside the line loop (`$D250`),
+  so the jump's bytes were printed as text.
+- A jump after text is fine: the compiler puts it after a line break.
+- **Fix** (`kanji_text.py`): the 11 messages that begin with `$F9` keep
+  their original 3 bytes in bank 10 / 11 in place of the far stub.
+  - The engine runs the jump as the original does.
+  - The messages: `b10_msg_441`; `b11_msg_033`, `047`, `089`, `105`,
+    `122`, `140`, `274`/`275`, `280`, `284`, `331`.
+- **Checked:** the guard now answers.  The greeting and shop (a jump
+  after text), the menu cycle and the new-game path are identical to the
+  previous build.
