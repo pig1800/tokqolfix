@@ -192,6 +192,9 @@ PATCH_SITES = {
     0xD5C0: bytes.fromhex("2040d3"),           # draw_string_from_pointer: jsr text_put_tile
     0xEB74: bytes((0x02, 0x0A)),               # window $18 (gold, food): column +2, width 10
     0xEBCF: bytes((0x03, 0x08)),               # window $1C (buy / sell): column +3, width 8
+    # return_inline_block: tsx / pla / pla / lda $0101,x / sta $F3 /
+    # lda $0102,x / sta $F4 (it reads its return address after popping it)
+    0xC4FD: bytes.fromhex("ba6868bd010185f3bd020185f4"),
 }
 BSETUP_WAITS = (0xDF32, 0xE0A3, 0xE200, 0xE238)   # -> jsr bs_wait
 
@@ -830,6 +833,12 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
                                      overlay_labels["text_dispatch"] >> 8)))
     apply_patch(bank, 0xD2C7, bytes((0x20, overlay_labels["ctrl_store"] & 0xFF,
                                      overlay_labels["ctrl_store"] >> 8)))
+
+    # return_inline_block popped its return address and then read it from
+    # the freed stack bytes: an interrupt between (the map's IRQs, 4 a
+    # frame) overwrote them and the game jumped into page 1.  The same
+    # bytes, the reads first.
+    apply_patch(bank, 0xC4FD, bytes.fromhex("babd010185f3bd020185f46868"))
 
     # The map UI in kanji (TEXT_RENDERER.md "Kanji UI"): text_put_tile's
     # calls in the templates and the item / tactic / place names go through

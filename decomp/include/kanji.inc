@@ -401,6 +401,9 @@ TXR_SKIP          = $07FC   ; map UI: kana bytes still to skip (a word shown in 
 TXR_UR            = $07FD   ; map UI: REG entry 16-31 taken last (round robin)
 TXR_PX            = $07FE   ; map UI: put_str's row-buffer index
 TXR_LA            = $07FF   ; map UI: the label's row-buffer index after it
+TXR_HB            = TXR_PX  ; text_draw_line's wait: the queue byte held (0: none)
+TXR_HI            = TXR_LA  ;   and its index (both free then: no map UI call
+                            ;   comes between the hold and the release)
 TXR_MARK          = TXR_UQ  ; GC: 16-byte bitmap of the tiles shown (the staging area is idle)
 ; Battery RAM (the canvas code's old space, after the RAM image), from the
 ; top down to TXR_TABLES:

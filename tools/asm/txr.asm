@@ -1419,6 +1419,13 @@ txr_dl:
     sta TXR_GCF
     beq dl_go
 txr_dlc:
+    lda TXR_HB
+    beq @nohold
+    ldy TXR_HI                  ; the rows held back during the wait
+    sta $0400,y
+    lda #0
+    sta TXR_HB
+@nohold:
     lda #0
     sta TXR_SN                  ; (the NMI has the batch in CHR)
     bit TXR_GCS
@@ -1461,7 +1468,7 @@ dl_go:
     dec TXR_EN
     jmp @loop
 @wait:
-    rts
+    jmp dl_hold
 @done:
     jsr stage_out
     lda TXR_ST
@@ -1478,6 +1485,25 @@ dl_go:
     bne @in
 @ind:
     stx TXR_QX
+    rts
+
+; The entry waits for its glyphs (TXR_ST = 1): what is queued before it
+; (the row pair's first row) is held back until it is committed, so the
+; pair and the attributes draw_map_object queues after it reach the
+; screen in one frame (a row shown with the old attributes for a frame
+; or more otherwise).  Not while a GC reads the rows back: they must be
+; on screen then.  txr_dlc releases it.
+dl_hold:
+    bit TXR_GCS
+    bmi @r
+    ldy vram_queue_read
+    lda $0400,y
+    beq @r                      ; nothing queued
+    sta TXR_HB
+    sty TXR_HI
+    lda #0
+    sta $0400,y                 ; the NMI's flush stops there
+@r:
     rts
 
 ; ======================================================================

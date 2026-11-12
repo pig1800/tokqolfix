@@ -585,3 +585,45 @@ Still kana:
 | `TXR_FULL` | 0 |
 | RAM image | 755 of 757 bytes |
 | Original 256 KiB build | byte-identical |
+
+### Fifth round (2026-11-12): the user's crash and half-drawn windows
+
+**Crash** (the user: open menus again and again, 隊列 and cancel; slot 1
+held the crashed state, with the CPU halted at $0000).
+- **Reproduced.**  From slot 3 a loop of 隊列 / 並び / cancel crashed at
+  frame 1849, with execution in page 1 (`$0102`).
+- **Cause: the game's `return_inline_block` (`$C4FB`).**  It runs `tsx /
+  pla / pla` and only then reads its return address from the freed bytes
+  (`lda $0101,x` / `lda $0102,x`).
+  - An interrupt between the pops and the reads pushes over those bytes.
+    The routine then jumps to garbage.
+  - In the original only the NMI could do that.  The map's split fires
+    the IRQ 4 times a frame, and the trace shows an IRQ at `$C4FF`, between
+    the two pops.
+- **Fix.**  The same 13 bytes, with the reads first: `tsx / lda $0101,x /
+  sta $F3 / lda $0102,x / sta $F4 / pla / pla`.  A scan of banks 0-15 found
+  no other code that reads stack bytes after popping them.
+- **Result.**  The same loop ran 20,000 frames without a crash; the
+  previous build crashes at frame 1849.
+
+**Half-drawn windows** (the user: the border and text appear before the
+attributes).
+- **Cause.**  `scroll_map` queues a row pair, then `draw_map_object`
+  queues the pair's attributes.  When the second row waited for glyph
+  uploads, the NMI flushed the first row alone.  It showed for a frame or
+  more with the map's palette (orange in the shop).
+- **Fix (`dl_hold`).**  While a `text_draw_line` entry waits for uploads,
+  what is queued before it is held back: a 0 at `vram_queue_read` stops
+  the flush.  `txr_dlc` puts the byte back.  So the pair and its
+  attributes are flushed in the same NMI.  There is no hold while a GC
+  reads rows back, because the rows must be on screen then.
+- **Result.**  When the command window opens, no row shows the wrong
+  palette, and the window is complete 1 frame earlier (the uploader gets
+  the whole vblank while the queue is held).
+
+**Checks:**
+- New-game path, frames 20-4200: pixel-identical to the previous build.
+- Later frames differ only in how far a window has drawn.
+- Shop, record office, give: right; `TXR_FULL` 0.
+- Stack: lowest task push `$010D` on the shop path, the same as the build
+  before the kanji UI.
