@@ -937,15 +937,15 @@ and chose Izumi16 for every glyph.
 - Licence: its authors declare the 出水 bitmap font series equivalent to
   public domain.  The published patch carries no MS Gothic data.
 - **Placement:** Izumi16 draws kanji in a 15 x 15 box at columns 1-15,
-  rows 0-14.  `font_rows` moves them one column left, so a kanji keeps a
-  free column on its right and a free row below, as with MS Gothic.  No
-  inventory kanji uses column 0; the build fails if one would leave the
+  rows 0-14.  `font_rows` keeps them there (the user, 2026-11-12; until
+  then they were moved one column left), so a kanji has a free column on
+  its left and a free row below.  The build fails if one would leave the
   cell.
 
 **Coverage:** 981 of the 982 kanji.  璝 is not in the font.  It is composed
-from Izumi16's 理 (王: columns 0-4, rows 0-13) and 潰 (貴: two columns
-narrower, from column 6) (`GLYPH_COMPOSE`).  A free column stays between
-them and on the right.  The first version (貴 from column 4) merged 王's
+from Izumi16's 理 (王: columns 1-5, rows 0-13) and 潰 (貴: two columns
+narrower, from column 7) (`GLYPH_COMPOSE`).  A free column stays between
+them, and column 0 stays blank.  The first version (貴 from column 4) merged 王's
 top stroke into 貴's (fixed after the user's check).
 
 **Removed:** the MS Gothic composites and the original game's name glyphs

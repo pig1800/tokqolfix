@@ -363,9 +363,9 @@ def code_map() -> dict[str, int]:
 # 16-pixel bitmap (JF-Dot-Izumi16.ttf, the 出水 bitmap font series, which its
 # authors declare equivalent to public domain): the EBDT strike at 16 ppem,
 # never rendered from the outlines.  Izumi16 draws kanji in a 15 x 15 box at
-# columns 1-15, rows 0-14; they move one column left, so a kanji keeps a
-# free column on its right and a free row below (as the MS Gothic bitmaps
-# used before did).
+# columns 1-15, rows 0-14; they stay there as drawn (the user, 2026-11-12:
+# column 0 left blank, no longer moved one column left), so a kanji keeps a
+# free column on its left and a free row below.
 GLYPH_FONT = ROOT / "JF-Dot-Izumi16.ttf"
 FALLBACK_USED: dict[str, str] = {}
 _GF: dict = {}
@@ -387,8 +387,8 @@ def _glyph_font() -> dict:
 
 
 def font_rows(ch: str) -> list[list[int]] | None:
-    """Izumi16's 16 ppem bitmap of ch, one column left, as 16 rows of 16
-    pixels; None when the strike has no bitmap for it."""
+    """Izumi16's 16 ppem bitmap of ch, as drawn (column 0 blank), as 16 rows
+    of 16 pixels; None when the strike has no bitmap for it."""
     m = _glyph_font()
     name = m["cmap"].get(ord(ch))
     glyph = m["data"].get(name) if name else None
@@ -403,9 +403,9 @@ def font_rows(ch: str) -> list[list[int]] | None:
     for y in range(met.height):
         for x in range(met.width):
             if bits[y * met.width + x] == "1":
-                yy, xx = m["asc"] - met.horiBearingY + y, met.horiBearingX + x - 1
+                yy, xx = m["asc"] - met.horiBearingY + y, met.horiBearingX + x
                 if not (0 <= yy < 16 and 0 <= xx < 16):
-                    raise SystemExit(f"{ch}: Izumi16 bitmap outside the cell moved one column left")
+                    raise SystemExit(f"{ch}: Izumi16 bitmap outside the 16 x 16 cell")
                 out[yy][xx] = 1
     return out
 
@@ -414,10 +414,10 @@ def font_rows(ch: str) -> list[list[int]] | None:
 # them).  A part: (donor kanji, columns c0-c1, rows r0-r1, placed at x, y,
 # the part's columns dropped); then the pixels erased.
 GLYPH_COMPOSE = {
-    # 璝: 理's 王 (rows 0-13: row 14 is 里's base), then 潰's 貴 two columns
-    # narrower (one column dropped each side of 中's centre) from column 6,
-    # so a free column stays between them and on the right.
-    "璝": ((("理", 0, 4, 0, 13, 0, 0, ()), ("潰", 4, 14, 0, 15, 6, 0, (3, 7))), ()),
+    # 璝: 理's 王 (columns 1-5, rows 0-13: row 14 is 里's base), then 潰's 貴
+    # two columns narrower (one column dropped each side of 中's centre) from
+    # column 7, so a free column stays between them and column 0 stays blank.
+    "璝": ((("理", 1, 5, 0, 13, 1, 0, ()), ("潰", 5, 15, 0, 15, 7, 0, (3, 7))), ()),
 }
 
 
