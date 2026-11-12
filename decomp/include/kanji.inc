@@ -331,6 +331,7 @@ UI_RAM_END        = UI_RAM+64
 ; from R0 = 4 / 8 / 10 / 12 (CHR $1000 / $2000 / $2800 / $3000).
 ; ----------------------------------------------------------------------
 TXR_BANK          = 26
+NAME_FONT_BANK    = 17      ; officer names: the original name engine's glyphs (kanji_build build_name_font)
 TXF_MAPINIT       = 0       ; the map's font load: page 1 lower = the fixed set
 TXF_RESTORE       = 1       ; clear_screen: the font back into page 1 lower
 TXF_DL            = 2       ; text_draw_line's entries: translate before the commit
@@ -342,6 +343,7 @@ TXF_FILL          = 7       ; set_ppu_scroll's fill (cv_fill)
 TXF_PUT           = 8       ; map UI: text_put_tile (templates, item / tactic / place names)
 TXF_LABEL         = 9       ; map UI: a label (bank 14: the gold window, その他)
 TXF_MENU          = 10      ; the boot screens: the fixed set into the upper page (TXR_ON = $40)
+TXF_NAME          = 11      ; an officer record's kanji name: its glyph codes into TXR_NM (battle messages)
 TXR_N0            = 70      ; stage 0's count: the first switch in line 71's hblank
 TXR_ON            = $0780   ; bit 7: page 1 lower holds the renderer's tiles (map mode); bit 6:
                             ; the UI words in kanji (map mode $C0; the boot screens' fixed set $40)
@@ -411,6 +413,9 @@ TXR_UQMAX         = 5       ; staged tiles per batch
 TXR_UQ            = $7F65   ; 5 x 11: staged tiles (R0 value, PPU hi, PPU lo, 8 bytes)
 TXR_EB            = $7F35   ; 48: text_draw_line's entries, out of the queue
 TXR_GBUF          = $7F15   ; 32: glyph bytes read by txr_rr
+TXR_NM            = TXR_GBUF ; TXF_NAME: kanji count (0: none or no room), 3 codes lo, 3 hi
+TXR_NJ            = TXR_NM+7 ;   the overlay's loop: the name's kanji 0-2
+TXR_NE            = TXR_NM+8 ;   the first free reserved pool entry (TXF_NAME), then the loop's
 TXR_TBM           = $7ED5   ; 4 x 16: tiles in use in part p (bit set)
 TXR_GHI           = $7E65   ; 4 x 28: glyph code of group g in part p (high; $FF = free)
 TXR_GLO           = $7DF5   ; 4 x 28: (low)

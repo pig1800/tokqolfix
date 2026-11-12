@@ -144,6 +144,14 @@ CV_LABELS = ("cv_irq", "cv_sm", "cv_nmi", "cv_w1", "cv_stage",
 # battery RAM from TXR_TABLES up (kanji.inc).
 TXR_BANK = 26
 TXR_TABLES = 0x7BF5
+# Officer names (2026-11-12): the kanji names' glyphs for the original
+# name engine (put_officer_name, $AA set), 32 bytes each (8 each of TL, BL,
+# TR, BR) from $8000, and the officer records' name glyph bytes rewritten
+# to them (bank12_names.bin, bank 12 $A900-$BFFF).  Bank 17 held only a
+# stale glyph table from an old layout.  kanji.inc's NAME_FONT_BANK (the
+# UI bank's army screen reads the glyphs too).
+NAME_FONT_BANK = int(re.search(r"^NAME_FONT_BANK\s*=\s*(\d+)", (
+    ROOT / "decomp" / "include" / "kanji.inc").read_text(encoding="utf-8"), re.M).group(1))
 
 # The reset code's mapper writes and RAM-clear setup ($F004-$F039) are
 # rewritten by the fixed-bank source; these are the original bytes.
@@ -190,6 +198,8 @@ PATCH_SITES = {
     # the map UI in kanji (TEXT_RENDERER.md "Kanji UI")
     0xCC02: bytes.fromhex("2040d3"),           # text_input: jsr text_put_tile
     0xD5C0: bytes.fromhex("2040d3"),           # draw_string_from_pointer: jsr text_put_tile
+    0xD4C0: bytes.fromhex("2040d3"),           # put_officer_name: jsr text_put_tile
+    0xD4D0: bytes((0xA9, 0x01)),               # put_officer_name's kanji: lda #1 (glyph bank 1, or 2)
     0xEB74: bytes((0x02, 0x0A)),               # window $18 (gold, food): column +2, width 10
     0xEBCF: bytes((0x03, 0x08)),               # window $1C (buy / sell): column +3, width 8
     0xED4D: bytes((0x03, 0x06)),               # window $29 (message speed): column +3, width 6
@@ -705,6 +715,57 @@ def build_txr_ui() -> None:
         if cells(kanji) > 13:
             raise SystemExit(f"boot menu {kanji}: wider than window $27 (13 cells)")
         r1[ptr] = (len(raw) - 1, enc(kanji))
+    # Officer names (namekanjilist.csv; kanji_common.officer_names): by
+    # record pointer ($A800 / $A900 + id).  put_officer_name puts the kana
+    # from byte $14 (Y = $14 at the first byte) up to a byte >= $FE.  The
+    # strings use $ED n = name glyph n (nm_gc): the UI glyphs and the name
+    # glyphs together are more than 256.
+    nglyphs: list[str] = []
+
+    def enc_name(text: str) -> str:
+        out = bytearray()
+        for ch in text:
+            if ch not in codes:
+                raise SystemExit(f"officer name kanji {ch} has no text code")
+            if ch not in nglyphs:
+                nglyphs.append(ch)
+            out += bytes((0xED, nglyphs.index(ch)))
+        out.append(0xFF)
+        key = bytes(out)
+        if key not in strings:
+            strings[key] = f"ui_s{len(strings)}"
+        return strings[key]
+
+    officers = kanji_common.officer_records()
+    rn: dict[int, tuple[int, str]] = {}
+    rn_name: dict[int, str] = {}
+    for i, name in sorted(kanji_common.officer_names().items()):
+        ptr, kana_b, _gl = officers[i]
+        if ptr in rn_name:
+            if rn_name[ptr] != name:
+                raise SystemExit(f"officer ${i:02X}: record ${ptr:04X} is {rn_name[ptr]} too")
+            continue
+        if not kanji_common.KANJI_RE.fullmatch(name[0]) or cells(name) > 6 or len(kana_b) < 2:
+            raise SystemExit(f"officer ${i:02X} {name}: not 1-3 kanji for 2+ kana")
+        rn_name[ptr] = name
+        rn[ptr] = (len(kana_b) - 1, enc_name(name))
+    keys = sorted(rn)
+    if len(nglyphs) > 0x100 or len(keys) > 0xFF:
+        raise SystemExit(f"officer names: {len(keys)} records, {len(nglyphs)} glyphs")
+    lines.append(f"UI_NN = {len(keys)}")
+    lines.append("ui_rn_lo: .db " + ",".join(f"${k & 0xFF:02X}" for k in keys))
+    lines.append("ui_rn_hi: .db " + ",".join(f"${k >> 8:02X}" for k in keys))
+    lines.append("ui_rn_sk: .db " + ",".join(str(rn[k][0]) for k in keys))
+    lines.append("ui_rn_sl: .db " + ",".join(f"<{rn[k][1]}" for k in keys))
+    lines.append("ui_rn_sh: .db " + ",".join(f">{rn[k][1]}" for k in keys))
+    # By record id (TXF_NAME, battle messages): the ui_rn index + 1, 0 = no name.
+    ri = [0] * kanji_common.NAME_RECORDS
+    for i in kanji_common.officer_names():
+        ri[i] = keys.index(officers[i][0]) + 1
+    lines.append(f"UI_NRI = {len(ri)}")
+    lines.append("ui_ri: .db " + ",".join(str(v) for v in ri))
+    lines.append("nm_gc_lo: .db " + ",".join(f"${codes[ch] & 0xFF:02X}" for ch in nglyphs))
+    lines.append("nm_gc_hi: .db " + ",".join(f"${codes[ch] >> 8:02X}" for ch in nglyphs))
     for name, tab in (("r2", r2), ("r0", r0), ("r1", r1)):
         keys = sorted(tab)
         if not 0 < len(keys) < 128:
@@ -928,9 +989,13 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     # The map UI in kanji (TEXT_RENDERER.md "Kanji UI"): text_put_tile's
     # calls in the templates and the item / tactic / place names go through
     # txr_tp (the renderer in map mode); MAP_UI_TEMPLATES' windows change.
-    for site in (0xCC02, 0xD5C0):
+    for site in (0xCC02, 0xD5C0, 0xD4C0):
         apply_patch(bank, site, bytes((0x20, labels["txr_tp"] & 0xFF,
                                        labels["txr_tp"] >> 8)))
+    # Officer names in kanji (put_officer_name with $AA set: the battle
+    # screen, the info screen, the army screen): the glyphs come from the
+    # name font in bank NAME_FONT_BANK (build_name_font), not banks 1 / 2.
+    apply_patch(bank, 0xD4D0, bytes((0xA9, NAME_FONT_BANK)))
     for win, (col, w) in MAP_UI_TEMPLATES.items():
         ptr = bank[0x2DA1 + win] | (bank[0x2DD1 + win] << 8)
         apply_patch(bank, ptr + 1, bytes((col & 0xFF, w)))
@@ -1045,6 +1110,43 @@ def battle_templates(cb: bytes) -> dict[int, bytes]:
     return out
 
 
+def build_name_font() -> None:
+    """bank17.bin: the officer names' glyphs (kanji_common.officer_names)
+    in the original name font's format; bank12_names.bin: bank 12 $A900-
+    $BFFF with every named record's bytes $10-$13 (bits 7-5 of $10: the
+    kanji's bank bits; then up to three glyph indices) pointing into it."""
+    sys.path.insert(0, str(ROOT / "tools"))
+    import kanji_common
+    names = kanji_common.officer_names()
+    records = kanji_common.officer_records()
+    chars: list[str] = []
+    for i in sorted(names):
+        for ch in names[i]:
+            if ch not in chars:
+                chars.append(ch)
+    if len(chars) > 0x100:
+        raise SystemExit(f"name font: {len(chars)} kanji, max 256")
+    font = bytearray(0x4000)
+    for n, ch in enumerate(chars):
+        g = kanji_common.glyph_bytes(ch)            # 16 rows x (left, right)
+        out = bytes(g[2 * y] for y in range(8)) + bytes(g[2 * y] for y in range(8, 16))
+        out += bytes(g[2 * y + 1] for y in range(8)) + bytes(g[2 * y + 1] for y in range(8, 16))
+        font[n * 32:n * 32 + 32] = out
+    write_bank(f"bank{NAME_FONT_BANK:02d}.bin", bytes(font))
+    b12 = bytearray(prg()[12 * 0x4000:13 * 0x4000])
+    for i, name in names.items():
+        o = records[i][0] - 0x8000
+        if len(name) > 3:
+            raise SystemExit(f"officer ${i:02X} {name}: more than 3 kanji")
+        b12[o + 0x10] &= 0x1F                       # bits 7-5: every glyph in the one
+                                                    # bank (bits 3-0: the portrait colour)
+        for n in range(3):
+            b12[o + 0x11 + n] = chars.index(name[n]) if n < len(name) else 0xFF
+    for i in kanji_common.NAME_NONE:
+        b12[records[i][0] - 0x8000 + 0x11] = 0xFF   # no kanji name
+    (OUT / "bank12_names.bin").write_bytes(bytes(b12[0x2900:0x4000]))
+
+
 def build_bank31() -> None:
     write_bank("bank31.bin", (OUT / "bank15.bin").read_bytes())
 
@@ -1091,6 +1193,7 @@ def main() -> int:
 
     build_bank15(fixed, labels, overlay_labels)
     build_bank31()
+    build_name_font()
     build_skeleton()
 
     sys.path.insert(0, str(ROOT / "tools"))

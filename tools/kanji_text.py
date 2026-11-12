@@ -280,6 +280,7 @@ class Page:
     line_codes: list[list[int]] = field(default_factory=list)
     line_used: list[set[int]] = field(default_factory=list)
     line_codes_all: list[list[int]] = field(default_factory=list)
+    names: int = 0          # runtime officer names ($F4-$F7) on the page
 
 
 def parse_dtx(path: Path) -> list[Record]:
@@ -453,7 +454,11 @@ def compile_tokens(tokens: list[str], cmap: dict[str, int]) -> bytes:
                 helper, text_a, text_b = KANJI_TROOP_CALLS[int(key[5:], 16)]
                 vb = compile_tokens(list(text_b), cmap)
                 va = compile_tokens(list(text_a), cmap) + bytes((0xEE, 0xFE, len(vb)))
-                out += bytes((0xF8, helper & 0xFF, helper >> 8, 0xEE, 0xFD, len(va))) + va + vb
+                # The name helper $D49A is put_officer_name_target, which
+                # the control $F4 runs too: $F4 goes through the overlay,
+                # which puts the name in kanji in the battle's pool.
+                call = bytes((0xF4,)) if helper == 0xD49A else bytes((0xF8, helper & 0xFF, helper >> 8))
+                out += call + bytes((0xEE, 0xFD, len(va))) + va + vb
             elif key.startswith("CALL:") and int(key[5:], 16) in KANJI_SUFFIX_CALLS:
                 # Kanji tail: the call, $EE $FC cells (back over the kana
                 # tail), the kanji (kanji_overlay.asm kanji_ctl).
@@ -593,6 +598,7 @@ def page_from_bytes(data: bytes, extra_used: set[int] | None = None) -> tuple[li
             continue
         if 0xF4 <= b <= 0xF7:
             add_tiles(party_name_tiles())
+            page.names += 1
             i += 1
             continue
         if b in (0xF8, 0xF9) and i + 2 < len(data):
@@ -1143,7 +1149,10 @@ def build() -> int:
             clean_l = sorted(t for t in clean if t < 0x80)
             blob = bytearray((len(keep_l),)) + bytes(keep_l)
             blob += bytes((len(clean_l),)) + bytes(clean_l)
-            blob.append(len(page.kanji_order))
+            # Bits 5-6: the page's runtime officer names (up to 3), for
+            # which the battle's pool reserves 3 slots each (the overlay's
+            # pool_need; KNAME_F4-F7 put the names there).
+            blob.append(len(page.kanji_order) | (min(page.names, 3) << 5))
             for code in page.kanji_order:
                 t4 = tiles[code]
                 if any(t >= 0x80 for t in t4):

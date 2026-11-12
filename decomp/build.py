@@ -143,9 +143,11 @@ def main() -> int:
         # banks intentionally replaced by the kanji target (10, 11, 15) and the
         # map-canvas patches (13: two save records; 14: the battle shake) and
         # step B (9: the UI glyphs in plane 1; 14: the info screen, its battle
-        # wrapper, the gauge colour, the tactic window, the army status screen).
+        # wrapper, the gauge colour, the tactic window, the army status screen)
+        # and the officer names (12: the records' name glyphs, kanji_build
+        # build_name_font).
         original = ORIGINAL.read_bytes()
-        allowed = {9, 10, 11, 13, 14, 15}
+        allowed = {9, 10, 11, 12, 13, 14, 15}
         for bank in range(16):
             a = got[16 + bank * 0x4000:16 + (bank + 1) * 0x4000]
             b = original[16 + bank * 0x4000:16 + (bank + 1) * 0x4000]

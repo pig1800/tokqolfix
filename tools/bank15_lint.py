@@ -60,6 +60,8 @@ PATCHES = [
     # the map UI in kanji: text_put_tile's calls, two templates
     (0xCC02, 0xCC04),   # text_input: jsr txr_tp
     (0xD5C0, 0xD5C2),   # draw_string_from_pointer: jsr txr_tp
+    (0xD4C0, 0xD4C2),   # put_officer_name: jsr txr_tp (officer names)
+    (0xD4D1, 0xD4D1),   # put_officer_name's kanji: the name font's bank
     (0xEB74, 0xEB75),   # window $18 (gold, food): column +1, width 12
     (0xEBCF, 0xEBD0),   # window $1C (buy / sell): column +2, width 10
     (0xED4D, 0xED4E),   # window $29 (message speed, boot menu): width 7

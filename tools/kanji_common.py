@@ -228,14 +228,116 @@ def map_places() -> dict[int, tuple[bytes, str]]:
     return out
 
 
+# Officer names (2026-11-12): namekanjilist.csv (repo root; UTF-8, "Kana,
+# Name") gives the kanji of a kana name.  A kana it gives two forms for is
+# two officers; NAME_PICK names the record (bank 12 officer record id,
+# pointers $A800 / $A900 + id) of each, as the original game's own name
+# glyphs (record bytes $10-$13) show them.  NAME_EXTRA: the names the list
+# lacks, also from those glyphs.  Record $B3 (１０マメ) is no officer.
+NAME_LIST = ROOT / "namekanjilist.csv"
+NAME_PICK = {
+    0x0A: "宋仁", 0x72: "曹仁",
+    0x0D: "張宝", 0xAD: "張苞",
+    0x0E: "張梁", 0x83: "張遼",
+    0x26: "袁紹", 0x27: "袁尚",
+    0x2F: "張郃", 0x68: "張紘",
+    0x73: "曹洪", 0x74: "曹昂",
+    0x59: "孫桓", 0x9E: "孫乾",
+    0x51: "張松",               # (the list's チョウショウ is 張昭, record $67)
+}
+NAME_EXTRA = {
+    "カイゾク": "海賊", "サンゾク": "山賊", "トウゾク": "盗賊", "ヘイシ": "兵士",
+    "ザントウ": "残党", "カクシ": "郭汜", "チンリン": "陳琳", "ソンサク": "孫策",
+    "ソウソウ": "曹操", "カンサク": "関索", "イセキ": "伊籍", "リュウゼン": "劉禅",
+    "ジュンユウ": "荀攸",
+}
+# The original name font draws these twice (a kanji with two glyphs is
+# otherwise a wrong name): 蒋 and 蔣, 苞 in both banks.
+NAME_GLYPH_TWINS = {"蒋": {(1, 0xA9), (1, 0xC1)}, "苞": {(1, 0x10), (2, 0x1B)}}
+_NAMES: dict[int, str] = {}
+NAME_RECORDS = 0xD9             # records $00-$D8 (the rest of the table is no names)
+NAME_NONE = (0xB3,)
+
+
+def _katakana(s: str) -> str:
+    return "".join(chr(ord(c) + 0x60) if "ぁ" <= c <= "ゖ" else c for c in s)
+
+
+def officer_records() -> dict[int, tuple[int, bytes, list[tuple[int, int]]]]:
+    """Bank 12's officer records: id -> (pointer, kana bytes from byte $14
+    up to the first byte >= $FE, the original name glyphs (bank, index))."""
+    b12 = textdata.prg()[12 * 0x4000:13 * 0x4000]
+    out = {}
+    for i in range(NAME_RECORDS):
+        ptr = b12[0x2800 + i] | (b12[0x2900 + i] << 8)
+        o = ptr - 0x8000
+        rec = b12[o:o + 0x20]
+        end = next(j for j in range(0x14, 0x20) if rec[j] >= 0xFE)
+        gl = []
+        for n in range(3):
+            if rec[0x11 + n] == 0xFF:
+                break
+            gl.append((2 if rec[0x10] & (0x80 >> n) else 1, rec[0x11 + n]))
+        out[i] = (ptr, bytes(rec[0x14:end]), gl)
+    return out
+
+
+def officer_names() -> dict[int, str]:
+    """Record id -> the kanji name (namekanjilist.csv, NAME_PICK,
+    NAME_EXTRA).  Fails on a record it cannot name, on a kana with two
+    forms and no pick, and on two names that give one original glyph two
+    different kanji."""
+    raw = NAME_LIST.read_bytes().decode("utf-8-sig")
+    forms: dict[str, list[str]] = {}
+    for line in raw.splitlines()[1:]:
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) >= 2 and parts[0] and parts[1]:
+            forms.setdefault(parts[0], [])
+            if parts[1] not in forms[parts[0]]:
+                forms[parts[0]].append(parts[1])
+    global _NAMES
+    if _NAMES:
+        return dict(_NAMES)
+    out: dict[int, str] = {}
+    seen: dict[tuple[int, int], tuple[str, int]] = {}
+    glyph_of: dict[str, tuple[int, int]] = {}
+    for i, (_ptr, kana_b, gl) in officer_records().items():
+        if i in NAME_NONE:
+            continue
+        kana = _katakana("".join(textdata.BYTE_TO_CHAR[b] for b in kana_b))
+        if i in NAME_PICK:
+            name = NAME_PICK[i]
+        elif len(forms.get(kana, ())) == 1:
+            name = forms[kana][0]
+        elif kana in forms:
+            raise SystemExit(f"officer ${i:02X} {kana}: {forms[kana]}, no NAME_PICK")
+        elif kana in NAME_EXTRA:
+            name = NAME_EXTRA[kana]
+        else:
+            raise SystemExit(f"officer ${i:02X} {kana}: no kanji name")
+        out[i] = name
+        if len(name) == len(gl):
+            for g, ch in zip(gl, name):
+                if g in seen and seen[g][0] != ch:
+                    raise SystemExit(f"officer ${i:02X} {name}: original glyph {g} is "
+                                     f"{seen[g][0]} in officer ${seen[g][1]:02X}")
+                seen.setdefault(g, (ch, i))
+                if glyph_of.setdefault(ch, g) != g and {g, glyph_of[ch]} != NAME_GLYPH_TWINS.get(ch):
+                    raise SystemExit(f"officer ${i:02X} {name}: {ch} is original glyph {g} here, "
+                                     f"{glyph_of[ch]} elsewhere")
+    _NAMES.update(out)
+    return out
+
+
 def ui_kanji() -> list[str]:
     """Every UI kanji in first-use order: labels, commands, word list, then
-    the map UI's words, labels and places."""
+    the map UI's words, labels and places, then the officer names."""
     out: list[str] = []
     text = (UI_LABELS + UI_COMMANDS + "".join(k for _, _, k in wordlist())
             + "".join(k for _, _, k in MAP_UI_WORDS) + "".join(MAP_UI_LABELS)
             + "".join(BOOT_MENU.values()) + NAME_TITLE
-            + "".join(k for _, k in map_places().values()))
+            + "".join(k for _, k in map_places().values())
+            + "".join(officer_names().values()))
     for ch in KANJI_RE.findall(text):
         if ch not in out:
             out.append(ch)
@@ -292,9 +394,43 @@ def font_for(ch: str) -> Path:
     return FONT_TTF
 
 
+# Name kanji the primary font lacks (璝: it draws a placeholder) and the
+# fallbacks draw poorly: the original game's own name glyph instead (bank 1
+# or 2 at index * 32: 8 bytes each of TL, BL, TR, BR), found through the
+# officer records.
+NAME_GLYPH_ORIGINAL = "傕彧昱汜玠褚詡邕郃鄧闞顗騭龐璝"
+_ORIG_GLYPHS: dict[str, tuple[int, int]] = {}
+
+
+def original_glyph(ch: str) -> bytes | None:
+    """The original name glyph of ch as 16 rows x 2 bytes, or None."""
+    if not _ORIG_GLYPHS:
+        names = officer_names()
+        for i, (_p, _k, gl) in officer_records().items():
+            if i in names and len(names[i]) == len(gl):
+                for g, c in zip(gl, names[i]):
+                    _ORIG_GLYPHS.setdefault(c, g)
+    g = _ORIG_GLYPHS.get(ch)
+    if g is None:
+        return None
+    d = textdata.prg()[g[0] * 0x4000 + g[1] * 32:][:32]
+    out = bytearray()
+    for y in range(16):
+        q = 0 if y < 8 else 8
+        out += bytes((d[q + y % 8], d[16 + q + y % 8]))
+    return bytes(out)
+
+
 def glyph_bytes(ch: str, font_size: int = 16, threshold: int = 128) -> bytes:
     """Render one kanji to 32-byte 1bpp: 16 rows x 2 bytes (left, right)."""
     from PIL import Image, ImageDraw, ImageFont
+
+    if ch in NAME_GLYPH_ORIGINAL:
+        g = original_glyph(ch)
+        if g is None:
+            raise SystemExit(f"{ch}: no original name glyph")
+        FALLBACK_USED[ch] = "original name glyph"
+        return g
 
     path = font_for(ch)
     font = ImageFont.truetype(str(path), font_size)

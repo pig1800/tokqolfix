@@ -13,6 +13,8 @@
 ;     nkeep, keep tiles      kanji tiles of earlier lines still on screen
 ;     nclean, clean tiles    kana tiles an earlier page used as kanji
 ;     entries, entries * (code_lo, code_hi, tile0, tile1, tile2, tile3)
+;                            (entries bits 0-4; bits 5-6: the page's runtime
+;                            officer names, 3 pool slots reserved for each)
 ;
 ; KANJI_TEXT_ADDR is free after entry: it is the main-thread scratch
 ; KANJI_M0/M1.  The page-start flag is bit 7 of KANJI_PAGES_LEFT.
@@ -386,8 +388,12 @@ pool_decide:
     beq @fits
     jsr entries_offset          ; Y = offset of the entry count
     lda ($10),y
+    pha
+    jsr pool_need               ; the page's entries and reserved names
     cmp #POOL_PAGE_MAX+1
+    pla
     bcs @band
+    and #$1F
     sty KANJI_M2                ; next record = $10 + Y + 1 + 6 * entries
     asl a
     sta KANJI_M1
@@ -549,6 +555,7 @@ page_start:
 @pool_end:
     jsr entries_offset          ; pool: this page's slots beside the lines
     lda ($10),y                 ; still on screen (after a clear: from 0)
+    jsr pool_need
     jsr pool_choose
     sta KANJI_M0
     lda KANJI_UPLOADED+1
@@ -599,7 +606,7 @@ text_dispatch:
 
 dispatch_table:
     .dw KANJI_EC, KANJI_EC, KANJI_EE
-    .dw $D334, $D30A, $D2FE, $D2F3, $D2ED, $D2E7, $D2E1, $D2DB, $D2CF
+    .dw $D334, $D30A, $D2FE, $D2F3, $D2ED, KNAME, KNAME, KNAME, KNAME
 
 ; ----------------------------------------------------------------------
 ; Three-byte kanji escape $EE hi lo (codes 512 and up): the high byte
@@ -740,46 +747,8 @@ KANJI_EC:
 @notxr:
     bit KANJI_PAGES_LEFT
     bvc @record
-    ldy KANJI_M2                ; pool: entry k -> the k-th slot not blocked
-    ldx #0                      ; for this page (KANJI_PMASK), tiles
-@walk:                          ; $A4+4*slot..+3
-    lda slot_lo,x
-    and KANJI_PMASK
-    bne @blocked
-    lda slot_hi,x
-    and KANJI_PMASK+1
-    bne @blocked
-    dey
-    bmi @slot_x
-@blocked:
-    inx
-    cpx #POOL_SLOTS
-    bne @walk
-    ldx #0                      ; (pool_choose leaves n slots free)
-    beq @walk
-@slot_x:
-    txa
-@slot:
-    tax                         ; step B: the battle screen's slot table
-    lda #$FE                    ; (UI bank): a message kanji, maybe shown,
-    sta UI_SLOT,x               ; and its code (the reward window uses a
-    lda KANJI_CODE_LO           ; kanji a message left in the pool)
-    sta UI_MC_LO,x
-    lda KANJI_CODE_HI
-    sta UI_MC_HI,x
-    txa
-    asl a
-    asl a                       ; C clear (slot < 64)
-    adc #POOL_FIRST
-    ldx #0
-@pool4:
-    sta KANJI_TILES,x
-    clc
-    adc #1
-    inx
-    cpx #4
-    bne @pool4
-    beq @tiles_done
+    jsr pool_tiles              ; pool: entry k -> the k-th free slot
+    jmp @tiles_done
 @record:
     iny
     iny
@@ -797,17 +766,8 @@ KANJI_EC:
     pla
     sta $10
 
-    lda KANJI_M2                ; entry index
-    and #7
-    tax
-    lda bitmask,x
+    jsr entry_bit               ; entry index KANJI_M2
     sta KANJI_M0
-    lda KANJI_M2
-    lsr a
-    lsr a
-    lsr a
-    tax
-    lda KANJI_M0
     and KANJI_UPLOADED,x
     bne @write_tiles
     lda KANJI_M0
@@ -815,20 +775,8 @@ KANJI_EC:
     sta KANJI_UPLOADED,x
     lda #REQ_UPLOAD
     jsr post_wait
-
 @write_tiles:
-    ldx KANJI_BUFX
-    lda KANJI_TILES
-    sta $0300,x
-    lda KANJI_TILES+1
-    sta $0301,x
-    lda KANJI_TILES+2
-    sta $0318,x
-    lda KANJI_TILES+3
-    sta $0319,x
-    inx
-    inx
-    rts
+    jmp put_tiles
 
 @blank_r:
     pla                         ; give the game its $10/$11 back
@@ -845,6 +793,200 @@ KANJI_EC:
     inx
     rts
 
+; Pool entry KANJI_M2 -> KANJI_TILES: the k-th slot this page's
+; KANJI_PMASK leaves free (pool_choose leaves the page's entries free),
+; tiles $A4 + 4 * slot ..+3.  The battle screen's slot table (UI bank)
+; marks it a message kanji, maybe shown, with its code (the reward window
+; uses a kanji a message left in the pool).
+pool_tiles:
+    ldy KANJI_M2
+    ldx #0
+@walk:
+    lda slot_lo,x
+    and KANJI_PMASK
+    bne @blocked
+    lda slot_hi,x
+    and KANJI_PMASK+1
+    bne @blocked
+    dey
+    bmi @slot
+@blocked:
+    inx
+    cpx #POOL_SLOTS
+    bne @walk
+    ldx #0
+    beq @walk
+@slot:
+    lda #$FE
+    sta UI_SLOT,x
+    lda KANJI_CODE_LO
+    sta UI_MC_LO,x
+    lda KANJI_CODE_HI
+    sta UI_MC_HI,x
+    txa
+    asl a
+    asl a                       ; C clear (slot < 64)
+    adc #POOL_FIRST
+    ldx #0
+@pool4:
+    sta KANJI_TILES,x
+    clc
+    adc #1
+    inx
+    cpx #4
+    bne @pool4
+    rts
+
+; KANJI_TILES into the text buffers at KANJI_BUFX (two cells); X after them.
+put_tiles:
+    ldx KANJI_BUFX
+    lda KANJI_TILES
+    sta $0300,x
+    lda KANJI_TILES+1
+    sta $0301,x
+    lda KANJI_TILES+2
+    sta $0318,x
+    lda KANJI_TILES+3
+    sta $0319,x
+    inx
+    inx
+    rts
+
+; Entry KANJI_M2 -> A = its bit, X = its byte in KANJI_UPLOADED.
+entry_bit:
+    lda KANJI_M2
+    and #7
+    tax
+    lda bitmask,x
+    pha
+    lda KANJI_M2
+    lsr a
+    lsr a
+    lsr a
+    tax
+    pla
+    rts
+
+; An entry count byte -> A = the pool slots its page needs: the entries
+; (bits 0-4) and 3 per runtime officer name (bits 5-6).  X clobbered.
+pool_need:
+    pha
+    and #$1F
+    tax
+    pla
+    and #$60
+    beq @n
+@l:
+    inx
+    inx
+    inx
+    sec
+    sbc #$20
+    bne @l
+@n:
+    txa
+    rts
+
+; ----------------------------------------------------------------------
+; Officer names in battle messages (2026-11-12).  $F4-$F7 in a pool
+; message put the name in kanji.  The compiler reserves 3 pool entries per
+; runtime name of a page (the count byte's bits 5-6) after the page's
+; kanji; a name's kanji take the next free reserved entries (KANJI_UPLOADED
+; marks them), uploaded and placed as KANJI_EC places a page kanji.  The
+; renderer bank (TXF_NAME) gives the codes and the first free entry.  Map mode (the renderer
+; puts its own names) and the band page: the original handlers.  A name
+; the reserved entries cannot hold: kana.
+; ----------------------------------------------------------------------
+KNAME:                          ; $F4-$F7 (Y = 2 * (code - $EC): 16-22)
+    bit TXR_ON
+    bmi @o
+    bit KANJI_PAGES_LEFT
+    bvs @pool
+@o:
+    lda kn_orig-16,y
+    sta KANJI_M0
+    lda kn_orig-15,y
+    sta KANJI_M1
+    jmp (KANJI_M0)
+@pool:
+    cpy #22
+    beq @f7
+    cpy #18
+    bne @f6
+    ldx text_actor              ; $F5: text_actor's
+    bcs @x
+@f6:
+    cpy #20
+    bne @t
+    ldx party_slot              ; $F6: party_slot's, else text_target's
+    bpl @x
+@t:
+    ldx text_target             ; $F4: text_target's (none if negative)
+    bpl @x
+    pla
+    tax
+    rts
+@f7:
+    ldx $72                     ; $F7: the record of $05F0,[$72]
+    lda $05F0,x
+    bcs kn_rec
+@x:
+    lda $60A8,x                 ; the officer's record
+kn_rec:
+    sta TXR_TA
+    pla
+    sta KANJI_BUFX
+    lda $10                     ; the game's $10/$11 (math temps)
+    pha
+    lda $11
+    pha
+    lda KANJI_PAGE_PTR
+    sta $10
+    lda KANJI_PAGE_PTR+1
+    sta $11
+    jsr entries_offset
+    lda ($10),y
+    sta TXR_TX                  ; the page's entry count byte
+    pla                         ; give the game its $10/$11 back
+    sta $11
+    pla
+    sta $10
+    ldx #TXF_NAME
+    jsr TXR_CALL                ; TXR_NM: kanji (0: kana), codes; TXR_NE: entry
+    lda TXR_NM
+    beq @kana
+    lda #0                      ; (KANJI_M0-M2 are the block writer's while
+    sta TXR_NJ                  ; post_wait yields: the loop's state is here)
+@k:
+    ldx TXR_NJ
+    lda TXR_NM+1,x
+    sta KANJI_CODE_LO
+    lda TXR_NM+4,x
+    sta KANJI_CODE_HI
+    lda TXR_NE
+    sta KANJI_M2
+    jsr entry_bit
+    ora KANJI_UPLOADED,x
+    sta KANJI_UPLOADED,x
+    jsr pool_tiles
+    lda #REQ_UPLOAD
+    jsr post_wait
+    jsr put_tiles
+    stx KANJI_BUFX
+    inc TXR_NE
+    inc TXR_NJ
+    lda TXR_NJ
+    cmp TXR_NM
+    bne @k
+    rts
+@kana:
+    ldy TXR_TA                  ; put_officer_name after its record lookup
+    ldx KANJI_BUFX
+    jmp $D4A5
+
+kn_orig:
+    .dw $D2E7, $D2E1, $D2DB, $D2CF
+
 ; ----------------------------------------------------------------------
 ; Search the current page record for KANJI_CODE_LO/HI.  Carry set when
 ; absent; otherwise Y = entry offset (code_lo), KANJI_M2 = entry index,
@@ -857,6 +999,7 @@ page_find:
     sta $11
     jsr entries_offset
     lda ($10),y
+    and #$1F                    ; (bits 5-6: reserved names)
     sta KANJI_M1
     beq @notfound
     lda #0
@@ -917,6 +1060,7 @@ ctrl_store:
     jsr entries_offset
     sty KANJI_M2
     lda ($10),y
+    and #$1F
     asl a
     sta KANJI_M1
     asl a
@@ -975,8 +1119,8 @@ empty_record:
     .db 0, 0, 0
 
 ; ----------------------------------------------------------------------
-; A = entry count of the page record at KANJI_PAGE_PTR + A (the game's
-; $10/$11 kept; X, Y clobbered).
+; A = the pool slots of the page record at KANJI_PAGE_PTR + A: its entries
+; and reserved names (pool_need; the game's $10/$11 kept; X, Y clobbered).
 ; ----------------------------------------------------------------------
 record_n:
     clc
@@ -993,6 +1137,7 @@ record_n:
     sty $11
     jsr entries_offset
     lda ($10),y
+    jsr pool_need
     tax
     pla                         ; give the game its $10/$11 back
     sta $11

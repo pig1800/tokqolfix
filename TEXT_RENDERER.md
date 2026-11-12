@@ -773,3 +773,105 @@ map setup there).  The renderer's `$C0` passthrough stays.
 States saved by an earlier build hold `TXR_ON` = `$80`.  Their map UI
 words stay in kana until the next map setup (a building entered or left,
 a battle).
+
+## Officer names in kanji (2026-11-12)
+
+The user's request: every officer name in kanji, from `namekanjilist.csv`
+(repo root, "Kana,Name").  They also warned that ソウジン is two officers
+(宋仁 and 曹仁).
+
+**One name per officer record.**  The game keys its names by officer
+record (bank 12, pointers `$A800` / `$A900` + id, records `$00-$D8`).
+`kanji_common.officer_names()` gives each record its kanji:
+- a kana the list gives one form for: that form;
+- a kana it gives two forms for: `NAME_PICK` by record id;
+- names the list lacks: `NAME_EXTRA`.
+
+Both tables follow the original game's own name glyphs (record bytes
+`$10-$13`, banks 1 / 2), read glyph by glyph.  The build fails on two
+names that give one original glyph two kanji, or one kanji two glyphs.
+The twin glyphs `NAME_GLYPH_TWINS` (蒋/蔣, 苞) are allowed.
+
+| Kana | Records | Kanji |
+|---|---|---|
+| ソウジン | `$0A` / `$72` | 宋仁 / 曹仁 |
+| チョウホウ | `$0D` / `$AD` | 張宝 / 張苞 |
+| チョウリョウ | `$0E` / `$83` | 張梁 / 張遼 |
+| エンショウ | `$26` / `$27` | 袁紹 / 袁尚 |
+| チョウコウ | `$2F` / `$68` | 張郃 / 張紘 |
+| ソウコウ | `$73` / `$74` | 曹洪 / 曹昂 |
+| ソンカン | `$59` / `$9E` | 孫桓 / 孫乾 (the list has 孫桓 only) |
+| チョウショウ | `$51` / `$67` | 張松 / 張昭 (the list has 張昭 only) |
+
+From the original glyphs (not in the list): 海賊 山賊 盗賊 兵士 残党 郭汜
+陳琳 孫策 曹操 関索 伊籍 劉禅 荀攸.  Record `$B3` (１０マメ) is not an officer;
+it stays kana.
+
+Where the list differs from the original glyphs, the list wins: コウメイ
+孔明 (the original 諸葛亮), 麋竺 (糜竺), 潘璋 (藩璋), 厳畯 (厳峻).
+
+The dialogue's 宋仁 / 宋勇 pick (`KANJI_CALLS`) tests officer id `$0A`,
+which is 宋仁 in the original glyphs too: it needed no change.
+
+**Glyphs.**  The name kanji join the font's inventory after the UI kanji
+(982 glyphs, banks 23-25).  The primary font lacks 璝 (it draws a
+placeholder), and its fallbacks draw 傕 彧 昱 汜 玠 褚 詡 邕 郃 鄧 闞 顗 騭 龐
+poorly.  These 15 use the original game's own glyph
+(`NAME_GLYPH_ORIGINAL`).  That includes the dialogue's 鄧.
+
+**Map mode** (menus and messages): `put_officer_name`'s
+`jsr text_put_tile` (`$D4C0`) goes through `txr_tp`, like the item names.
+- `txr_put` sees bank 12 and Y = `$14` (the record's kana), and looks the
+  record pointer up in `ui_rn`.
+- It puts the name's string and skips the rest of the kana.
+- The strings use `$ED n` = name glyph n (`nm_gc`).  The UI glyphs and the
+  name glyphs together are more than 256.
+- Map mode only (`TXR_ON` bit 7).
+
+**Battle messages** (the pool):
+- The overlay's dispatcher sends `$F4-$F7` to `KNAME`.
+- In a pool message outside map mode, it gets the name's codes from the
+  renderer bank (`TXF_NAME`, by record id, `ui_ri`).
+- The compiler reserves 3 pool entries per runtime name on a page.  They
+  are stored in bits 5-6 of the page record's entry count, and
+  `pool_need` adds them wherever the pool's slots are counted.
+- A name's kanji take the next reserved entries not yet taken
+  (`KANJI_UPLOADED`).  Each is uploaded and placed as `KANJI_EC` places a
+  page kanji.
+- If the reserved entries cannot hold a name, it is put in kana
+  (`put_officer_name` after its lookup, `$D4A5`).
+- The troop line's name helper (`<CALL:D549>`, compiled as `$D49A`) is
+  now `$F4`: the same routine (`put_officer_name_target`), but through the
+  overlay.
+- The loop keeps its state in `TXR_NM` (`TXR_NJ`, `TXR_NE`), not in
+  `KANJI_M0-M2`: the block writer uses those while `post_wait` yields.
+- The overlay is 2026 of 2048 bytes.
+
+**The original name engine** (`put_officer_name` with `$AA` set: battle
+screen, info screen, army screen):
+- `build_name_font` writes the name kanji to bank 17 (`NAME_FONT_BANK`),
+  in the original format: 32 bytes each, TL, BL, TR, BR.
+- It rewrites every named record's `$11-$13` to that font, and clears
+  `$10` bits 7-5 (the glyph banks).  Bits 3-0 of `$10` are the portrait
+  colour and are kept.
+- `bank12_names.bin` replaces bank 12 `$A900-$BFFF` in the kanji target.
+  `build.py` now allows bank 12 to differ.
+- The fixed bank's `lda #1` at `$D4D0` becomes `lda #NAME_FONT_BANK`.
+- The UI bank's army screen (`ar_name`) reads that bank too.
+- Bank 17 held only a stale glyph table from an old layout.
+- The info screen's kana reading above the name stays.
+
+**Checks:**
+- Officer list (ぶしょう), shop buyer list, the 渡す message: 劉備は短剣を関羽に渡した.
+- Officer list with six 3-kanji names (17 distinct kanji, more than the UI's
+  16 REG entries): right.
+- Battle: names on the screen, 兵士が現れた, 張飛の攻撃, 兵士を１０人倒した,
+  兵士の攻撃 / 劉備の兵が５人倒された (two names on one page).
+- Info screen from the map and from battle and back: names right, with
+  their portrait colours.
+- Army screen: names, 大将, 軍師.
+- Lowest stack on the battle path `$0112`, the same as the previous build.
+- The original build is byte-identical.
+
+Not checked on screen: the victory / capture messages, the boss battle,
+`$F6` / `$F7` in battle messages.

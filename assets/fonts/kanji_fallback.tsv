@@ -1,11 +1,24 @@
 # glyphs drawn from a fallback font (JF-Dot-Shinonome16 lacks them)
 # code	char	U+	font	count
 014F	鄱	U+9131	msgothic.ttc	5
-0215	龐	U+9F90	msgothic.ttc	4
-0240	汜	U+6C5C	DotGothic16-Regular.ttf	3
+0215	龐	U+9F90	original name glyph	4
+0240	汜	U+6C5C	original name glyph	3
 0263	涪	U+6DAA	msgothic.ttc	3
 02D4	雒	U+96D2	msgothic.ttc	2
-0334	詡	U+8A61	msgothic.ttc	1
+0334	詡	U+8A61	original name glyph	1
 034D	瓚	U+74DA	msgothic.ttc	1
 035E	邢	U+90A2	msgothic.ttc	1
 040E	釭	U+91ED	DotGothic16-Regular.ttf	1
+049C	傕	U+5095	original name glyph	0
+04A3	邕	U+9095	original name glyph	0
+04AD	顗	U+9857	original name glyph	0
+04AF	郃	U+90C3	original name glyph	0
+04BC	璝	U+749D	original name glyph	0
+04CB	騭	U+9A2D	original name glyph	0
+04D0	闞	U+95DE	original name glyph	0
+04D3	畯	U+756F	DotGothic16-Regular.ttf	0
+04D7	褚	U+891A	original name glyph	0
+04E5	昱	U+6631	original name glyph	0
+04E8	玠	U+73A0	original name glyph	0
+04F5	鄧	U+9127	original name glyph	0
+0504	彧	U+5F67	original name glyph	0

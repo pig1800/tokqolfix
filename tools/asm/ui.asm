@@ -934,7 +934,8 @@ ar_rec:
 ; A = actor, ZP_A = the name's top-left cell: its kanji in two rows (upper
 ; t, t+2, lower t+1, t+3 a kanji, as put_officer_name).  The glyphs are
 ; uploaded the first time only (record $11-$13, $FF ends; record $10 bit 7
-; down: kanji n in bank 2, else bank 1, at $8000 + 32 glyph): plane 0,
+; down: kanji n in bank NAME_FONT_BANK + 1, else NAME_FONT_BANK, at $8000 +
+; 32 glyph; the kanji target's records all use the name font): plane 0,
 ; plane 1 cleared, from $A9 on.
 ar_name:
     sta ZP_X
@@ -1012,7 +1013,7 @@ ar_name:
     lda #4
     sta ZP_N
     asl ZP_C
-    lda #1
+    lda #NAME_FONT_BANK
     adc #0
     ldx #0                      ; plane 0, plane 1 cleared
     jsr RR_CODE
