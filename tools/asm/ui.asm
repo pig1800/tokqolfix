@@ -78,7 +78,85 @@ ui_dispatch:
 ui_fns:
     .dw ui_info_draw-1, ui_binfo_enter-1, ui_binfo_exit-1, ui_army-1
     .dw ui_info_enter-1, ui_bstart-1, ui_wincb-1, ui_sm-1, ui_info_busy-1
-    .dw ui_bsetup-1, ui_bsetup_end-1, ui_dec-1, ui_div-1
+    .dw ui_bsetup-1, ui_bsetup_end-1, ui_dec-1, ui_div-1, ui_wipe-1
+    .dw ui_wipe_rows-1
+
+; ======================================================================
+; UIF_WIPE / UIF_WIPE_ROWS: around sub_CE2D's loop (bank 15 $CE2D, bank
+; 14's room transfer with $90 bit 4: the new room wiped in from the right
+; over the shown one, one metatile column a frame, 18 columns).  The
+; write-ahead rows (map-canvas step 2) build 17-metatile columns (the
+; camera's 15 and a buffer row above and below: draw_party_status starts
+; 8 above the text position).  The loop's runs draw 30 tiles a column (the
+; camera's 15 rows; 112 queue bytes a frame, as before: 34 would make 120,
+; and the NMI would end past the pre-render line).
+;   UIF_WIPE: the text position 18 columns right (the original's start)
+;   and one row down, so the columns start at the camera's top row;
+;   game_mode 2.
+;   UIF_WIPE_ROWS: the two buffer rows (8 above and below the camera's
+;   middle, 18 metatiles), as walking steps draw them
+;   (draw_party_column_a / footer / column_b, about 110 queue bytes), one
+;   frame each; the top row's attributes come with it (the loop's
+;   attribute columns start at the camera's top row).  The text position
+;   is the original's again after it (the headers put actor 0 there too).
+; The game's bank-switching routines and the yields go through the fixed
+; bank's trampolines (bank 14 mapped, as under the original).  game_mode
+; is the caller's (sub_CE2D's restored one) at the yields.
+; ======================================================================
+CURSOR_ADD_X  = $D7A9
+CURSOR_ADD_Y  = $D7C9
+DRAW_PARTY_COLUMN_A = $F630
+DRAW_PARTY_COLUMN_B = $F649
+DRAW_PARTY_HEADER   = $F662
+DRAW_PARTY_FOOTER   = $F690
+
+ui_wipe:
+    lda #$12
+    jsr CURSOR_ADD_Y            ; 18 columns right
+    lda cursor_y2
+    sta text_y2
+    lda cursor_x2
+    sta text_x2
+    lda #$01
+    jsr wipe_text_row           ; one row down
+    lda #$02
+    sta game_mode
+    rts
+
+ui_wipe_rows:
+    lda game_mode
+    pha
+    lda #$00                    ; an up step's row: the header goes one row
+    jsr wipe_row                ; up (to the middle), the row is 8 above
+    lda #$FF
+    jsr wipe_text_row           ; one row up
+    lda #$01                    ; a down step's: one row down (the middle),
+    jsr wipe_row                ; the row 8 below
+    pla
+    sta game_mode
+    rts
+
+; text row += A (signed, cursor_add_x's wrap).
+wipe_text_row:
+    jsr CURSOR_ADD_X
+    lda cursor_x
+    sta text_x
+    lda cursor_y
+    sta text_y
+    rts
+
+; One map row, game_mode A, as a walking step draws it; then one frame.
+wipe_row:
+    sta game_mode
+    jsr DRAW_PARTY_HEADER
+    jsr WIPE_STATUS
+    jsr DRAW_PARTY_COLUMN_A
+    jsr DRAW_PARTY_FOOTER
+    jsr DRAW_PARTY_COLUMN_B
+    tsx
+    lda $0103,x                 ; ui_wipe_rows' saved game_mode
+    sta game_mode
+    jmp WIPE_WAIT
 
 ; ======================================================================
 ; UIF_INFO_ENTER: the info screen, before battle_intro_screen.  Its block

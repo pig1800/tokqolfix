@@ -973,6 +973,125 @@ tile_address_end:
     jsr redraw_start
     nop
 
+; sub_CE2D (bank 14's room transfer with $90 bit 4, its only caller at
+; $BDF8): the new room wiped in from the right over the shown one (the
+; scroll stays), one metatile column a frame, 18 columns.  The original's
+; runs (30 tiles from buffer offsets 0 and $1E) with the 17-metatile
+; columns above drew the right half two metarows low (the user's state,
+; 2026-11-13); 34-tile runs would make the queue 120 bytes a frame, and
+; the NMI would end past the pre-render line.  Now the UI bank moves the
+; text position one row down first (UIF_WIPE: draw_party_status starts at
+; the camera's top row), the loop is the original's with the right
+; column at $22: the camera's 15 rows and the attribute column (10 rows
+; from the top row), 112 queue bytes and the original's main-thread work
+; a frame.  Then UIF_WIPE_ROWS draws the buffer rows (8 above and below
+; the camera's middle) as walking steps do, one frame each, and puts the
+; text position back.  tile_attr is set once a column (draw_tile_run and
+; the footer only read it).
+.base $CE2D
+sub_CE2D_stub:
+    lda game_mode
+    pha
+    ldx #UIF_WIPE
+    jsr call_ui                 ; 18 columns right, one row down, game_mode 2
+    lda #$12
+@col:
+    pha
+    jsr $C0CE                   ; wait_frame_tick
+    jsr $F662                   ; draw_party_header: one column left
+    jsr $F572                   ; draw_party_status: the column, from the top row
+    jsr $F55C                   ; draw_party_window
+    inc ppu_addr_lo_shadow
+    lda #$80
+    sta tile_attr
+    ldy #$22                    ; the right tile column (was $1E)
+    ldx #$1E
+    jsr $D9ED                   ; draw_tile_run
+    jsr $F690                   ; draw_party_footer
+    dec ppu_addr_lo_shadow
+    ldy #$00
+    ldx #$1E
+    jsr $D9ED
+    jsr $C09F                   ; wait_vblank
+    pla
+    sec
+    sbc #$01
+    bne @col
+    pla
+    sta game_mode
+    ldx #UIF_WIPE_ROWS
+    jmp call_ui                 ; the buffer rows; the text position back
+; UIF_WIPE_ROWS' trampolines: the game's bank-switching routines and the
+; yields with bank 14 mapped (as under the original), the UI bank again
+; on return.
+wipe_status:
+    jsr $F572                   ; draw_party_status (ends with set_bank_b 14)
+    jsr $F55C                   ; draw_party_window
+    jmp wipe_ui
+wipe_cols_end:
+.if wipe_cols_end > $CE7A
+    .error "sub_CE2D's loop and wipe_status outgrew $CE2D-$CE79"
+.endif
+
+; sub_CE7A (bank 14 $81AE, an event's map change: the player's metarow
+; redrawn, 10 metatiles from 9 columns left).  draw_party_status starts 8
+; rows above now (was 7): the text position goes one row further first and
+; comes back one more (it drew the row above).  Compacted (one text-row
+; tail for both moves, "eor #$20" for the bottom tile row: bit 5 of the
+; address is 0; tile_attr set once) to make room for wipe_wait.
+.base $CE7A
+sub_CE7A_new:
+    lda #$09
+    jsr ce7a_text_row           ; (the original's 8)
+    lda game_mode
+    pha
+    lda #$00
+    sta game_mode
+    jsr $C0CE                   ; wait_frame_tick
+    jsr $F662                   ; draw_party_header
+    jsr $F572                   ; draw_party_status
+    jsr $F55C                   ; draw_party_window
+    lda ppu_addr_lo_shadow
+    eor #$20                    ; the bottom tile row (adc #$20)
+    sta ppu_addr_lo_shadow
+    lda #$00
+    sta tile_attr
+    ldy #$24
+    ldx #$14
+    jsr $D9ED                   ; draw_tile_run
+    lda ppu_addr_lo_shadow
+    eor #$20                    ; the top tile row (adc #$E0)
+    sta ppu_addr_lo_shadow
+    ldy #$00
+    ldx #$14
+    jsr $D9ED
+    jsr $C09F                   ; wait_vblank
+    pla
+    sta game_mode
+    lda #$F8                    ; (the original's $F9)
+ce7a_text_row:                  ; text row += A
+    jsr $D7A9                   ; cursor_add_x
+    lda cursor_x
+    sta text_x
+    lda cursor_y
+    sta text_y
+    rts
+WIPE_BANK14 = $0E
+wipe_wait:
+    lda #WIPE_BANK14
+    jsr SET_BANK_LOCK
+    jsr $C09F                   ; wait_vblank
+wipe_ui:
+    lda #UI_BANK
+    jmp SET_BANK_LOCK
+wipe_rows_end:
+.if wipe_rows_end > $CED2
+    .error "sub_CE7A and wipe_wait outgrew $CE7A-$CED1"
+.endif
+.if wipe_status != WIPE_STATUS || wipe_wait != WIPE_WAIT
+    .error "the wipe trampolines moved: kanji.inc WIPE_STATUS / WIPE_WAIT"
+.endif
+
 ; ----------------------------------------------------------------------
 ; text_init's "jsr scroll_map" ($CB1B, $CB80): step B's battle row hook
 ; (RAM, cv_sm).

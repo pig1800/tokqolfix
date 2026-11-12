@@ -281,6 +281,14 @@ UIF_DEC           = 11      ; copy_pointer_triplet's decimal digits (bank 15
                             ; $D671 is a stub; X in UI_DECX)
 UIF_DIV           = 12      ; div24_shift (bank 15 $C1D2 is a stub; X, Y in
                             ; UI_DECX, UI_DECY)
+UIF_WIPE          = 13      ; sub_CE2D (bank 14's room transfer wipe), before
+                            ; its loop: text 18 columns right, one row down
+UIF_WIPE_ROWS     = 14      ; after it: the two buffer rows, the text row back
+; The wipe's fixed-bank trampolines (sub_CE2D's and sub_CE7A's space;
+; mmc3_b15.asm checks these): bank 14 mapped while the game's routines run
+; and while UIF_WIPE_ROWS yields, the UI bank again on return.
+WIPE_STATUS       = $CE6E   ; draw_party_status + draw_party_window
+WIPE_WAIT         = $CEC4   ; wait_vblank
 UI_DECY           = $7F9C   ; UIF_DIV: the caller's Y
 UI_DECX           = $7F9D   ; UIF_DEC, UIF_DIV: the caller's X (the bytes before
                             ; UI_RAM2; the canvas RAM code ends below them)

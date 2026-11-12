@@ -355,6 +355,39 @@ new (records 1 and 2).
 - Full redraws draw 17 rows (`redraw_start`): `render_map_column`
   (rendering off) costs nothing; `text_draw_screen`, the redraw after a
   dialogue, takes 17 frames instead of 15.
+- **The two other redraws (fix, 2026-11-13; the user's state: an indoor
+  room transfer).**
+  - `sub_CE2D` is bank 14's room transfer with `$90` bit 4 ($BDF8): the new
+    room is wiped in from the right over the shown one, one metatile column
+    a frame, 18 columns, with the scroll unchanged.
+  - Its runs were the original's 30 tiles from buffer offsets 0 and `$1E`.
+    With 17-metatile columns the right tile column came out two metarows
+    low: every other tile column was shifted.
+  - 34-tile runs would make the queue 120 bytes a frame (112 before). The
+    game's flush then ends at line 260.9 and the NMI turns rendering on
+    after the pre-render line's vertical copy, so those frames show the
+    picture shifted (tried: `k22t`).
+  - **Now:**
+    - The UI bank (`UIF_WIPE`) first moves the text position one row down,
+      so `draw_party_status` starts at the camera's top row.
+    - The loop is the original's, with the right column at `$22`: the
+      camera's 15 rows and the attribute column (10 rows from the top row).
+      That is 112 bytes and the original's main-thread work a frame. An
+      earlier version did the loop in the UI bank, and its bank switches
+      cost 3-8 lines a column and 4 lag frames.
+    - Then `UIF_WIPE_ROWS` draws the two buffer rows as walking steps do
+      (109 bytes, one frame each) and puts the text position back.
+      `draw_party_status`/`window` and the waits go through fixed-bank
+      trampolines with bank 14 mapped, as under the original.
+  - The transfer ends 3 frames later than before (the user's state: frame
+    33, was 30).
+  - The final nametables equal a 34-tile wipe's, apart from 5 attribute
+    bytes of the row below the bottom buffer row. That row is outside the
+    live 17; this build writes the new room's attributes there.
+  - `sub_CE7A` (bank 14 $81AE: an event's map change redraws the player's
+    metarow, 10 metatiles) drew the row above: it now moves the text
+    position 9 rows and back 8 (was 8 and 7). It is compacted in place to
+    hold the wipe's second trampoline.
 
 `tools/lua/edge_check.lua` follows every map cell on screen during a step
 (all 240 lines) and compares it with the same world cell at rest before

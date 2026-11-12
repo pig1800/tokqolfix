@@ -73,6 +73,12 @@ FOURSCREEN_REGIONS = (
     (0xF6DC, 0xF6DF, "cbfd342bd219e33284ed36c42bda65fdc7633dac9c1415ff568c2bbd3b26ca10"),
     (0xCDDF, 0xCDE9, "d815102641b740f24cb15013a14430e151a40ecb2d9b269124de8c65ab99dd1f"),
     (0xD97C, 0xD983, "59d6fbaa0e124fedafa8d71450788ecc66187c4de7c1cb26c187811e297e4619"),
+    # the other two redraws (2026-11-13): sub_CE2D (the room transfer's
+    # wipe: its right column's offset, the UI bank's UIF_WIPE / _ROWS
+    # around it) and sub_CE7A (its row one further, as draw_party_status
+    # starts 8 above; compacted, the wipe's trampolines after it)
+    (0xCE2D, 0xCE79, "067ee3dbc8f9b5ff0e7528a7fb6834e605dadf30c2b6e72529db933ff83a9b94"),
+    (0xCE7A, 0xCED1, "b99a7a1e5d1244a75f6763b9fb27ce3de00389a16e855715e3cd53b0e4e4b255"),
     # map-canvas step 3 (the dialogue canvas): text_init's window rows call
     # the canvas RAM code ("jsr cursor_to_ppu / jsr tile_address", both
     # "jsr scroll_map")
