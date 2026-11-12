@@ -1641,3 +1641,97 @@ tactic is used).
 - **Checked:** the guard now answers.  The greeting and shop (a jump
   after text), the menu cycle and the new-game path are identical to the
   previous build.
+
+### Questions (2026-11-13): clear instead of scroll in the battle win; scroll in map mode
+
+**1. Does a full CHR pool force a clear in the battle win?  Yes.**
+- **The pool:** tiles `$A4-$DF`, 15 slots of 4 tiles (one kanji each).
+  Groups 0-7 are the subwindows' (reward, prisoner, item, tactic) and the
+  messages'; groups 8-14 are command kanji the pool may overwrite while no
+  command window is up.
+- **The rule** (`pool_choose`, asked by `overlay_entry` for a message that
+  continues a window, and by `ctrl_store` at a page start):
+  - Wanted `n` = the page's distinct kanji, +3 for each runtime name.
+  - Blocked = every pool slot used in the window's lines (all four lines at
+    `text_line` 0 and at 3, else lines 0..`text_line`) + `UI_PRES` (the
+    reward and prisoner windows' kanji).
+  - Free >= `n`: the message takes its slots and the engine scrolls on, as
+    the original.
+  - Free < `n` (C set, a "fallback"): the window is cleared (blank, top
+    line) and the page takes slots beside the windows' only.
+- **Measured** (`out/test/opt/poolprobe.lua`, the victory over 韓忠, state
+  r5/s2):
+
+  | frame | message | blocked (windows) | free | wanted | result |
+  |---|---|---|---|---|---|
+  | 1288 | 2nd, `text_line` 2 | 7 (0) | 8 | 6 | scroll on |
+  | 1391 | 3rd, `text_line` 3 | 8 (4) | 7 | 7 | scroll on (exact fit) |
+  | 1501 | 4th, after the capture choice | 14 (8) | 1 | 4 | **clear** |
+
+- **The prisoner window caused the third.**  Its 4 kanji (仲間入逃,
+  `wg_prison`) take pool slots while it is up: the reserved slots went from
+  4 (reward window) to 8.  Without them the same message would have had 5
+  free slots (4 wanted).
+- **Other causes of a clear in battle** (rare): a page with more than 12
+  kanji (`POOL_PAGE_MAX`) or a failed pool check goes to the band page;
+  lines on the band page always clear.
+- **If fewer clears are wanted:**
+  - A message's kanji that already sit in a window's slot (金 兵 糧 経 験 値
+    appear in the win messages themselves) could reuse that slot: up to 6
+    slots back.  The overlay is 2044 of 2048 bytes, so the code would live
+    in bank 26.
+  - A bigger pool has no room: all 23 groups are assigned (15 fixed
+    command kanji, 8 for the subwindows).
+
+**2. Where did the scroll in map mode come from?  The game's own, never
+switched off.**
+- `text_scroll_up` (`$D376`) is called from three places:
+  - `$D1BA`: after a line ended by `<NL>` / `<NL2>` / `<PAGE>` / `<WAIT>`
+    when the window holds 4 lines (the 4th line).  For `<PAGE>` it scrolls
+    first and waits after.
+  - `$D1DE`: at the end of a message (`<END>`) with 4 lines in the window.
+    The original scrolls one line so that a message that continues the
+    window has a free line.  The kanji build clears the window for the next
+    message in map mode, so the scroll gains nothing here.
+  - `$D2AC` (`scroll_text`, the page flip's `window_clear`): scrolls blank
+    rows; it looks like a quick wipe (3 frames), not a scroll.
+- **What the kanji build replaced:** the scroll at a `<PAGE>` wait (a flip
+  to a fresh window) and the continuation of a window (`@clear`).  The 4th
+  line and the end of a message were left as the original.
+- **Which messages** (`out/test/opt/scrollscan.py`: the compiled messages
+  run through the engine's line rules): 19 of 765.
+  - End of message with 4 lines (11): `b10_msg_139` 153 166 203 347 349;
+    `b11_msg_037` 044 137 163 273.
+  - A 4th line inside the message (12): `b10_msg_153` 203 325 399 463;
+    `b11_msg_044` 098 101 161 250 266 273.
+  - Story ones among them: 張世平's gold, 馬良, 水鏡先生's letter, 孫権's
+    last words, 孔明 urging 劉備's enthronement, 呂布's death, 徐庶's
+    mother's letter, the 荊州 orders.  The other 746 never put 4 lines in
+    the window before a flip (lines counted across `<WAIT>`s, which do not
+    clear).
+- **Checked** by running each message in map mode (`mkmsg.py` / `injrun.sh`
+  overwrite the far pointer of the save man's first message in state r4/s1
+  with the message's; `poolprobe.lua` logs the calls): every one of the 18
+  that can run without its event context calls `text_scroll_up` from `$D1BD`
+  (4th line) or `$D1E1` (end), where the scan said.  `b11_msg_266` ends the
+  talk early on its second officer name without the event.  Seven
+  messages with a 3-line window (`b10_msg_032` 238 372; `b11_msg_010` 062
+  135 219) never call it.
+- **Why it is slow:** 11-12 frames in map mode, 6-7 in battle (the same
+  engine code, no renderer).
+  - Each step flushes a window row (104 bytes) and the line that moves from
+    part 4 into part 3 (row 21 to 19) needs its kanji in the other part's
+    page: 13 tiles in the measured example, two upload frames.
+  - The engine moves half a line per step, so the kanji show half-shifted
+    in between (also in battle and the original).
+- **Options** (not done; the user decides):
+  - **A (recommended): no scroll in map mode.**
+    - The end-of-message scroll is skipped in map mode: a 9-byte patch of
+      `$D1DE` in the fixed bank, no address moves.  The window then keeps
+      its 4 lines.
+    - The compiler turns the one `<WAIT>` before an overflowing 4th line
+      into a `<PAGE>`.  All 12 cases have such a wait: no extra A presses;
+      the window clears at that wait.
+  - **B:** keep the original's scroll and upload the moving line's kanji
+    before the first step.  The half-shifted frames stay.
+  - **C:** leave it.
