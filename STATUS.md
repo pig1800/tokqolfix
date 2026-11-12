@@ -27,7 +27,7 @@ tests; see CHANGELOG for what each revision fixed.
   borrows the kana of the menus that code opens (derived from the
   original banks 13-15; build fails on a conflict).
 - Font (2026-11-12): Izumi16's embedded 16-pixel bitmaps only
-  (`JF-Dot-Izumi16.ttf`, never its outlines), as drawn (column 0 blank).  璝, which it
+  (`JF-Dot-Izumi16.ttf`, never its outlines), anchored bottom right (column 0 and row 0 blank).  璝, which it
   lacks, is composed from its bitmaps (`assets/fonts/kanji_fallback.tsv`;
   TEXT_RENDERER.md "Izumi16 bitmaps").
 
