@@ -284,11 +284,14 @@ UIF_DIV           = 12      ; div24_shift (bank 15 $C1D2 is a stub; X, Y in
 UIF_WIPE          = 13      ; sub_CE2D (bank 14's room transfer wipe), before
                             ; its loop: text 18 columns right, one row down
 UIF_WIPE_ROWS     = 14      ; after it: the two buffer rows, the text row back
-; The wipe's fixed-bank trampolines (sub_CE2D's and sub_CE7A's space;
-; mmc3_b15.asm checks these): bank 14 mapped while the game's routines run
-; and while UIF_WIPE_ROWS yields, the UI bank again on return.
+UIF_ROWEV         = 15      ; sub_CE7A (bank 15 $CE7A is a stub): an event's
+                            ; map change, the player's metarow redrawn
+; The fixed-bank trampolines of UIF_WIPE_ROWS and UIF_ROWEV (sub_CE2D's
+; and sub_CE7A's space; mmc3_b15.asm checks these): bank 14 mapped while
+; the game's routines run and while they yield, the UI bank again on return.
 WIPE_STATUS       = $CE6E   ; draw_party_status + draw_party_window
-WIPE_WAIT         = $CEC4   ; wait_vblank
+WIPE_TICK         = $CE7F   ; wait_frame_tick
+WIPE_WAIT         = $CE8A   ; wait_vblank
 UI_DECY           = $7F9C   ; UIF_DIV: the caller's Y
 UI_DECX           = $7F9D   ; UIF_DEC, UIF_DIV: the caller's X (the bytes before
                             ; UI_RAM2; the canvas RAM code ends below them)
@@ -365,6 +368,7 @@ TXF_PUT           = 8       ; map UI: text_put_tile (templates, item / tactic / 
 TXF_LABEL         = 9       ; map UI: a label (bank 14: the gold window, その他)
 TXF_MENU          = 10      ; the boot screens: the fixed set into the upper page (TXR_ON = $40)
 TXF_NAME          = 11      ; an officer record's kanji name: its glyph codes into TXR_NM (battle messages)
+TXF_LOOK          = 12      ; text_show_message after a 3rd line (map mode): V set = the next line would scroll
 TXR_N0            = 70      ; stage 0's count: the first switch in line 71's hblank
 TXR_ON            = $0780   ; bit 7: page 1 lower holds the renderer's tiles (map mode); bit 6:
                             ; the UI words in kanji (map mode $C0; the boot screens' fixed set $40)

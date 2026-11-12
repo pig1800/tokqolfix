@@ -386,8 +386,10 @@ new (records 1 and 2).
     live 17; this build writes the new room's attributes there.
   - `sub_CE7A` (bank 14 $81AE: an event's map change redraws the player's
     metarow, 10 metatiles) drew the row above: it now moves the text
-    position 9 rows and back 8 (was 8 and 7). It is compacted in place to
-    hold the wipe's second trampoline.
+    position 9 rows and back 8 (was 8 and 7). Since the map-mode page
+    breaks (TEXT_RENDERER.md) it is the UI bank's `UIF_ROWEV` behind a
+    stub, with a `wait_frame_tick` trampoline; its PPU writes are identical
+    (forced at the room transfer of the user's state, frames 10-40).
 
 `tools/lua/edge_check.lua` follows every map cell on screen during a step
 (all 240 lines) and compares it with the same world cell at rest before

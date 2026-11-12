@@ -79,7 +79,7 @@ ui_fns:
     .dw ui_info_draw-1, ui_binfo_enter-1, ui_binfo_exit-1, ui_army-1
     .dw ui_info_enter-1, ui_bstart-1, ui_wincb-1, ui_sm-1, ui_info_busy-1
     .dw ui_bsetup-1, ui_bsetup_end-1, ui_dec-1, ui_div-1, ui_wipe-1
-    .dw ui_wipe_rows-1
+    .dw ui_wipe_rows-1, ui_rowev-1
 
 ; ======================================================================
 ; UIF_WIPE / UIF_WIPE_ROWS: around sub_CE2D's loop (bank 15 $CE2D, bank
@@ -157,6 +157,47 @@ wipe_row:
     lda $0103,x                 ; ui_wipe_rows' saved game_mode
     sta game_mode
     jmp WIPE_WAIT
+
+; ======================================================================
+; UIF_ROWEV: sub_CE7A (bank 15 $CE7A, now a stub; bank 14 $81AE, an
+; event's map change): the player's metarow redrawn, 20 tiles of each tile
+; row from 9 columns left, no attributes.  The original's code, moved here
+; on 2026-11-13 (its fixed-bank space holds the map-mode page breaks):
+; draw_party_status starts 8 rows above now (was 7), so the text position
+; goes 9 rows on (was 8) and 8 back (was 7).  The bottom tile row is
+; "eor #$20" (bit 5 of the address is 0: the original's adc #$20 / #$E0).
+; ======================================================================
+DRAW_TILE_RUN = $D9ED
+
+ui_rowev:
+    lda #$09
+    jsr wipe_text_row
+    lda game_mode
+    pha
+    lda #$00
+    sta game_mode
+    jsr WIPE_TICK
+    jsr DRAW_PARTY_HEADER
+    jsr WIPE_STATUS
+    lda ppu_addr_lo_shadow
+    eor #$20
+    sta ppu_addr_lo_shadow
+    lda #$00
+    sta tile_attr
+    ldy #$24
+    ldx #$14
+    jsr DRAW_TILE_RUN
+    lda ppu_addr_lo_shadow
+    eor #$20
+    sta ppu_addr_lo_shadow
+    ldy #$00
+    ldx #$14
+    jsr DRAW_TILE_RUN
+    jsr WIPE_WAIT
+    pla
+    sta game_mode
+    lda #$F8
+    jmp wipe_text_row
 
 ; ======================================================================
 ; UIF_INFO_ENTER: the info screen, before battle_intro_screen.  Its block

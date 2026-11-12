@@ -1725,16 +1725,55 @@ switched off.**
     page: 13 tiles in the measured example, two upload frames.
   - The engine moves half a line per step, so the kanji show half-shifted
     in between (also in battle and the original).
-- **Options** (not done; the user decides):
-  - **A (recommended): no scroll in map mode.**
-    - The end-of-message scroll is skipped in map mode: a `bit TXR_ON /
-      bmi` before the `jsr text_scroll_up` at `$D1DE` (about 5-9 bytes).
-      The fixed bank has no free run that long now (24 scattered bytes), so
-      it takes compacting my own blocks; no existing routine moves.  The
-      window then keeps its 4 lines.
-    - The compiler turns the one `<WAIT>` before an overflowing 4th line
-      into a `<PAGE>`.  All 12 cases have such a wait: no extra A presses;
-      the window clears at that wait.
-  - **B:** keep the original's scroll and upload the moving line's kanji
-    before the first step.  The half-shifted frames stay.
-  - **C:** leave it.
+- **Options** offered: A, no scroll in map mode (an end-of-message skip
+  and the compiler turning a `<WAIT>` into a `<PAGE>`); B, keep the scroll
+  and upload first; C, leave it.  The user chose a runtime form of A, below.
+
+### Done (2026-11-13): in map mode a page break where the engine would scroll
+
+**The user:** "in map mode only, treat now-to-scroll as page break".
+
+- **After every line** (`$D1B4`: `cmp #$01 / bcc` in place of `cmp #$04 /
+  bne`, then `jsr map_lines` at `$D1BA`, fixed bank):
+  - `text_line` 4: the original scroll (outside map mode; in map mode
+    only for text the look-ahead cannot read).
+  - Map mode, after the 3rd line or a `<WAIT>`: bank 26's `TXF_LOOK` (by
+    `txr_call`; the answer in the V flag, which `txr_call` keeps) reads the
+    next `4 - text_line` lines from the overlay's text bank (`txr_rr`,
+    32-byte pieces).  If the last of them would end with `<NL>` / `<NL2>` /
+    `<PAGE>` / `<WAIT>` (the engine would scroll there) and none before it
+    is a `<PAGE>` or a later `<WAIT>`, the line just ended becomes a page
+    break: `PAGE_FLAG` (`page_flip` clears the window after the wait; in
+    map mode `page_start` only clears the flag again), and a 3rd line ended
+    by `<NL>` / `<NL2>` waits as at a `<WAIT>` (its control on the stack
+    becomes `$FD`).
+- **Why a line earlier than the scroll:** a break with 4 lines up puts the
+  ▼ on the 4th line's text (tried: 「桂陽の城▼ことも気になる」, and the cell
+  stays blank after the press).  The window never holds 4 lines with more
+  to come, so the ▼ sits on an empty line as at any page, and the break
+  is an existing `<WAIT>` whenever there is one.
+- **The end of a message with 4 lines** (`$D1DE`, `map_end4`): no scroll in
+  map mode.  The 4 lines stay; the caller waits for the button (no ▼ there)
+  and the next message starts on a cleared window (`overlay_entry`'s
+  `@clear`).  A wait and a clear at that point would add a press on a blank
+  window.
+- **Space:** `sub_CE7A` (an event's map change) moved to the UI bank
+  (`UIF_ROWEV`) to free its fixed-bank bytes.  No other routine moved; the
+  RAM image is unchanged.
+- **Checked** (the 19 messages injected into the save man's talk, first
+  pass compared with the previous build):
+  - no `text_scroll_up` from `$D1BD` / `$D1E1` in map mode;
+  - the same number of waits (A presses) in every message;
+  - a clear where each scroll was;
+  - the ▼ on an empty line at the breaks (`b11_msg_044`, `b10_msg_463`,
+    `b11_msg_250`).
+  - `b11_msg_266` now runs to its end; on the previous build its first
+    pass stopped two waits early, around its 4-line scroll.
+  - The 7 control messages: identical.
+  - Battle (the capture state's victory): the same pool decisions and the
+    same 4 engine scrolls.
+  - The room-transfer wipe: identical pictures and queue sizes.
+  - `sub_CE7A`, forced at the room transfer: identical PPU writes and
+    nametables.
+  - The greeting, the menu cycle, a battle, the title and the new-game path
+    are identical to the previous build.
