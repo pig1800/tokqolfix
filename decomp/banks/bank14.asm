@@ -2181,7 +2181,21 @@ b14_data_8DE7:
     .incbin "build/assets/bank14_data.bin", $0DE7, $000D
 
 b14_data_8DF4:
+.ifdef KANJI_TARGET
+    .incbin "build/assets/bank14_data.bin", $0DF4, $0030
+    ; $8E24, the shop's buy list: the original drew the gold window ($18),
+    ; then the list ($1A) over its top-left corner, and waited on the list.
+    ; The list first, then the gold window over it (b14_k_goldover, which
+    ; waits on the list); the original's bcc / jmp follow.
+    ldx #$1A
+    jsr text_window_restore
+    jsr b14_k_goldover
+    nop
+    nop
+    .incbin "build/assets/bank14_data.bin", $0E2E, $01D2
+.else
     .incbin "build/assets/bank14_data.bin", $0DF4, $020C
+.endif
 
 b14_data_9000:
     .incbin "build/assets/bank14_data.bin", $1000, $0222
@@ -2324,11 +2338,10 @@ b14_k_army_wait:
 
 ; The map UI in kanji (TEXT_RENDERER.md "Kanji UI").  Window $18's lines
 ; (the gold window, 12 wide at columns 18-29: kanji_build.py
-; MAP_UI_TEMPLATES): in map mode 金 / 兵糧 in kanji from column 20 (X, the
-; index after the line's indent), their bottom row the number's, the
-; number right aligned at column 28 in 6 cells from column 23.  A food
-; number under 6 digits leaves 糧's right half in column 23.  Elsewhere the
-; original lines.
+; MAP_UI_TEMPLATES): in map mode 金 / 兵糧 in kanji from column 19 (X - 1,
+; X the index after the line's indent), their bottom row the number's,
+; the number right aligned at column 28 in 6 cells from column 23 (5
+; digits leave a cell after 兵糧).  Elsewhere the original lines.
 b14_k_gold_line:
     bit TXR_ON
     bmi @k
@@ -2360,14 +2373,27 @@ b14_k_food_line:
     jsr read_inline_block_3     ; inline pointer/data follows the JSR (as b14_print_food)
     .incbin "build/assets/bank14_data.bin", $165C, $0002
     lda #$05
-    jsr read_stack_arg          ; X = column 23's index + 6
-    lda $0318-6,x
-    cmp #$0A
-    bne @r                      ; a 6-digit number
-    lda $0300-6,x               ; 糧's right half (the top row has the same code)
-    sta $0318-6,x
-@r:
-    rts
+    jmp read_stack_arg
+; The shop's buy list (from $8E24, after the list $1A is drawn): the gold
+; window over the list, then the list's state back for its cursor (the
+; template pointer $16/$17, the line count $54, text_mode) and the wait on
+; the list (C set: cancelled).  TXR_RX keeps $54: only redraw_start's
+; renderer call uses it, never inside a window.
+b14_k_goldover:
+    lda $54
+    sta TXR_RX
+    ldx #$18
+    jsr text_init
+    jsr text_restore_tiles
+    lda TXR_RX
+    sta $54
+    ldx #$1A
+    stx text_mode
+    lda data_EDA1,x
+    sta $16
+    lda data_EDD1,x
+    sta $17
+    jmp text_wait_loop
 ; Window $20's empty entry: その他 in map mode, そのた elsewhere.
 b14_k_sonota:
     bit TXR_ON

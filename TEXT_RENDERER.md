@@ -558,16 +558,21 @@ Still kana:
 - **Gold window `$18`.**  It was columns 20-29, with 8x8 金 / 兵ろう at
   column 22 in the top row and 7 digits ending at column 28.  It is now
   columns 18-29, width 12.
-  - 金 and 兵糧 in 16x16 at column 20, their bottom row the number's.
-  - The number right-aligned at column 28, in 6 cells (23-28).
-  - A food number under 6 digits leaves 糧's right half in column 23.
-- **Why not your layout.**  The request was border at 19, label at 20,
-  number to 29, border at 30.  Column 30 is outside the redraw, and 19 is
-  not an even start.  A label at column 19 would also be cut: the item
-  list's border (column 19) is drawn over the gold window each time the
-  list opens again.
-- **Result.**  Up to 4 digits leave a gap after 兵糧.  5 digits touch
-  it.  6 digits replace 糧's lower right.
+  - 金 and 兵糧 in 16x16 at column 19, right after the left border, their
+    bottom row the number's.
+  - The number right-aligned at column 28, in 6 cells (23-28).  Up to 5
+    digits leave a cell after 兵糧.
+- **Draw order.**  The shop's buy list (bank 14 `$8E24`) drew the gold
+  window first and the item list over its top-left corner (rows 12-13,
+  columns 18-19, where 金 now starts).  It now draws the list first, then
+  the gold window over it (`b14_k_goldover`).  Then it restores the list's
+  cursor state (`$16/$17` the template pointer, `$54` the line count,
+  `text_mode`) and waits on the list as before.
+- **Why not the user's first layout** (border at 19, label at 20, number
+  to 29, border at 30).  Column 30 is outside the map redraw, and 19 is
+  not an even start.  The user then chose between this draw-order change
+  and an odd-column window plus clearing column 30.  The draw order is
+  the smaller change.
 - **Buy / sell `$1C`.**  It was columns 22-29, width 8.  It is now 20-29,
   width 10, for 買いに来た (7 cells).
 
@@ -627,3 +632,29 @@ attributes).
 - Shop, record office, give: right; `TXR_FULL` 0.
 - Stack: lowest task push `$010D` on the shop path, the same as the build
   before the kanji UI.
+
+### Sixth round (2026-11-12): the gold window over the buy list
+
+The user's choice:
+- either the item list drawn first with the gold window over it, and 金 /
+  兵糧 one tile left;
+- or the right border one tile right with the numbers one tile right, and
+  the left border one tile right.
+
+**Assessment.**  The first is the smaller change.
+- It is one bank-14 routine and a 10-byte patch at `$8E24`.
+- The second needs two new mechanisms:
+  - a window on an odd column (template positions and attributes are on
+    the 2-column grid);
+  - clearing column 30 when windows close (the map redraw never writes
+    it).
+
+**Done.**  The first, with 金 / 兵糧 at column 19.
+- Shop path: the list, then the gold window over its corner, then the
+  wait on the list.  The cursor, buying, buying again and cancel are
+  right.
+- 5 digits leave one cell after 兵糧.
+- The 糧 fix-up in column 23 is gone: the number's 6 cells (23-28) no
+  longer reach the label.
+- Stack: lowest task push `$010D`, as before.
+- The original 256 KiB build is byte-identical.

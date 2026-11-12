@@ -287,7 +287,7 @@ def write_hook_constants(labels: dict[str, int]) -> None:
     # The map UI's labels (bank 14's gold window and その他: TXF_LABEL).
     lines.append(f"TXR_CALL = ${cv['txr_call']:04X}")
     for line in inc.read_text(encoding="utf-8").splitlines():
-        m = re.match(r"^(TXR_ON|TXR_TA|TXR_TX|TXF_LABEL)\s*=\s*(\S+)", line)
+        m = re.match(r"^(TXR_ON|TXR_TA|TXR_TX|TXR_RX|TXF_LABEL)\s*=\s*(\S+)", line)
         if m:
             lines.append(f"{m.group(1)} = {m.group(2)}")
     text = "".join(line + "\n" for line in lines)
@@ -549,14 +549,14 @@ def build_ui_data() -> int:
 # on even columns) and the width.  The map's redraw, which closes windows,
 # covers screen columns 2-29 only, so no window may reach column 30.  The
 # gold window $18 (columns 20-29) becomes 12 wide at columns 18-29: 金 /
-# 兵糧 in 16x16 kanji from column 20 (the item list's border, column 19,
-# is drawn over this window when the list opens again), the number right
-# aligned at column 28 (6 digits).  $1C (columns 22-29) becomes 10 wide at
-# 20-29 for 買いに来た.
+# 兵糧 in 16x16 kanji from column 19, right after its border, the number
+# right aligned at column 28 (6 digits).  The shop draws it over the buy
+# list (bank 14 b14_k_goldover; the original drew the list over it).  $1C
+# (columns 22-29) becomes 10 wide at 20-29 for 買いに来た.
 MAP_UI_TEMPLATES = {0x18: (1, 12), 0x1C: (2, 10)}
 # The labels TXF_LABEL writes (kanji_common.MAP_UI_LABELS order): the first
 # cell's offset from the row-buffer index passed in, and the index after.
-MAP_UI_LABEL_POS = ((0, 3), (0, 3), (0, 4))
+MAP_UI_LABEL_POS = ((-1, 3), (-1, 3), (0, 4))
 
 
 def build_txr_ui() -> None:
