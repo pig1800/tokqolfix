@@ -164,7 +164,15 @@ MAP_UI_WORDS = (
     (0x1F, "のうりょく", "能力"), (0x1F, "くわえる", "加える"), (0x1F, "はずす", "外す"),
     (0x1F, "かいこ", "解雇"),
     (0x24, "きろく", "記録"), (0x24, "よぶ", "呼ぶ"),
+    (0x29, "はやい", "速い"), (0x29, "ふつう", "普通"), (0x29, "おそい", "遅い"),
 )
+# The boot menu's four lines (bank 13 $90E9), kana -> kanji.
+BOOT_MENU = {
+    "げーむをはじめる": "ゲームを始める",
+    "れきししょをとうろくする": "歴史書を登録する",
+    "れきししょをけす": "歴史書を消す",
+    "れきししょのこぴー": "歴史書のコピー",
+}
 MAP_UI_LABELS = ("金", "兵糧", "その他")
 GLOSSARY = ROOT / "decomp" / "text" / "kanji_r14" / "glossary.tsv"
 
@@ -220,6 +228,7 @@ def ui_kanji() -> list[str]:
     out: list[str] = []
     text = (UI_LABELS + UI_COMMANDS + "".join(k for _, _, k in wordlist())
             + "".join(k for _, _, k in MAP_UI_WORDS) + "".join(MAP_UI_LABELS)
+            + "".join(BOOT_MENU.values())
             + "".join(k for _, k in map_places().values()))
     for ch in KANJI_RE.findall(text):
         if ch not in out:

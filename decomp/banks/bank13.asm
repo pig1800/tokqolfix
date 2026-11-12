@@ -290,7 +290,11 @@ b13_loc_8AC1:
     dec text_palette
     bpl b13_loc_8AAB
     jsr ppu_init
+.ifdef KANJI_TARGET
+    jsr TXR_MENU                ; the boot menus in kanji (the renderer's pages)
+.else
     jsr loc_C139
+.endif
     lda $0F
     sta ppu_update_off
     ldx #$00
@@ -354,7 +358,11 @@ b13_data_8B3B:
 b13_loc_8B43:
     jsr wait_vblank
     jsr ppu_init
+.ifdef KANJI_TARGET
+    jsr TXR_MENU                ; the boot menus in kanji (the renderer's pages)
+.else
     jsr loc_C139
+.endif
     lda #$84
     sta input_buttons
     ldx #$1E
@@ -419,7 +427,11 @@ b13_loc_8BB2:
     bne b13_loc_8BB0
     jmp b13_loc_9FAB
     jsr ppu_init
+.ifdef KANJI_TARGET
+    jsr TXR_MENU                ; the boot menus in kanji (the renderer's pages)
+.else
     jsr loc_C139
+.endif
     lda #$84
     sta input_buttons
     ldx #$1E
@@ -465,7 +477,11 @@ b13_loc_8C06:
 b13_loc_8C23:
     jsr wait_vblank
     jsr ppu_init
+.ifdef KANJI_TARGET
+    jsr TXR_MENU                ; the boot menus in kanji (the renderer's pages)
+.else
     jsr loc_C139
+.endif
     lda #$84
     sta input_buttons
     ldx #$1E
@@ -506,7 +522,13 @@ b13_data_8C5D:
     jmp b13_loc_8AA3
 
 b13_data_8C7B:
+.ifdef KANJI_TARGET
+    .incbin "build/assets/bank13_data.bin", $0C7B, $0006
+    jsr TXR_MENU                ; ($8C81, copying: the boot menus in kanji)
+    .incbin "build/assets/bank13_data.bin", $0C84, $006B
+.else
     .incbin "build/assets/bank13_data.bin", $0C7B, $0074
+.endif
 
 b13_loc_8CEF:
     jmp b13_loc_9587
@@ -563,7 +585,11 @@ b13_loc_901C:
     cmp #$FF
     beq b13_loc_9029
     iny
+.ifdef KANJI_TARGET
+    jsr TXR_TP                  ; (the boot menu's lines in kanji)
+.else
     jsr text_put_tile
+.endif
     jmp b13_loc_901C
 b13_loc_9029:
     lda text_col

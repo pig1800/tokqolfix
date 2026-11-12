@@ -21,6 +21,7 @@
 .include "../../decomp/include/kanji.inc"
 
 SCROLL_MAP        = $DB87
+LOC_C139          = $C139       ; NMI on, a frame, rendering on (the game's)
 CALL_UI_C         = $C48D       ; call_ui (mmc3_b15.asm; checked by kanji_build.py)
 C343_PLAIN        = $FFE0       ; c343_plain (mmc3_b15.asm; checked by kanji_build.py)
 FLUSH_VRAM_QUEUE  = $D9A1
@@ -460,15 +461,11 @@ txr_rcx:
     lda TXR_RET
     rts
 
-; text_draw_cursor's tile store ($CD07, "pla / sta $0400,x"; also
-; text_put_char's ▼ and blank): in map mode ▶ ($70), ▼ ($71) and the
-; blank ($0A) are the fixed set's $0A, $0B and $7F.
+; text_draw_cursor's tile store ($CD07, "pla / sta $0400,x" patched to
+; "pla / jsr txr_cur"; also text_put_char's ▼ and blank): A = the tile.  In
+; map mode ▶ ($70), ▼ ($71) and the blank ($0A) are the fixed set's $0A,
+; $0B and $7F.
 txr_cur:
-    pla
-    sta TXR_C0
-    pla
-    sta TXR_C1
-    pla                         ; the tile
     bit TXR_ON
     bpl @st
     cmp #$0A
@@ -483,10 +480,6 @@ txr_cur:
     lda #$7F
 @st:
     sta $0400,x
-    lda TXR_C1
-    pha
-    lda TXR_C0
-    pha
     rts
 
 ; screen_refresh's "jsr load_battle_palette" ($CF22, the map setup): the
@@ -520,5 +513,15 @@ txr_tpm:
     stx TXR_TX
     ldx #TXF_PUT
     jmp txr_call
+
+; The boot menus (bank 13: the main menu, starting, registering, deleting
+; and copying a history book), in place of their "jsr loc_C139" after
+; ppu_init (rendering off): the renderer's pages, as at the map setup, so
+; their menus and messages are drawn in kanji; then the original.  The
+; next clear_screen gives the font back.
+txr_menu:
+    ldx #TXF_MENU
+    jsr txr_call
+    jmp LOC_C139
 
 cv_ram_end:

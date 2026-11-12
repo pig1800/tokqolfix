@@ -658,3 +658,57 @@ The user's choice:
   longer reach the label.
 - Stack: lowest task push `$010D`, as before.
 - The original 256 KiB build is byte-identical.
+
+## Boot menus in kanji (2026-11-12)
+
+The user's request: the last UI left in kana before the officer names.
+That is the game's boot menu, including the message-speed choice.
+
+**How.**  The boot menus are plain text windows on black, so the map
+renderer runs there too.
+- **Turning it on.**  At the boot screens that show menus, bank 13's
+  `jsr loc_C139` after `ppu_init` becomes `jsr txr_menu` (RAM).
+  - `TXF_MENU` fills the screen with the renderer's blank `$7F` again
+    (clear_screen's `$0A` is the renderer's ▶), then runs the map setup.
+  - The screens: the main menu (`$8AC8`), starting (`$8B49`), registering
+    (`$8BCB`), deleting (`$8C29`) and copying (`$8C81`).
+  - The next clear_screen gives the font back, as when leaving map mode.
+  - The officer-status and name-entry screens of the register flow stay
+    on the font (their `loc_C139` is unchanged).
+- **The main menu's lines.**  Bank 13 `$9023` (`text_put_tile` for the
+  strings at `$90E9`) goes through `txr_tp`.  The renderer substitutes
+  them by string pointer (`ui_r1`, `kanji_common.BOOT_MENU`):
+  - げーむをはじめる → ゲームを始める
+  - れきししょをとうろくする → 歴史書を登録する (13 cells: the window's full width)
+  - れきししょをけす → 歴史書を消す
+  - れきししょのこぴー → 歴史書のコピー
+- **Speed window `$29`.**  はやい / ふつう / おそい become 速い / 普通 /
+  遅い.  The window grows from 6 to 7 columns for 普通.
+- **Messages.**  The two copy prompts' こぴー became コピー (r14 dtx), as in
+  the menu.
+
+**Fixes found on the way:**
+- **Raw upper-page tiles.**  The history book list writes its L
+  (`$EB`, the bank-9 UI block in the upper page) as a raw cell, and the
+  renderer read every code `$80-$F9` as a kanji half.  The kanji codes
+  are `$80-$BF` (REG 0-31), so `xlate` now passes `$C0-$FF` through.
+- **Label clash, again.**  The new RAM label `txr_boot` became `TXR_BOOT`
+  in `canvas_ram.inc`, the same name as the renderer's flag.  The renderer
+  wrote its flag into the stub's code, and the second boot screen
+  crashed.  The label is now `txr_menu`.  `kanji_build` also fails the
+  build if any `canvas_ram.inc` name shadows a `kanji.inc` symbol.
+- **RAM.**  `txr_cur` no longer moves its return address around: the
+  site is now `pla / jsr txr_cur`.  That freed 16 bytes for the stub.  The
+  RAM image is 746 of 757 bytes.
+
+**Checks:**
+- Battery boot: main menu, start (book list, prompt, speed), then the town.
+- Register, delete (with yes/no) and copy flows: right.
+- New-game path, frames 1100-4200:
+  - the same screens as the previous build, shifted by at most 2 frames;
+  - the only new screens are the speed window's (kanji) and one black
+    transition frame.
+- The original 256 KiB build is byte-identical.
+
+**Still kana:** the name-entry grid's commands もどる / すすめ / おわる
+(register flow), and the grid itself (the kana keyboard).

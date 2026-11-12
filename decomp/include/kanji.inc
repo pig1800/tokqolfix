@@ -341,6 +341,7 @@ TXF_RCC           = 6       ; text_render_cell: continue (after uploads or a pau
 TXF_FILL          = 7       ; set_ppu_scroll's fill (cv_fill)
 TXF_PUT           = 8       ; map UI: text_put_tile (templates, item / tactic / place names)
 TXF_LABEL         = 9       ; map UI: a label (bank 14: the gold window, その他)
+TXF_MENU          = 10      ; the boot menus: the screen blank again, then the map setup
 TXR_N0            = 70      ; stage 0's count: the first switch in line 71's hblank
 TXR_ON            = $0780   ; bit 7: page 1 lower holds the renderer's tiles (map mode)
 TXR_UQN           = $0781   ; staged tiles the NMI has still to upload
@@ -348,8 +349,8 @@ TXR_UQR           = $0782   ; the NMI's offset in TXR_UQ
 TXR_BOOT          = $0783   ; bit 7: pages 2-4 hold the fixed set (since reset)
 TXR_QX            = $0784   ; text_draw_line: the queue's end index
 TXR_RET           = $0785   ; text_render_cell's return value (the line-end byte)
-TXR_C0            = $0786   ; txr_cur: the return address
-TXR_C1            = $0787
+TXR_HB            = $0786   ; text_draw_line's wait: the queue byte held back (0: none)
+TXR_HI            = $0787   ;   and its index
 TXR_RS            = $0788   ; txr_rr: 2, source address
 TXR_RST           = $078A   ; txr_rr: 2, source stride
 TXR_RN            = $078C   ; txr_rr: byte count
@@ -401,9 +402,6 @@ TXR_SKIP          = $07FC   ; map UI: kana bytes still to skip (a word shown in 
 TXR_UR            = $07FD   ; map UI: REG entry 16-31 taken last (round robin)
 TXR_PX            = $07FE   ; map UI: put_str's row-buffer index
 TXR_LA            = $07FF   ; map UI: the label's row-buffer index after it
-TXR_HB            = TXR_PX  ; text_draw_line's wait: the queue byte held (0: none)
-TXR_HI            = TXR_LA  ;   and its index (both free then: no map UI call
-                            ;   comes between the hold and the release)
 TXR_MARK          = TXR_UQ  ; GC: 16-byte bitmap of the tiles shown (the staging area is idle)
 ; Battery RAM (the canvas code's old space, after the RAM image), from the
 ; top down to TXR_TABLES:
