@@ -400,7 +400,7 @@ txr_mapinit:
     bne @cmd
     jsr busy_off
     jsr txr_reset
-    lda #$80
+    lda #$C0                    ; the renderer (bit 7) and the UI words (bit 6)
     sta TXR_ON
     rts
 
@@ -541,8 +541,11 @@ txr_reset:
 ; ----------------------------------------------------------------------
 txr_fill:
     bit TXR_ON                  ; leaving map mode: the font back first
-    bpl cvf_go                  ; (TEXT_RENDERER.md)
+    bpl @fx                     ; (TEXT_RENDERER.md)
     jsr txr_restore
+@fx:
+    lda #0                      ; (the boot screens' fixed set ends too)
+    sta TXR_ON
 cvf_go:
     lda $00
     ldy #1                      ; two tables (no subroutine: the original
@@ -583,21 +586,69 @@ cvf_tdone:
     bpl cvf_table
     rts
 
-; The boot menus (txr_menu in RAM, after ppu_init: rendering and the NMI
-; off).  clear_screen filled the screen with the old font's blank $0A,
-; which is the renderer's ▶: the table and its twin again with BLANK
-; (attributes 0), then the map setup.  $00-$02 as the fill left them.
+; The boot screens (txr_menu in RAM, after ppu_init: rendering and the NMI
+; off): the menus, starting / registering / deleting / copying a history
+; book, the name entry.  No arbitrary text there, so no renderer: the
+; font stays in page 1 and the fixed set (txr_ui.inc: the kanji of the
+; boot menu, the speed window, the name entry) goes to upper-page tiles
+; FIX_FIRST.. (the battle set's tiles there are never shown on these
+; screens).  The UI words are put with those tiles (TXR_ON = $40).  The
+; battle pool's tiles now hold the set: messages use the band page.
 txr_menuinit:
-    lda #$20
-    sta $00
-    lda #BLANK
-    sta $01
-    lda #0
-    sta $02
-    jsr cvf_go
-    lda #$0A
-    sta $01
-    jmp txr_mapinit
+    jsr busy_on
+    ldx #0
+@g:
+    stx TXR_G
+    lda fix_clo,x
+    sta TXR_K
+    lda fix_chi,x
+    sta TXR_K+1
+    jsr read_kanji              ; TXR_GBUF[0-31]
+    lda TXR_G
+    asl a
+    asl a
+    adc #FIX_FIRST              ; (C clear)
+    sta TXR_T
+    ldy #0                      ; t: top-left
+    jsr fix_tile
+    ldy #16                     ; t+1: bottom-left
+    jsr fix_tile
+    ldy #8                      ; t+2: top-right
+    jsr fix_tile
+    ldy #24                     ; t+3: bottom-right
+    jsr fix_tile
+    ldx TXR_G
+    inx
+    cpx #FIX_N
+    bne @g
+    jsr busy_off
+    lda KANJI_WIN_COL
+    and #$3F
+    ora #WINCOL_CHECKED         ; checked, not usable
+    sta KANJI_WIN_COL
+    lda #$40
+    sta TXR_ON
+    rts
+
+; Tile TXR_T = TXR_GBUF[Y..Y+7] in plane 0, plane 1 zero; then TXR_T + 1.
+fix_tile:
+    lda TXR_T
+    jsr tile_addr
+    ldx #8
+@b:
+    lda TXR_GBUF,y
+    sta PPUDATA
+    iny
+    dex
+    bne @b
+    txa
+    ldx #8
+@z:
+    sta PPUDATA
+    dex
+    bne @z
+    inc TXR_T
+    rts
 
 ; ======================================================================
 ; PPU helpers (rendering off, busy: the main thread owns the PPU)
@@ -1938,6 +1989,8 @@ put_str:
     iny
     sty TXR_TA
     stx TXR_PX
+    bit TXR_ON
+    bpl @fix                    ; the boot screens: the fixed set's tiles
     tay
     lda ui_gc_lo,y
     sta TXR_K
@@ -1949,6 +2002,22 @@ put_str:
     sta $0318,x                 ; picks the top or the bottom tile)
     ora #1
     sta $0301,x
+    sta $0319,x
+    inx
+    inx
+    ldy TXR_TA
+    jmp @l
+@fix:
+    tay
+    lda ui_fx,y                 ; t (t, t+1, t+2, t+3 = TL, BL, TR, BR)
+    ldx TXR_PX
+    sta $0300,x
+    clc
+    adc #1
+    sta $0318,x
+    adc #1
+    sta $0301,x
+    adc #1
     sta $0319,x
     inx
     inx

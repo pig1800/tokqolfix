@@ -281,13 +281,14 @@ battle_shake:
     rts
 battle_shake_end:               ; (game code for the RAM gates)
 
-; Map-mode UI kanji (TEXT_RENDERER.md "Kanji UI"): text_put_tile's calls in
-; text_input ($CC02, the window templates) and in draw_string_from_pointer
-; ($D5C0, item, tactic and place names).  In map mode the renderer puts
-; the byte, or a known kana word's kanji form (TXF_PUT, through RAM).
+; UI kanji (TEXT_RENDERER.md "Kanji UI"): text_put_tile's calls in
+; text_input ($CC02, the window templates), in draw_string_from_pointer
+; ($D5C0, item, tactic and place names) and in the boot menu's lines (bank
+; 13).  With TXR_ON bit 6 (map mode, the boot screens) the renderer bank
+; puts the byte, or a known kana word's kanji form (TXF_PUT, through RAM).
 txr_tp:
     bit TXR_ON
-    bmi @m
+    bvs @m
     jmp TEXT_PUT_TILE
 @m:
     jmp TXR_TPM

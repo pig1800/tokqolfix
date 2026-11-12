@@ -514,11 +514,10 @@ txr_tpm:
     ldx #TXF_PUT
     jmp txr_call
 
-; The boot menus (bank 13: the main menu, starting, registering, deleting
-; and copying a history book), in place of their "jsr loc_C139" after
-; ppu_init (rendering off): the renderer's pages, as at the map setup, so
-; their menus and messages are drawn in kanji; then the original.  The
-; next clear_screen gives the font back.
+; The boot screens (bank 13: the main menu, starting, registering, deleting
+; and copying a history book, the name entry), in place of their "jsr
+; loc_C139" after ppu_init (rendering off): the fixed kanji set into the
+; upper page (TXF_MENU); then the original.  The next clear_screen ends it.
 txr_menu:
     ldx #TXF_MENU
     jsr txr_call

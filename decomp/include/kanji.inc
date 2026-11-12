@@ -341,9 +341,10 @@ TXF_RCC           = 6       ; text_render_cell: continue (after uploads or a pau
 TXF_FILL          = 7       ; set_ppu_scroll's fill (cv_fill)
 TXF_PUT           = 8       ; map UI: text_put_tile (templates, item / tactic / place names)
 TXF_LABEL         = 9       ; map UI: a label (bank 14: the gold window, その他)
-TXF_MENU          = 10      ; the boot menus: the screen blank again, then the map setup
+TXF_MENU          = 10      ; the boot screens: the fixed set into the upper page (TXR_ON = $40)
 TXR_N0            = 70      ; stage 0's count: the first switch in line 71's hblank
-TXR_ON            = $0780   ; bit 7: page 1 lower holds the renderer's tiles (map mode)
+TXR_ON            = $0780   ; bit 7: page 1 lower holds the renderer's tiles (map mode); bit 6:
+                            ; the UI words in kanji (map mode $C0; the boot screens' fixed set $40)
 TXR_UQN           = $0781   ; staged tiles the NMI has still to upload
 TXR_UQR           = $0782   ; the NMI's offset in TXR_UQ
 TXR_BOOT          = $0783   ; bit 7: pages 2-4 hold the fixed set (since reset)

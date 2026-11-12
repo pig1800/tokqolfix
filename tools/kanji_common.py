@@ -165,7 +165,13 @@ MAP_UI_WORDS = (
     (0x1F, "かいこ", "解雇"),
     (0x24, "きろく", "記録"), (0x24, "よぶ", "呼ぶ"),
     (0x29, "はやい", "速い"), (0x29, "ふつう", "普通"), (0x29, "おそい", "遅い"),
+    (0x26, "もどる", "戻る"), (0x26, "すすめ", "進め"), (0x26, "おわる", "終わる"),
 )
+# Windows shown on the boot screens (title mode): their kanji come from the
+# fixed set (FIXED_UI), not the map renderer.
+BOOT_WINDOWS = (0x26, 0x29)
+# The name-entry screen's title (bank 13 $9331, a draw_string block).
+NAME_TITLE = "名前を入れてください"
 # The boot menu's four lines (bank 13 $90E9), kana -> kanji.
 BOOT_MENU = {
     "げーむをはじめる": "ゲームを始める",
@@ -228,7 +234,7 @@ def ui_kanji() -> list[str]:
     out: list[str] = []
     text = (UI_LABELS + UI_COMMANDS + "".join(k for _, _, k in wordlist())
             + "".join(k for _, _, k in MAP_UI_WORDS) + "".join(MAP_UI_LABELS)
-            + "".join(BOOT_MENU.values())
+            + "".join(BOOT_MENU.values()) + NAME_TITLE
             + "".join(k for _, k in map_places().values()))
     for ch in KANJI_RE.findall(text):
         if ch not in out:

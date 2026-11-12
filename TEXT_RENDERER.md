@@ -664,8 +664,9 @@ The user's choice:
 The user's request: the last UI left in kana before the officer names.
 That is the game's boot menu, including the message-speed choice.
 
-**How.**  The boot menus are plain text windows on black, so the map
-renderer runs there too.
+**How (first version, replaced the same day by the fixed set below).**
+The boot menus are plain text windows on black, so the map renderer ran
+there too.
 - **Turning it on.**  At the boot screens that show menus, bank 13's
   `jsr loc_C139` after `ppu_init` becomes `jsr txr_menu` (RAM).
   - `TXF_MENU` fills the screen with the renderer's blank `$7F` again
@@ -712,3 +713,63 @@ renderer runs there too.
 
 **Still kana:** the name-entry grid's commands もどる / すすめ / おわる
 (register flow), and the grid itself (the kana keyboard).
+
+### Boot screens: a fixed tileset (2026-11-12)
+
+The user's direction: the title menu and the name entry have no
+arbitrary text, so they use a fixed tileset, not the renderer.
+
+**The fixed set.**  17 kanji, from `kanji_build.build_txr_ui`:
+- the boot menu (`BOOT_MENU`): 始 歴 史 書 登 録 消;
+- the name-entry title (`NAME_TITLE`): 名 前 入;
+- the speed window `$29`: 速 普 通 遅;
+- the name entry `$26`: 戻 進 終.
+
+They take upper-page tiles `$80-$C3`, at t, t+1, t+2, t+3 = TL, BL, TR,
+BR.  The boot screens' battle set there is never shown on them.  The UI
+block's L at `$EB` is kept.
+
+**Turning it on.**  At the boot screens' `jsr loc_C139` after `ppu_init`
+(rendering off), `txr_menu` calls `TXF_MENU`.
+- The sites: the main menu, start, register, delete, copy, and the name
+  entry (`$8BF3`).
+- `TXF_MENU` writes the set into CHR (from the glyph banks) and sets
+  `TXR_ON` = `$40`.
+- It marks the battle pool checked and unusable (`KANJI_WIN_COL`), so
+  the messages use the band page as before the pool existed.
+- The font stays in page 1, and the renderer stays off.  clear_screen
+  ends the mode (`txr_fill` clears `TXR_ON`).
+
+**`TXR_ON` bits.**
+- Bit 7: the map renderer.
+- Bit 6: the UI words in kanji (map mode `$C0`, the boot screens `$40`).
+- Every renderer test is on bit 7.  The `text_put_tile` gate (`txr_tp`)
+  tests bit 6 (`bvs`).
+- In `put_str` a kanji is the fixed set's four tiles when bit 7 is clear
+  (`ui_fx`), and a REG code otherwise.
+
+**Name entry.**
+- もどる / すすめる / おわる become 戻る / 進める / 終わる.
+- The title なまえを　いれてください becomes 名前を入れてください: a new
+  `draw_string` block (`boot_title.inc`, rows 2-3 from column 9).  It sits
+  in bank 13's filler at `$8D20`, which no code or CDL ever read.  The
+  inline pointer at `$9126` points to it.
+
+**Removed.**  The renderer on the boot screens (the `$7F` refill, the
+map setup there).  The renderer's `$C0` passthrough stays.
+
+**Checks:**
+- Battery boot: the main menu, start (list, prompt, 速い 普通 遅い), the
+  town.
+- Register: the name entry with the kanji title and commands, name
+  input.
+- Delete and copy (messages on the band page, yes/no): right.
+- New-game path: the story and town screens are the previous build's,
+  shifted by at most 2 frames.  The new screens are the speed window's
+  and one black transition frame.
+- Map menus: still in kanji.
+- The original 256 KiB build is byte-identical.
+
+States saved by an earlier build hold `TXR_ON` = `$80`.  Their map UI
+words stay in kana until the next map setup (a building entered or left,
+a battle).
