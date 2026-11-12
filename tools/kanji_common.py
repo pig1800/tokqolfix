@@ -414,7 +414,10 @@ def font_rows(ch: str) -> list[list[int]] | None:
 # them).  A part: (donor kanji, columns c0-c1, rows r0-r1, placed at x, y,
 # the part's columns dropped); then the pixels erased.
 GLYPH_COMPOSE = {
-    "璝": ((("理", 0, 4, 0, 15, 0, 0, ()), ("潰", 4, 15, 0, 15, 4, 0, ())), ()),
+    # 璝: 理's 王 (rows 0-13: row 14 is 里's base), then 潰's 貴 two columns
+    # narrower (one column dropped each side of 中's centre) from column 6,
+    # so a free column stays between them and on the right.
+    "璝": ((("理", 0, 4, 0, 13, 0, 0, ()), ("潰", 4, 14, 0, 15, 6, 0, (3, 7))), ()),
 }
 
 

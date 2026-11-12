@@ -943,8 +943,10 @@ and chose Izumi16 for every glyph.
   cell.
 
 **Coverage:** 981 of the 982 kanji.  璝 is not in the font.  It is composed
-from Izumi16's 理 (王, columns 0-4) and 潰 (貴, columns 4-15)
-(`GLYPH_COMPOSE`).
+from Izumi16's 理 (王: columns 0-4, rows 0-13) and 潰 (貴: two columns
+narrower, from column 6) (`GLYPH_COMPOSE`).  A free column stays between
+them and on the right.  The first version (貴 from column 4) merged 王's
+top stroke into 貴's (fixed after the user's check).
 
 **Removed:** the MS Gothic composites and the original game's name glyphs
 (闞 騭 邕 are Izumi16's now).  No glyph comes from the ROM any more.  The
