@@ -2191,14 +2191,23 @@ b14_data_9000:
 ;   Window $18/$22 CALL: the 金 tile ($6C), then gold ($6076).
 ; ----------------------------------------------------------------------
 b14_wincb_gold_line:
+.ifdef KANJI_TARGET
+    jmp b14_k_gold_line         ; (map mode: 金 in kanji; TEXT_RENDERER.md "Kanji UI")
+    .dsb 5, $EA
+.else
     lda #$6C
     sta $0332                   ; Saved text tile rows for window redraw.
     jmp b14_print_gold
+.endif
 ; ----------------------------------------------------------------------
 ; b14_wincb_food_line
 ;   Window $18/$22 CALL: 兵ろう ($7F $35 $3F), then food ($6079).
 ; ----------------------------------------------------------------------
 b14_wincb_food_line:
+.ifdef KANJI_TARGET
+    jmp b14_k_food_line         ; (map mode: 兵糧 in kanji)
+    .dsb 15, $EA
+.else
     lda #$7F
     sta $0302                   ; Top 8x8 tiles for the four text lines.
     lda #$35
@@ -2206,6 +2215,7 @@ b14_wincb_food_line:
     lda #$3F
     sta $0304                   ; Top 8x8 tiles for the four text lines.
     jmp b14_print_food
+.endif
 ; ----------------------------------------------------------------------
 ; b14_wincb_exp_line
 ;   Window $22 CALL: けいけんち, then experience ($6070).
@@ -2245,7 +2255,16 @@ b14_wincb_exp_line:
 .endif
 
 b14_data_9258:
+.ifdef KANJI_TARGET
+    .incbin "build/assets/bank14_data.bin", $1258, $00AA
+    ; $9302, window $20's line CALL ($92EA): the empty entry's そのた (three
+    ; tiles from $955E), その他 in map mode (b14_k_sonota); then its rts.
+    jmp b14_k_sonota
+    .dsb 13, $EA
+    .incbin "build/assets/bank14_data.bin", $1312, $00EE
+.else
     .incbin "build/assets/bank14_data.bin", $1258, $01A8
+.endif
 
 b14_data_9400:
     .incbin "build/assets/bank14_data.bin", $1400, $0179
@@ -2302,6 +2321,74 @@ b14_k_army_wait:
     lda controller_state
     beq b14_k_army_wait
     jmp field_return_refresh
+
+; The map UI in kanji (TEXT_RENDERER.md "Kanji UI").  Window $18's lines
+; (the gold window, 12 wide at columns 18-29: kanji_build.py
+; MAP_UI_TEMPLATES): in map mode 金 / 兵糧 in kanji from column 20 (X, the
+; index after the line's indent), their bottom row the number's, the
+; number right aligned at column 28 in 6 cells from column 23.  A food
+; number under 6 digits leaves 糧's right half in column 23.  Elsewhere the
+; original lines.
+b14_k_gold_line:
+    bit TXR_ON
+    bmi @k
+    lda #$6C
+    sta $0332
+    jmp b14_print_gold
+@k:
+    lda #0                      ; 金
+    jsr b14_k_label
+    jsr wait_vblank
+    jsr read_inline_block_3     ; inline pointer/data follows the JSR (as b14_print_gold)
+    .incbin "build/assets/bank14_data.bin", $164F, $0002
+    lda #$05
+    jmp read_stack_arg
+b14_k_food_line:
+    bit TXR_ON
+    bmi @k
+    lda #$7F
+    sta $0302
+    lda #$35
+    sta $0303
+    lda #$3F
+    sta $0304
+    jmp b14_print_food
+@k:
+    lda #1                      ; 兵糧
+    jsr b14_k_label
+    jsr wait_vblank
+    jsr read_inline_block_3     ; inline pointer/data follows the JSR (as b14_print_food)
+    .incbin "build/assets/bank14_data.bin", $165C, $0002
+    lda #$05
+    jsr read_stack_arg          ; X = column 23's index + 6
+    lda $0318-6,x
+    cmp #$0A
+    bne @r                      ; a 6-digit number
+    lda $0300-6,x               ; 糧's right half (the top row has the same code)
+    sta $0318-6,x
+@r:
+    rts
+; Window $20's empty entry: その他 in map mode, そのた elsewhere.
+b14_k_sonota:
+    bit TXR_ON
+    bmi @k
+    ldy #0
+@l:
+    lda $955E,y
+    sta $0318,x
+    inx
+    iny
+    cpy #3
+    bne @l
+    rts
+@k:
+    lda #2                      ; その他
+; A = a label (TXF_LABEL), X = the row-buffer index: the label; X after it.
+b14_k_label:
+    sta TXR_TA
+    stx TXR_TX
+    ldx #TXF_LABEL
+    jmp TXR_CALL
     .dsb $9649 - $, $FF
 .if $ != $9649
     .error "army status screen: b14_print_gold ($9649) moved"

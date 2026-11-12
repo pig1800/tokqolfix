@@ -149,10 +149,78 @@ def wordlist() -> list[tuple[str, str, str]]:
     return rows
 
 
+# Map-mode UI (TEXT_RENDERER.md "Kanji UI", 2026-11-12): the kana words of
+# the window templates (window, kana, kanji) that the map text renderer
+# shows in kanji, and its labels (the gold window's 金 and 兵糧, the
+# tavern list's その他).  Item, tactic and place names come from the word
+# list and the glossary.
+MAP_UI_WORDS = (
+    (0x00, "はなす", "話す"), (0x00, "しらべる", "調べる"), (0x00, "たいれつ", "隊列"),
+    (0x00, "ぶしょう", "武将"), (0x00, "どうぐ", "道具"),
+    (0x04, "ならび", "並び"), (0x04, "ぐんし", "軍師"),
+    (0x07, "つかう", "使う"), (0x07, "わたす", "渡す"), (0x07, "そうび", "装備"),
+    (0x07, "すてる", "捨てる"),
+    (0x1C, "かいにきた", "買いに来た"), (0x1C, "うりにきた", "売りに来た"),
+    (0x1F, "のうりょく", "能力"), (0x1F, "くわえる", "加える"), (0x1F, "はずす", "外す"),
+    (0x1F, "かいこ", "解雇"),
+    (0x24, "きろく", "記録"), (0x24, "よぶ", "呼ぶ"),
+)
+MAP_UI_LABELS = ("金", "兵糧", "その他")
+GLOSSARY = ROOT / "decomp" / "text" / "kanji_r14" / "glossary.tsv"
+
+
+def glossary(kind: str) -> dict[str, str]:
+    """glossary.tsv rows of one kind: kana -> kanji (the first row wins)."""
+    out: dict[str, str] = {}
+    for line in GLOSSARY.read_text(encoding="utf-8").splitlines():
+        parts = line.split("	")
+        if len(parts) >= 3 and parts[0] == kind:
+            out.setdefault(parts[1], parts[2])
+    return out
+
+
+def place_kanji(kana: str) -> str | None:
+    """A place name's kanji: the glossary's, or its stem's + 城."""
+    g = glossary("PLACE")
+    if kana in g:
+        return g[kana]
+    if kana.endswith("じょう") and kana[:-3] in g:
+        return g[kana[:-3]] + "城"
+    return None
+
+
+def map_places() -> dict[int, tuple[bytes, str]]:
+    """Bank 12's place-name table (the 神行の札 destination list, $D58C):
+    pointers lo $A100 + i / hi $A140 + i for i = $40-$7F, strings from
+    byte 0.  Index -> (kana bytes, kanji) for the names the glossary has."""
+    b12 = textdata.prg()[12 * 0x4000:13 * 0x4000]
+    out = {}
+    for i in range(0x40, 0x80):
+        ptr = b12[0x2100 + i] | (b12[0x2140 + i] << 8)
+        if not 0x8000 <= ptr < 0xC000:
+            continue
+        o = ptr - 0x8000
+        end = b12.find(bytes((0xFF,)), o)
+        if end < 0 or end - o > 16:
+            continue
+        raw = bytes(b12[o:end])
+        try:
+            kana = "".join(textdata.BYTE_TO_CHAR[b] for b in raw)
+        except KeyError:
+            continue
+        k = place_kanji(kana)
+        if k:
+            out[i] = (raw, k)
+    return out
+
+
 def ui_kanji() -> list[str]:
-    """Every UI kanji in first-use order: labels, commands, word list."""
+    """Every UI kanji in first-use order: labels, commands, word list, then
+    the map UI's words, labels and places."""
     out: list[str] = []
-    text = UI_LABELS + UI_COMMANDS + "".join(k for _, _, k in wordlist())
+    text = (UI_LABELS + UI_COMMANDS + "".join(k for _, _, k in wordlist())
+            + "".join(k for _, _, k in MAP_UI_WORDS) + "".join(MAP_UI_LABELS)
+            + "".join(k for _, k in map_places().values()))
     for ch in KANJI_RE.findall(text):
         if ch not in out:
             out.append(ch)

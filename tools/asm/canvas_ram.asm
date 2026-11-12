@@ -511,4 +511,14 @@ txr_rd:
 @r:
     rts
 
+; text_put_tile's calls in the window templates ($CC02) and in the item,
+; tactic and place names ($D5C0), in map mode (txr_tp, fixed bank): the
+; renderer's TXF_PUT puts the byte, or a kana word's kanji form.  A = the
+; byte, X = the row-buffer index, Y kept; X after the cell(s).
+txr_tpm:
+    sta TXR_TA
+    stx TXR_TX
+    ldx #TXF_PUT
+    jmp txr_call
+
 cv_ram_end:

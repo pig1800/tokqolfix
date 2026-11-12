@@ -57,6 +57,11 @@ PATCHES = [
     (0xDBCA, 0xDBCC),   # text_render_cell: jmp txr_rcx
     (0xCD07, 0xCD0A),   # text_draw_cursor's tile store: jsr txr_cur / nop
     (0xCF22, 0xCF24),   # screen_refresh's font load (map setup): jsr txr_mi
+    # the map UI in kanji: text_put_tile's calls, two templates
+    (0xCC02, 0xCC04),   # text_input: jsr txr_tp
+    (0xD5C0, 0xD5C2),   # draw_string_from_pointer: jsr txr_tp
+    (0xEB74, 0xEB75),   # window $18 (gold, food): column +1, width 12
+    (0xEBCF, 0xEBD0),   # window $1C (buy / sell): column +2, width 10
 ]
 
 
