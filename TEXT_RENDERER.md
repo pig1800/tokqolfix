@@ -1726,9 +1726,11 @@ switched off.**
     in between (also in battle and the original).
 - **Options** (not done; the user decides):
   - **A (recommended): no scroll in map mode.**
-    - The end-of-message scroll is skipped in map mode: a 9-byte patch of
-      `$D1DE` in the fixed bank, no address moves.  The window then keeps
-      its 4 lines.
+    - The end-of-message scroll is skipped in map mode: a `bit TXR_ON /
+      bmi` before the `jsr text_scroll_up` at `$D1DE` (about 5-9 bytes).
+      The fixed bank has no free run that long now (24 scattered bytes), so
+      it takes compacting my own blocks; no existing routine moves.  The
+      window then keeps its 4 lines.
     - The compiler turns the one `<WAIT>` before an overflowing 4th line
       into a `<PAGE>`.  All 12 cases have such a wait: no extra A presses;
       the window clears at that wait.
