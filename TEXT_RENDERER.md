@@ -1223,3 +1223,45 @@ clock.  The game's own long-flush frames end the force near line 261.8.
   task timers, the split's setup) leaves about 9 lines.
 - A cold window with many new kanji still takes a frame per 2 kanji.
 
+### Round 2 (2026-11-12): assessment of the user's "unpack every glyph" idea
+
+**The proposal:**
+- unpack the glyphs stored compressed in the original data;
+- add a plane-1 copy of the kanji to save bit shifting;
+- keep an uncompressed copy of the kana;
+- the user also noted that officer names are probably not needed, since
+  we use our own glyphs now.
+
+**Findings.**  No glyph is compressed, and no path shifts glyph bits.
+- Kanji: the glyph tables in banks 23-25, raw rows, planar by byte index.
+- Kana: the bank-9 font at `$BA00`, raw 8 bytes per tile.  Bank 26
+  carries an identical copy at `$8400`.
+- Names: bank 17's name font, raw 32 bytes per glyph.
+- UI screens: bank 28's UI kanji, raw 32 bytes per glyph.
+- Every byte goes from ROM to `PPUDATA` with one load and one store.
+- Plane 1 is the same bytes at the tile address + 8.  The shifts in the
+  code turn tile numbers into PPU addresses.
+- So a plane-1 set or a 2bpp copy would hold the same bytes and save
+  nothing.
+- Officer names: no original name glyph is used since `1746dc4` (all
+  Izumi16).  Bank 17 is our glyphs, laid out for the original name
+  routine that the battle, info and army screens still use.
+
+**Where the cycles go** (map mode, upload frames):
+
+| Part | Lines / cycles |
+|---|---|
+| the game's NMI work (OAM DMA, its flush, palette, task timers), 241.0 -> 248.2 | 7.2 lines, fixed |
+| our path to the first upload write, 248.3 -> 250.8 (kana) / 251.4 (kanji) | 2.5-3.1 lines |
+| a kana | ~161 cycles: 64 copying, ~45 address and font-page arithmetic, the rest budget and record bookkeeping |
+| a kanji | ~400-500 cycles: 256 copying, ~40 address and bank arithmetic |
+
+**Options** (estimates):
+1. **Precomputed records.**  The main thread stores the PPU address and
+   the font offset or glyph bank: kana 5 bytes, kanji 5 bytes.  Kana
+   ~120 cycles, kanji ~390.
+2. **A leaner NMI path** before the first write: ~300 cycles -> ~120.
+- 1 + 2 together: uploads start about line 249.7.  Per frame:
+  - kanji: 3 instead of 2 (just fits by the line-260 rule);
+  - kana: about 9 instead of 6.
+
