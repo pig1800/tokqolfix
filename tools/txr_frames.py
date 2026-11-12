@@ -1,6 +1,8 @@
-"""Classify probe frames (tools/lua/txr_upload.lua's log.txt): renderer upload (first pattern
-write at line >= 249.9: the uploader, not the game's CHR animation), text
-cells flushed, publish-only.  Usage: classify.py log first last"""
+"""Classify probe frames (tools/lua/txr_upload.lua's log.txt): renderer upload (pattern
+writes and the uploader's entry in the NMI: the "map" mark followed by
+"up"; builds before round 3: the first write at line >= 249.9, after the
+game's CHR animation), text cells flushed, publish-only.
+Usage: txr_frames.py log first last"""
 import re
 import sys
 
@@ -14,7 +16,10 @@ for line in open(path):
         continue
     m = re.search(r"pat=(\d+) .*patfirst=(\S+) .*txt=(\d+)", line)
     pat, pf, txt = int(m.group(1)), m.group(2), int(m.group(3))
-    up = pat > 0 and pf != "-" and float(pf) >= 249.9
+    if " map" in line:
+        up = pat > 0 and re.search(r" map[\d.]+ up", line) is not None
+    else:
+        up = pat > 0 and pf != "-" and float(pf) >= 249.9
     pub = " pub" in line
     if up:
         tiles += pat // 8

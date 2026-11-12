@@ -418,18 +418,26 @@ TXR_MARK          = TXR_UQ  ; GC: 16-byte bitmap of the tiles shown (the staging
 ; Battery RAM (the canvas code's old space, after the RAM image), from the
 ; top down to TXR_TABLES:
 TXR_NG            = 28      ; kanji groups per part: tiles $0C-$7B
-TXR_UQSZ          = 55      ; staging bytes: 5-byte records, kana R0, PPU hi, lo, font offset, font page; kanji R0 | $80, PPU hi, lo, glyph column, R6 | $80 (+256 half)
+TXR_UQSZ          = 55      ; staging bytes: 5-byte records, kana R0, PPU hi, lo, font offset, font page; kanji R0 | $80, PPU hi, lo, column and R7 value in the glyph copy
 TXR_UQ            = $7F65   ; 55: the staged records (TXR_SN bytes; the NMI: TXR_UQN left from TXR_UQR)
-; The NMI uploader's budget (TEXT_RENDERER.md "Upload speed", B + D), in
-; units of 16 cycles: the uploads start about line 250 and end by line
-; 259.5 (the force and the arm follow; PPU access before the pre-render
-; line), one unit fewer per byte the game flushed in that NMI.
-UP_UNITS          = 67
-UP_KANA           = 10      ; a kana record (txr.asm up_kana; ~157 cycles measured)
-UP_KANJI          = 27      ; a kanji record, 4 tiles (hack.asm mk_run; ~420 cycles measured with a bank switch)
-UP_KRUN           = 3       ; a run of kanji records: mk_run's call and exit
+; The NMI uploader's budget (TEXT_RENDERER.md "Upload speed", B + D and
+; round 3), in units of 16 cycles from nmi_up's entry (about line 247.3):
+; the records end in time for the force (v = $1000 before line 261) and
+; the arm, one unit fewer per byte the game flushed in that NMI.  The
+; charges are each record's worst case.
+UP_UNITS          = 85
+UP_KANA           = 11      ; a kana record (txr.asm up_kana; ~157 cycles, ~171 with an R0 switch)
+UP_KANJI          = 27      ; a kanji record, 4 tiles (txr.asm up_kanji; 426 cycles with a copy-bank and an R0 switch)
 UP_CELLS          = 14      ; text_render_cell's released cells, flushed by the NMI (rel_flush)
-HACK_MKUP         = $B900   ; hack.asm mk_run (every hack bank, the upper half: R7)
+; The NMI uploader's glyph copy (round 3): glyph i (kanji_common's
+; inventory order) is column i & $FF of copy bank i >> 8, an 8 KiB bank
+; mapped with R7; its byte b (tile b >> 3: TL, TR, BL, BR; row b & 7) at
+; GCOPY_TAB + 256 b + column.  Rows start on pages: no page crossing.
+GCOPY_TAB         = $A000
+GCOPY_8K0         = 32      ; bank 16, both halves (unused before)
+GCOPY_8K1         = 33
+GCOPY_8K2         = 35      ; bank 17's upper half (the name font fills the lower)
+GCOPY_8K3         = 54      ; bank 27's lower half (the RAM image is in the upper)
 TXR_EB            = $7F35   ; 48: text_draw_line's entries, out of the queue
 TXR_GBUF          = $7F15   ; 32: glyph bytes read by txr_rr
 TXR_NM            = TXR_GBUF ; TXF_NAME: kanji count (0: none or no room), 3 codes lo, 3 hi

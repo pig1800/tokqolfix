@@ -1407,3 +1407,95 @@ banking may be used freely in our own code.
 - More invasive: it patches two game routines and changes when sprites
   are sent.
 
+
+### Round 3 done: the uploads before the game's deferrable NMI work
+
+**The user's choice:** the recommended levers (the game's NMI, our path,
+the tail).  Measured worst cases showed they were not enough for a
+guaranteed third kanji (below), so the 8 KiB glyph copy went in too.
+
+**The game's NMI** (`mmc3_b15.asm` `nmi_gate`, patched over `$EED0`
+"sta PPUSCROLL").
+- Map mode (`TXR_ON` bit 7), not busy: R6 = bank 26, `jmp $8009`
+  (`txr.asm` `nmi_map`).
+- `nmi_map`:
+  1. the uploads (`nmi_up`) or the GC's row read;
+  2. the force (`v = $1000`) with the original's PPUCTRL (`ppu_nmi_on`),
+     scroll and PPUMASK;
+  3. R0 = page 1 and the arm;
+  4. the bookkeeping (`KANJI_LAST39`, `KANJI_QPOS`);
+  5. the frame counter and the task timers (the original's
+     `$EEE0-$EEFE`, copied);
+  6. `$EF08`'s push and `ef08_tail`.
+- **Other paths:**
+  - a long flush (`CV_FORCE_MAX`) or rendering off: the original's
+    writes at once, no force;
+  - `cv_stream` already ran: its force stands, the original's writes
+    follow;
+  - `nmi_mode` not 0 (not seen in map mode): R6 back through `NMI_PRG`,
+    then the original path at `$EED3`.
+- **Elsewhere:** the original.  Busy NMIs still reach `ef08_gate`.
+- `ef08_gate` shrank to make room: its band checks moved into bank 26
+  (`nmi_cvg`, carry = work for the hack NMI).
+
+**The glyph copy** (`kanji_build.py` `build_glyph_copy`; `kanji.inc`
+`GCOPY_*`).
+- Glyph i (inventory order) is column `i & $FF` of copy bank `i >> 8`.
+- Byte b of a glyph is at `$A000 + 256 b + column`, so no read crosses a
+  page.
+- Copy banks are 8 KiB, mapped with R7 alone:
+  - 32 and 33 (bank 16, unused before; the build dir held a stale file);
+  - 35 (bank 17's upper half);
+  - 54 (bank 27's lower half).
+- `stage_kanji` turns the glyph code into the copy's column and R7 value.
+- `up_kanji` (bank 26, the NMI half) replaces the hack banks' `mk_run`,
+  which is gone.
+
+**Charges:** `UP_UNITS` 85, `UP_KANA` 11, `UP_KANJI` 27, each a record's
+worst case.
+- A kana with an R0 switch: ~171 cycles.
+- A kanji with a copy-bank and an R0 switch: 426 cycles (before: up to
+  481 with page crossings).
+- Without the copy, the worst kanji left three over the deadline: the
+  force at line 261.6.
+
+**Measured** (instruction traces; the user's states converted, below):
+
+| | Before | Now |
+|---|---|---|
+| nmi_up entry (no game flush) | line 249.4 | line 247.3 |
+| first kanji byte | line 251.1 | line 249.0 |
+| 2 kanji: last byte | line 257.7 | line 255.6 |
+| last byte -> force | 110 cycles | 81 cycles |
+| per frame | 2 kanji + 1 kana | 3 kanji (game flush up to 4 bytes), or 7 kana |
+
+- **Worst cases** (game flush 4 bytes, injected):
+  - 3 kanji, each with a copy-bank and an R0 switch: `v = $1000` at line
+    259.88 (126 cycles before line 261), IRQ reload at line 260.5;
+  - 7 kana alternating R0: `v = $1000` at line 259.13.
+- **Pictures identical to the previous build:**
+  - the greeting and shop;
+  - the menu cycle (16 shots);
+  - the new-game path (211 shots);
+  - a battle (every frame 197-856);
+  - window reopen, the GC run, a forced screen-off (direct writes).
+- **Frame counts:** the tested screens are mostly paced by the main
+  thread.
+  - Greeting: last upload frame 71 -> 70, one 3-kanji frame.
+  - Menu cycle: 122 -> 116 upload frames.
+  - New-game path: the same frames; the latest upload write at line
+    256.75 (before 257.95).
+- **Also unchanged:**
+  - `TXR_FULL` 0;
+  - one GC in the GC run;
+  - lowest stack push `$010C` (menu cycle; before `$010A`), `$0118`
+    (new-game path; before `$0117`);
+  - the original build byte-identical.
+
+**Old save states:**
+- A state saved while an IRQ had interrupted the NMI's tail returns into
+  bank 26's old layout and crashes (the user's `u3b.mss` did).
+- The tests ran from copies converted on the previous build:
+  `out/test/opt/convstate.lua` saves at an NMI entry with the main
+  thread in the fixed bank.
+- States the user saves on this build are fine.

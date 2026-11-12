@@ -12,6 +12,7 @@
 ;   $C489-$C49D  dead rest of set_bank_lock: free
 ;   $C4AD-$C4B9  dead rest of restore_bank_after_nmi: chr1_scene
 ;   $C4BA-$C4CA  NMI hook at loc_EF08 (dead original write_prg_bank body)
+;   $EED0-$EED2  NMI: jmp nmi_gate (map mode: the uploads before $EED0-$EF0A)
 ;   $D291-$D2B6  NMI epilogue hook at loc_EF31 (dead original $EF-$F7
 ;                dispatcher, replaced by the overlay's text_dispatch)
 ;   $F004-$F039  reset mapper/RAM setup, rewritten
@@ -39,6 +40,8 @@
 .include "../../decomp/include/ram.inc"
 .include "../../decomp/include/kanji.inc"
 .include "../../decomp/build/kanji/canvas_ram.inc"
+
+TXR_NMI_MAP       = $8009       ; txr.asm: nmi_map (the renderer bank's entry table)
 
 ; ----------------------------------------------------------------------
 .base $C5A6
@@ -127,29 +130,37 @@ ef31_gate:
     pla
     jmp $EF34
 
-; NMI hook gate at loc_EF08 (normal frames, jumped to from $EF0B).  With no
-; band shown, no request pending, no VRAM queue traffic and no CHR
-; animation step, the hack has nothing to track or do: skip the hack bank
-; and run only the game's own sound-bank switch.  (KANJI_BAND = 0 implies
-; FLAG_PAGE2 = 0: the NMI that clears the band also clears the flag; the
-; game keeps OAM slot 0 hidden, so sprite 0 needs no write either.)
+; NMI hook gate at loc_EF08 (normal frames, jumped to from $EF0B): busy
+; NMIs and every mode but the map's (the map's other NMIs leave at
+; nmi_gate).  The renderer bank's nmi_cvg (through the RAM stub) runs the
+; band's force and arm and returns C set when the hack bank's NMI has work
+; (a band shown, a request, $39 moved, VRAM queue traffic); else only the
+; game's own sound-bank switch.
 ef08_gate:
-    jsr CV_NMI                  ; v = $1000, the split's arm
-    bit TXR_ON                  ; map mode: the text renderer's parts,
-    bmi @tail                   ; nothing of the hack's NMI
-    lda KANJI_BAND
-    ora KANJI_REQ
-    bne @go
-    lda $39
-    cmp KANJI_LAST39
-    bne @go
-    lda vram_queue_read
-    cmp KANJI_QPOS
-    bne @go
-@tail:
+    jsr CV_NMI                  ; v = $1000, the split's arm; C = hack work
+    bcs @go
     jmp ef08_tail
 @go:
     jmp ef08_hook
+
+; NMI, not busy, after the game's flush, palette DMA and CHR-stream step:
+; jumped to from $EED0 in place of "sta PPUSCROLL" ($EECE's "lda scroll_x"
+; ran: A = scroll_x).  Map mode (TXR_ON bit 7): the renderer bank's
+; nmi_map uploads first and runs the original's $EED0-$EF0A (the scroll,
+; PPUMASK, ppu_nmi_on, the frame counter and task timers: no PPU work that
+; must come first) after the uploads (TEXT_RENDERER.md "Upload speed",
+; round 3).  Elsewhere the original.
+nmi_gate:
+    bit TXR_ON
+    bpl @orig
+    lda #MMC3_R6
+    sta MMC3_SELECT
+    lda #TXR_BANK*2
+    sta MMC3_DATA
+    jmp TXR_NMI_MAP
+@orig:
+    sta PPUSCROLL
+    jmp $EED3
 
 ; call_hack: A = function number.  Map hack bank 23, run its $8000
 ; dispatcher, then map the bank that was current.  Falls into map_hack.

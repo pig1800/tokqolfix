@@ -175,6 +175,7 @@ PATCH_SITES = {
     0xD28E: bytes((0xB0, 0x27, 0xC9)),       # bcs / cmp #$EF
     0xD2C7: bytes((0x9D, 0x00, 0x03)),       # sta $0300,x
     0xEF0B: bytes((0xA9, 0x08, 0x20, 0xAA, 0xC4)),  # lda #8 / jsr restore_bank_after_nmi
+    0xEED0: bytes((0x8D, 0x05, 0x20)),       # NMI: sta PPUSCROLL (after lda scroll_x)
     0xEF31: bytes((0x68, 0xA8, 0x68)),       # NMI epilogue start (pla/tay/pla)
     0xD1C8: bytes((0x20, 0x56, 0xD4)),       # <PAGE> wait: jsr text_draw_char
     0xFFFE: bytes((0x79, 0xEE)),             # IRQ vector: the NMI handler
@@ -282,7 +283,7 @@ def assembled_twice(listing: Path) -> list[int]:
 
 def write_hook_constants(labels: dict[str, int]) -> None:
     need = ("main_prg", "nmi_prg", "irq_handler", "far_head", "call_hack", "c343_hook",
-            "ef08_hook", "ef08_gate", "ef31_hook", "ef31_gate", "chr1_scene", "wait_text", "scroll_text",
+            "ef08_hook", "ef08_gate", "ef08_tail", "nmi_gate", "ef31_hook", "ef31_gate", "chr1_scene", "wait_text", "scroll_text",
             "page_flip", "window_clear", "ltg_copied", "battle_shake",
             "call_ui", "call_ui_army", "bs_wait")
     for label in need:
@@ -334,6 +335,35 @@ def glyph_tables(font: bytes, first: int) -> bytes:
             if (g + 1) * 32 <= len(font):
                 out[b * GLYPHS_PER_BANK + local] = font[g * 32 + src]
     return bytes(out)
+
+
+# The NMI uploader's glyph copy (TEXT_RENDERER.md "Upload speed", round 3;
+# kanji.inc GCOPY_*): 256 glyphs per 8 KiB bank, byte b of glyph i at
+# 256 b + (i & $FF) of copy bank i >> 8 (rows on pages).
+GCOPY_8K = tuple(int(re.search(rf"^GCOPY_8K{n}\s*=\s*(\d+)", _KINC, re.M).group(1))
+                 for n in range(4))
+if GCOPY_8K != (32, 33, 35, 54):
+    raise SystemExit(f"GCOPY_8K {GCOPY_8K}: kanji_build places the copy in 8 KiB banks "
+                     "32, 33 (bank 16), 35 (bank 17's upper half), 54 (bank 27's lower half)")
+GCOPY: list[bytes] = []
+
+
+def build_glyph_copy(font: bytes) -> None:
+    glyphs = len(font) // 32
+    if glyphs > 256 * len(GCOPY_8K):
+        raise SystemExit(f"{glyphs} glyphs: the NMI's glyph copy holds {256 * len(GCOPY_8K)}")
+    GCOPY.clear()
+    for c in range(len(GCOPY_8K)):
+        out = bytearray(0x2000)
+        for b in range(32):
+            k, r = b >> 3, b & 7
+            src = ((k >> 1) * 8 + r) * 2 + (k & 1)
+            for col in range(256):
+                g = c * 256 + col
+                if g < glyphs:
+                    out[b * 256 + col] = font[g * 32 + src]
+        GCOPY.append(bytes(out))
+    write_bank("bank16.bin", GCOPY[0] + GCOPY[1])
 
 
 def relocated_palettes() -> bytes:
@@ -903,6 +933,7 @@ def write_canvas_bank(image: bytes) -> None:
     if any((OUT / f"bank{CV_BANK:02d}.bin").read_bytes()):
         raise SystemExit(f"bank {CV_BANK} (the canvas RAM image) holds other data")
     data = bytearray(0x4000)
+    data[:0x2000] = GCOPY[3]                    # the NMI's glyph copy, 8 KiB bank 54
     data[0x2000:0x2000 + len(image)] = image
     write_bank(f"bank{CV_BANK:02d}.bin", bytes(data))
 
@@ -1009,6 +1040,10 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     # byte before the game's split-screen loops changes.
     apply_patch(bank, 0xEF0B, bytes((0x4C, labels["ef08_gate"] & 0xFF,
                                      labels["ef08_gate"] >> 8, 0xEA, 0xEA)))
+    # Map mode: the renderer's uploads before the original's scroll,
+    # PPUMASK, ppu_nmi_on and task timers (nmi_gate, txr.asm nmi_map).
+    apply_patch(bank, 0xEED0, bytes((0x4C, labels["nmi_gate"] & 0xFF,
+                                     labels["nmi_gate"] >> 8)))
     apply_patch(bank, 0xEF31, bytes((0x4C, labels["ef31_gate"] & 0xFF,
                                      labels["ef31_gate"] >> 8)))
 
@@ -1139,6 +1174,9 @@ def build_name_font() -> None:
         out = bytes(g[2 * y] for y in range(8)) + bytes(g[2 * y] for y in range(8, 16))
         out += bytes(g[2 * y + 1] for y in range(8)) + bytes(g[2 * y + 1] for y in range(8, 16))
         font[n * 32:n * 32 + 32] = out
+    if any(font[0x2000:]):
+        raise SystemExit("the name font reaches bank 17's upper half (the NMI's glyph copy)")
+    font[0x2000:] = GCOPY[2]                    # the NMI's glyph copy, 8 KiB bank 35
     write_bank(f"bank{NAME_FONT_BANK:02d}.bin", bytes(font))
     b12 = bytearray(prg()[12 * 0x4000:13 * 0x4000])
     for i, name in names.items():
@@ -1181,6 +1219,7 @@ def main() -> int:
     write_hook_constants(labels)
 
     font = build_font()
+    build_glyph_copy(font)
     build_hack_banks(font)
     build_ui_block()
     nglyphs = build_ui_data()

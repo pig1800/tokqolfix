@@ -1,7 +1,8 @@
 -- Upload timing survey (TEXT_RENDERER.md "Upload speed", 2026-11-12).
--- Classify the log with tools/txr_frames.py.  The marks $816D (nmi_up),
--- $81E3 (its end), $8090 (cv_force), $80AC (cvn_arm) are bank 26's at
--- fff6861: take them from decomp/build/kanji/txr.lst for another build.
+-- Classify the log with tools/txr_frames.py.  The marks $8065 (nmi_map),
+-- $8216 (nmi_up), $8279 (its end), $8096 (cv_force), $8106 (cvn_arm),
+-- $80B3 (nm_rest) are bank 26's after upload speed round 3: take them from
+-- decomp/build/kanji/txr.lst for another build.
 -- Per frame: pattern-table bytes written through $2007 and the scanline of
 -- the last one, nametable text cells written (tile < $80 or kanji codes),
 -- the last PPU write of the vblank, TXR_UQN at the NMI, staging publishes.
@@ -83,7 +84,7 @@ emu.addEventCallback(function()
   if not lf then return end
   F.nmi = now(); F.uqn = rd(0x0781)
 end, emu.eventType.nmi)
-local MARKS = {{0xD9EA, "fe"}, {0xEECE, "pal"}, {0xEEE0, "on"}, {0xEF08, "ef08"}, {0x7A64, "cvn"}, {0x816D, "up"}, {0x81E3, "upd"}, {0x8090, "frc"}, {0x80AC, "arm"}}
+local MARKS = {{0xD9EA, "fe"}, {0xEECE, "pal"}, {0x8065, "map"}, {0x8216, "up"}, {0x8279, "upd"}, {0x8096, "frc"}, {0x8106, "arm"}, {0x80B3, "rest"}}
 for _, m in ipairs(MARKS) do
   emu.addMemoryCallback(function()
     if not lf then return end

@@ -24,6 +24,7 @@
 .include "../../decomp/include/ram.inc"
 .include "../../decomp/include/kanji.inc"
 .include "../../decomp/build/kanji/canvas_ram.inc"
+.include "../../decomp/build/kanji/fixed_hooks.inc"
 
 PTR             = $10           ; (saved by txr_call)
 UPDATE_FRAME    = $C0D5
@@ -38,11 +39,9 @@ BLANK           = $7F
 .base $8000
 .org $8000
     jmp txr_dispatch            ; $8000: main thread (txr_call)
-    jmp nmi_cv                  ; $8003: NMI entries, this bank's first 8 KiB
+    jmp nmi_cvg                 ; $8003: NMI entries, this bank's first 8 KiB
     jmp nmi_live                ; $8006:   mapped at $8000 by the RAM's
-    nop                         ; ($8009: free)
-    nop
-    nop
+    jmp nmi_map                 ; $8009:   stubs or the fixed bank's nmi_gate
 txr_dispatch:                   ; (Y kept: TXF_PUT and TXF_LABEL keep it)
     lda txr_fnh,x
     pha
@@ -62,78 +61,144 @@ txr_fnh:
 ; NMI code (mapped at $8000-$9FFF by the RAM stubs; any bank may be in
 ; $A000-$BFFF).  Keep it in this bank's first 8 KiB.
 ; ======================================================================
-; ----------------------------------------------------------------------
-; NMI, normal frames (ef08_gate: after the game's PPU work and its
-; nmi_mode branch), or cv_stream after the stream step.
-; Map mode (TXR_ON): R0 = page 1, the PPU-address force (v = $1000: A12
-; high when vblank ends, no MMC3 clock at the pre-render line's first BG
-; fetch; t restored) unless the game's flush ran long or the uploader left
-; v in the pattern table, then the arm: stage 0 at the pre-render line's
-; clock, the parts from line 71's clock (KANJI_IRQ_ST 2).  Nothing of the
-; hack's NMI follows in map mode (ef08_gate skips it).
-; Elsewhere the band, as before: forced and armed here in long frames,
-; by irq_arm0 after the hack's own PPU work in light ones.  A, X.
-; ----------------------------------------------------------------------
-nmi_cv:
-    lda nmi_busy
-    ora CV_STRM
-    beq nmi_live
+; nmi_map's other paths (below it: the branches reach back).
+nm_late:
+    jsr nm_regs                 ; the original's writes, at once
+    jsr r0_scene
+    jsr cvn_arm
+    jmp nm_rest
+nm_off:
+    jsr nm_regs
+    jsr r0_scene
     lda #0
-    sta CV_STRM                 ; (cv_stream ran it in this NMI, or busy)
-    rts
-nmi_live:
-    bit TXR_ON
-    bmi cvn_map
-    jmp cvn_band_path
-cvn_map:
-    lda #MMC3_R0
-    sta MMC3_SELECT
-    lda #CHR_SCENE_LO
-    sta MMC3_DATA
-    lda MMC3_SEL
-    ora #MMC3_CHR_MODE
-    sta MMC3_SELECT
-    lda $39
-    sta KANJI_LAST39
+    sta MMC3_IRQ_OFF
+    sta KANJI_IRQ_ST
+    jmp nm_rest
+nm_strm:
+    lda #0
+    sta CV_STRM                 ; (cv_stream ran cvn_map in this NMI)
+    jsr nm_regs
+    jmp nm_rest
+nm_orig:
+    lda scroll_x
+    sta PPUSCROLL               ; $EED0
+    lda #>($EED3-1)
+    pha
+    lda #<($EED3-1)
+    pha
+    lda current_prg_bank
+    jmp NMI_PRG                 ; the main thread's bank back; returns to $EED3
+
+
+; ----------------------------------------------------------------------
+; NMI, map mode (TXR_ON bit 7), not busy: jumped to ($8009) from the fixed
+; bank's nmi_gate in place of $EED0 "sta PPUSCROLL", after the game's
+; flush, palette DMA and CHR-stream step; R6 = this bank.  The staged
+; glyphs first (nmi_up), then the PPU-address force (v = $1000: A12 high
+; when vblank ends, no MMC3 clock at the pre-render line's first BG
+; fetch) with the original's PPUCTRL (ppu_nmi_on), scroll and PPUMASK,
+; R0 = page 1 and the arm (stage 0 at the pre-render line's clock, the
+; parts from line 71's clock: KANJI_IRQ_ST 2).  Then the rest of the
+; original's $EED0-$EF0A, which touches no PPU register (TEXT_RENDERER.md
+; "Upload speed", round 3): the frame counter and the task timers; $EF08's
+; push and ef08_tail (the sound bank, $EF10).  No force when the game's
+; flush ran long (its writes then come at once, as the original's) or
+; cv_stream forced already.  nmi_mode not 0 (never seen in map mode): the
+; original path.
+; ----------------------------------------------------------------------
+nmi_map:
+    lda nmi_mode
+    bne nm_orig
     lda vram_queue_read
     sec
-    sbc KANJI_QPOS              ; bytes the game flushed this frame
-    tax
-    lda vram_queue_read
-    sta KANJI_QPOS
+    sbc KANJI_QPOS
+    tax                         ; X = bytes the game flushed this frame
+    lda CV_STRM
+    bne nm_strm                 ; cv_stream forced and armed (no uploads)
+    cpx #CV_FORCE_MAX+1
+    bcs nm_late                 ; the game's NMI ran late: no force
     lda ppu_mask_shadow
     and #$18
-    beq cvn_off                 ; rendering off: no split, none pending
-    bit CV_STRM
-    bvs cvn_arm                 ; cv_stream forced already (no uploads after it)
+    beq nm_off                  ; rendering off: no split, none pending
     lda TXR_RBQ
     beq @noread
     cpx #48
-    bcs @noup                   ; a long flush: the read waits a frame
-    stx TXR_Q0
+    bcs nm_force                ; a long flush: the read waits a frame
     jsr row_read                ; the GC's row (no uploads this frame)
-    ldx TXR_Q0
-    jmp @noup
+    jmp nm_force
 @noread:
     lda TXR_UQN
-    beq @noup
+    beq nm_force
     jsr nmi_up                  ; staged glyphs (X = bytes flushed)
-@noup:
-    cpx #CV_FORCE_MAX+1
-    bcs cvn_arm                 ; the game's NMI ran late: no PPU access
+nm_force:
 cv_force:                       ; (label for the gates)
     lda PPUSTATUS
     lda #$10
     sta PPUADDR
     lda #$00
-    sta PPUADDR
+    sta PPUADDR                 ; v = $1000
+    jsr nm_regs                 ; PPUCTRL, the scroll, PPUMASK
+cv_force_end:
+    lda #MMC3_R0                ; (the NMI's restore_bank_after_nmi gives
+    sta MMC3_SELECT             ; $8000 back to MMC3_SEL)
+    lda #CHR_SCENE_LO
+    sta MMC3_DATA
+    jsr cvn_arm
+nm_rest:
+    lda $39
+    sta KANJI_LAST39
+    lda vram_queue_read
+    sta KANJI_QPOS
+    inc frame_counter           ; $EEE0-$EEFE, as the original
+    ldx #$0C
+    ldy input_mask
+@task:
+    tya
+    asl a
+    tay
+    bcs @next
+    lda task_state,x
+    cmp #$01
+    bne @next
+    dec task_timer,x
+    bne @next
+    lda #$04
+    sta task_state,x
+@next:
+    dex
+    dex
+    dex
+    dex
+    bpl @task
+    lda current_prg_bank        ; $EF08 (the epilogue pulls it)
+    pha
+    jmp EF08_TAIL
+
+; The original's $EECE-$EEDF: PPUCTRL (ppu_nmi_on), the scroll, PPUMASK.
+nm_regs:
     lda ppu_ctrl_shadow
+    ora #$80
+    sta ppu_ctrl_shadow
     sta PPUCTRL
     lda scroll_x
     sta PPUSCROLL
     lda scroll_y
     sta PPUSCROLL
-cv_force_end:
+    lda ppu_mask_shadow
+    sta PPUMASK
+    rts
+
+; R0 = page 1 (the top part's; the IRQ left the bottom part's).
+r0_scene:
+    lda #MMC3_R0
+    sta MMC3_SELECT
+    lda #CHR_SCENE_LO
+    sta MMC3_DATA
+    rts
+
+; The arm: stage 0 at the pre-render line's clock, the parts from line
+; 71's clock (KANJI_IRQ_ST 2); IRQs on (stage 0 may preempt the rest of
+; the NMI).
 cvn_arm:
     lda #0
     sta MMC3_IRQ_LATCH
@@ -148,17 +213,76 @@ cv_reload:                      ; (label for the gates)
     lda KANJI_NFLAGS
     ora #FLAG_ARMED
     sta KANJI_NFLAGS
-    cli                         ; stage 0 may preempt the rest of the NMI
+    cli
 cvn_rts:
     rts
+; ----------------------------------------------------------------------
+; NMI, normal frames (ef08_gate, through the RAM's cv_nmi): busy NMIs and
+; every mode but the map's.  The band's force and arm (nmi_cv), then C
+; set when the hack bank's NMI has work: a band shown, a request, $39
+; moved or VRAM queue traffic (ef08_hook); C clear: ef08_tail, the sound
+; bank only.  (KANJI_BAND = 0 implies FLAG_PAGE2 = 0: the NMI that clears
+; the band also clears the flag; the game keeps OAM slot 0 hidden, so
+; sprite 0 needs no write either.)  A, X.
+; ----------------------------------------------------------------------
+nmi_cvg:
+    jsr nmi_cv
+    bit TXR_ON
+    bmi @no                     ; map mode (busy): nothing of the hack's NMI
+    lda KANJI_BAND
+    ora KANJI_REQ
+    bne @yes
+    lda $39
+    cmp KANJI_LAST39
+    bne @yes
+    lda vram_queue_read
+    cmp KANJI_QPOS
+    bne @yes
+@no:
+    clc
+    rts
+@yes:
+    sec
+    rts
+
+; Busy, or cv_stream ran it in this NMI: nothing.  Map mode: cv_stream's
+; step only (CV_STRM bit 6: forced there, no uploads after it): R0 = page
+; 1, the bookkeeping, the arm.  Elsewhere the band, as before: forced and
+; armed here in long frames, by irq_arm0 after the hack's own PPU work in
+; light ones.  A, X.
+nmi_cv:
+    lda nmi_busy
+    ora CV_STRM
+    beq nmi_live
+    lda #0
+    sta CV_STRM                 ; (cv_stream ran it in this NMI, or busy)
+    rts
+nmi_live:
+    bit TXR_ON
+    bmi cvn_map
+    jmp cvn_band_path
+cvn_map:
+    jsr r0_scene
+    lda MMC3_SEL
+    ora #MMC3_CHR_MODE
+    sta MMC3_SELECT
+    lda $39
+    sta KANJI_LAST39
+    lda vram_queue_read
+    sta KANJI_QPOS
+    lda ppu_mask_shadow
+    and #$18
+    beq cvn_off
+    jmp cvn_arm
 cvn_off:
     sta MMC3_IRQ_OFF
     sta KANJI_IRQ_ST            ; (A = 0)
+cvn_brts:
     rts
 cvn_band_path:
     lda ppu_mask_shadow
     and #$18
-    beq cvn_rts                 ; rendering off
+    beq cvn_brts                 ; rendering off
     lda vram_queue_read
     sec
     sbc KANJI_QPOS              ; bytes the game flushed this frame
@@ -172,10 +296,10 @@ cvn_nstrm:
     bcs cvn_need                ; a long frame
     lda $39
     cmp KANJI_LAST39
-    beq cvn_rts                 ; a light frame: irq_arm0
+    beq cvn_brts                 ; a light frame: irq_arm0
 cvn_need:
     lda KANJI_BAND
-    beq cvn_rts                 ; no split this frame: no PPU access
+    beq cvn_brts                 ; no split this frame: no PPU access
     lda PPUSTATUS
     lda #$10
     sta PPUADDR
@@ -189,7 +313,7 @@ cvn_need:
     sta PPUSCROLL
 cvn_barm:
     lda KANJI_BAND
-    beq cvn_rts                 ; no split this frame
+    beq cvn_brts                 ; no split this frame
     ; The band alone: armed here, right after the force, as irq_arm0
     ; would after the hack NMI's entry; FLAG_ARMED makes that a no-op.
     lda #0
@@ -236,16 +360,16 @@ cvb_cancel:
     rts
 
 ; The staged records after the game's flush (TEXT_RENDERER.md "Upload
-; speed", B + D): kana from this bank's font copy (up_kana), kanji straight
-; from the glyph tables (hack.asm mk_run), as many as the budget allows:
-; UP_UNITS less one unit per byte the game flushed (X, kept).  R0 = page 1
-; again after.
+; speed", B + D, round 3): kana from this bank's font copy (up_kana), kanji
+; from the glyph copy at R7 (up_kanji), as many as the budget allows:
+; UP_UNITS less one unit per byte the game flushed (X).  Then the held
+; cells.  R0 is left at any page (nmi_map sets page 1 after the force).
+; A, X, Y lost.
 nmi_up:
-    stx TXR_Q0
     txa
     cmp #UP_UNITS-UP_KANA+1
     bcc @go
-    jmp @rts                    ; a long flush: the batch waits a frame
+    rts                         ; a long flush: the batch waits a frame
 @go:
     eor #$FF
     sec
@@ -254,12 +378,9 @@ nmi_up:
     lda ppu_ctrl_shadow
     and #$FB
     sta PPUCTRL                 ; +1 increments
-    lda #MMC3_R7                ; a hack bank's upper half (mk_run; this
-    sta MMC3_SELECT             ; NMI never reads $A000-$BFFF otherwise;
-    lda #KANJI_HACK_BANK*2+1    ; the game's NMI end maps the bank back)
-    sta MMC3_DATA
-    lda #CHR_SCENE_LO
-    sta KANJI_T1                ; R0 now (cvn_map): written again only when a record's differs
+    lda #$FF
+    sta KANJI_T1                ; R0 unknown (the IRQ's last part): set for the first record
+    sta KANJI_T0                ; R7 unknown: mapped for the first kanji
     bit PPUSTATUS
     ldx TXR_UQR
 @rec:
@@ -268,35 +389,21 @@ nmi_up:
     jsr up_kana
     jmp @next
 @kanji:
-    lda TXR_UB                  ; mk_run's call and first bank switch
-    sec
-    sbc #UP_KRUN
-    bcc @done
-    sta TXR_UB
-    lda #$FF
-    sta KANJI_T0                ; (no glyph bank mapped at $8000)
-    jsr HACK_MKUP
+    jsr up_kanji
 @next:
     bcs @done                   ; no time left: the rest next NMI
     lda TXR_UQN
     bne @rec
 @done:
     stx TXR_UQR
-    lda #MMC3_R0
-    sta MMC3_SELECT
-    lda #CHR_SCENE_LO
-    sta MMC3_DATA
-    lda MMC3_SEL
-    ora #MMC3_CHR_MODE
-    sta MMC3_SELECT
     ; text_render_cell's cells held for this batch (TXR_HB bit 7): put
     ; back now that the glyphs are in CHR, and flushed here when the time
     ; allows (UP_CELLS left: up to 4 one-byte entries) and nothing queued
     ; before them is still waiting; else the game's next flush.
     lda TXR_UQN
-    bne @rts                    ; the batch goes on next frame
+    bne nu_rts                  ; the batch goes on next frame
     lda TXR_HB
-    bpl @rts
+    bpl nu_rts
     and #$7F
     ldy TXR_HI
     sta $0400,y
@@ -304,13 +411,12 @@ nmi_up:
     sta TXR_HB
     lda TXR_UB
     cmp #UP_CELLS
-    bcc @rts
+    bcc nu_rts
     lda vram_queue_read
     cmp TXR_HI
-    bne @rts
-    jsr rel_flush
-@rts:
-    ldx TXR_Q0
+    bne nu_rts
+    jmp rel_flush
+nu_rts:
     rts
 
 ; The kana records of TXR_UQ from X on (R0, PPU address hi, lo, the
@@ -390,6 +496,95 @@ uk_next:
 @out:
     clc
     rts
+; The kanji records of TXR_UQ from X on (R0 | $80, PPU address hi, lo of
+; tile t, the glyph's column and its copy bank's R7 value): each one's
+; four tiles t..t+3 (top-left, bottom-left, top-right, bottom-right =
+; glyph tiles 0, 2, 1, 3) in plane 0 of page R0, from the glyph copy at
+; R7 (rows on pages: 4 cycles a byte), unrolled.  R7 and R0 written only
+; when they change (KANJI_T0, KANJI_T1).  Stops at a kana record or the
+; batch's end (C clear), or when TXR_UB has no UP_KANJI left (C set).
+; X = the next record; Y lost; PPUCTRL +1 increments set by the caller.
+.macro UJT j, k
+    lda TXR_UQ+1,x
+    sta PPUADDR
+    lda TXR_UQ+2,x
+    ora #j*16
+    sta PPUADDR
+    UJ8 k
+.endm
+.macro UJT0
+    lda TXR_UQ+1,x
+    sta PPUADDR
+    lda TXR_UQ+2,x
+    sta PPUADDR
+    UJ8 0
+.endm
+.macro UJ8 k
+    lda GCOPY_TAB+(k*8+0)*256,y
+    sta PPUDATA
+    lda GCOPY_TAB+(k*8+1)*256,y
+    sta PPUDATA
+    lda GCOPY_TAB+(k*8+2)*256,y
+    sta PPUDATA
+    lda GCOPY_TAB+(k*8+3)*256,y
+    sta PPUDATA
+    lda GCOPY_TAB+(k*8+4)*256,y
+    sta PPUDATA
+    lda GCOPY_TAB+(k*8+5)*256,y
+    sta PPUDATA
+    lda GCOPY_TAB+(k*8+6)*256,y
+    sta PPUDATA
+    lda GCOPY_TAB+(k*8+7)*256,y
+    sta PPUDATA
+.endm
+up_kanji:
+uj_rec:
+    lda TXR_UB
+    sec
+    sbc #UP_KANJI
+    bcs @fits
+    sec                         ; no time left this NMI: C set
+    rts
+@fits:
+    sta TXR_UB
+    lda TXR_UQ+4,x              ; the copy bank
+    cmp KANJI_T0
+    beq @mapped
+    sta KANJI_T0
+    ldy #MMC3_R7
+    sty MMC3_SELECT
+    sta MMC3_DATA
+@mapped:
+    lda TXR_UQ,x
+    and #$7F
+    cmp KANJI_T1
+    beq @r0
+    sta KANJI_T1
+    ldy #MMC3_R0
+    sty MMC3_SELECT
+    sta MMC3_DATA
+@r0:
+    ldy TXR_UQ+3,x              ; the column
+    UJT0
+    UJT 1, 2
+    UJT 2, 1
+    UJT 3, 3
+    txa
+    clc
+    adc #5
+    tax
+    lda TXR_UQN
+    sec
+    sbc #5
+    sta TXR_UQN
+    beq @out
+    lda TXR_UQ,x
+    bpl @out
+    jmp uj_rec
+@out:
+    clc
+    rts
+
 ; The released cells' entries (queue TXR_HI .. TXR_HE: PPU address, count,
 ; bytes; +1 increments) to the PPU; the queue read index past them.
 rel_flush:
@@ -476,6 +671,11 @@ part_b:     .db 0, 16, 32, 48
 part_kml:   .db <TXR_KM, <(TXR_KM+$80), <(TXR_KM+$100), <(TXR_KM+$180)
 part_kmh:   .db >TXR_KM, >(TXR_KM+$80), >(TXR_KM+$100), >(TXR_KM+$180)
 bitmask:    .db $80, $40, $20, $10, $08, $04, $02, $01
+; A glyph code's bank index (0-2) -> the glyph index of its first glyph
+; (lo, hi); a copy bank (glyph index >> 8) -> its R7 value.
+gc_lo:      .db <0, <KANJI_GLYPHS_PER_BANK, <(KANJI_GLYPHS_PER_BANK*2)
+gc_hi:      .db >0, >KANJI_GLYPHS_PER_BANK, >(KANJI_GLYPHS_PER_BANK*2)
+gc_r7:      .db GCOPY_8K0, GCOPY_8K1, GCOPY_8K2, GCOPY_8K3
 
 ; New tiles $00-$0B: the old font codes they show.
 fix_src:    .db $6D, $0B, $6E, $6F, $0C, $0D, $7D, $7E, $0E, $0F, $70, $71
@@ -1080,28 +1280,29 @@ stage_kana:
     jmp busy_off
 
 ; Kanji TXR_K as group tiles TXR_T .. TXR_T + 3 of part TXR_P: a record
-; (R0 | $80, PPU address hi, lo of tile TXR_T, the glyph's column, the
-; glyph bank's R6 value | $80 for the +256 half), or with rendering off /
+; (R0 | $80, PPU address hi, lo of tile TXR_T, the glyph's column in the
+; NMI's glyph copy and that copy bank's R7 value), or with rendering off /
 ; busy the glyph written now (TXR_T + 4 after).
 stage_kanji:
     jsr is_direct
     beq @now
     lda #$80
     jsr rec_head
-    lda TXR_K
-    sta TXR_UQ+3,x
     lda TXR_K+1                 ; bank index * 2 + the half
-    and #$FE
-    clc
-    adc #KANJI_HACK_BANK*2
-    sta TXR_UQ+4,x
-    lda TXR_K+1
     lsr a
-    bcc @lo
+    tay                         ; the bank index
+    lda #0
+    rol a
+    sta TXR_UQ+4,x              ; (the half, for the carry below)
+    lda TXR_K                   ; glyph i = bank * KANJI_GLYPHS_PER_BANK
+    clc                         ;   + half * 256 + TXR_K
+    adc gc_lo,y
+    sta TXR_UQ+3,x              ; its column in the copy
     lda TXR_UQ+4,x
-    ora #$80
-    sta TXR_UQ+4,x
-@lo:
+    adc gc_hi,y
+    tay
+    lda gc_r7,y
+    sta TXR_UQ+4,x              ; its copy bank's R7 value
     txa
     clc
     adc #5
