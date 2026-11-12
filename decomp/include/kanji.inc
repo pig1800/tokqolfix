@@ -353,7 +353,8 @@ TXR_UQR           = $0782   ; the NMI's offset in TXR_UQ
 TXR_BOOT          = $0783   ; bit 7: pages 2-4 hold the fixed set (since reset)
 TXR_QX            = $0784   ; text_draw_line: the queue's end index
 TXR_RET           = $0785   ; text_render_cell's return value (the line-end byte)
-TXR_HB            = $0786   ; text_draw_line's wait: the queue byte held back (0: none)
+TXR_HB            = $0786   ; the queue byte held back (0: none): text_draw_line's wait (txr_dlc puts it
+                            ; back); bit 7 set: text_render_cell's cells, put back by the NMI with its batch
 TXR_HI            = $0787   ;   and its index
 TXR_RS            = $0788   ; txr_rr: 2, source address
 TXR_RST           = $078A   ; txr_rr: 2, source stride
@@ -365,7 +366,7 @@ TXR_P             = $0790   ; main thread: the entry's part 0-3
 TXR_PAR           = $0791   ; main thread: 0 = the entry's row is a line's top row
 TXR_E             = $0792   ; main thread: queue index of the entry
 TXR_EN            = $0793   ; main thread: cells left in the entry
-TXR_S0            = $0794   ; main thread: the first entry's header byte
+TXR_HE            = $0794   ; text_render_cell: the queue index after the held cells (the NMI flushes them)
 TXR_B             = $0795   ; main thread: the byte being translated
 TXR_T             = $0796   ; main thread: tile
 TXR_G             = $0797   ; main thread: group / loop index

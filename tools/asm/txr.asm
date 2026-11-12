@@ -249,7 +249,9 @@ nmi_up:
     stx TXR_Q0
     txa
     cmp #48
-    bcs @rts
+    bcc @go
+    jmp @rts
+@go:
     lsr a
     lsr a
     lsr a
@@ -302,8 +304,56 @@ nmi_up:
     lda MMC3_SEL
     ora #MMC3_CHR_MODE
     sta MMC3_SELECT
+    ; text_render_cell's cells held for this batch (TXR_HB bit 7): put
+    ; back now that the glyphs are in CHR, and flushed here when the time
+    ; allows (two tiles' worth left: up to 4 one-byte entries) and nothing
+    ; queued before them is still waiting; else the game's next flush.
+    lda TXR_UQN
+    bne @rts                    ; the batch goes on next frame
+    lda TXR_HB
+    bpl @rts
+    and #$7F
+    ldy TXR_HI
+    sta $0400,y
+    lda #0
+    sta TXR_HB
+    lda TXR_I
+    cmp #3
+    bcc @rts
+    lda vram_queue_read
+    cmp TXR_HI
+    bne @rts
+    jsr rel_flush
 @rts:
     ldx TXR_Q0
+    rts
+; The released cells' entries (queue TXR_HI .. TXR_HE: PPU address, count,
+; bytes; +1 increments) to the PPU; the queue read index past them.
+rel_flush:
+    ldx TXR_HI
+@e:
+    cpx TXR_HE
+    beq @end
+    lda $0400,x
+    sta PPUADDR
+    inx
+    lda $0400,x
+    sta PPUADDR
+    inx
+    lda $0400,x
+    and #$7F
+    tay
+    inx
+@d:
+    lda $0400,x
+    sta PPUDATA
+    inx
+    dey
+    bne @d
+    beq @e
+@end:
+    stx vram_queue_read
+    stx KANJI_QPOS              ; (not counted as the game's next flush)
     rts
 ; The GC's row read (NMI after the game's flush, or the main thread with
 ; the NMI held off): TXR_N1 cells from TXR_A1H/L and TXR_N2 from
@@ -527,7 +577,14 @@ txr_reset:
     sta TXR_KM,y
     dex
     bpl @cmd
+    lda TXR_HB                  ; (never left held: the queue would stop)
+    beq @nh
+    and #$7F
+    ldy TXR_HI
+    sta $0400,y
+@nh:
     lda #0
+    sta TXR_HB
     sta TXR_UQN
     sta TXR_FULL
     sta TXR_SKIP
@@ -793,6 +850,26 @@ stage_room:
 ; or published for the NMI (TXR_ST = 1, TXR_SN kept until the stub's
 ; continuation clears it).
 stage_out:
+    jsr stage_direct
+    lda TXR_SN
+    beq @rts
+    jsr stage_pub
+    lda #1
+    sta TXR_ST
+@rts:
+    rts
+
+; The batch published for the NMI uploader.
+stage_pub:
+    lda #0
+    sta TXR_UQR
+    lda TXR_SN
+    sta TXR_UQN
+    rts
+
+; Rendering off or busy: the staged tiles written now (TXR_SN = 0 after).
+; Otherwise nothing (TXR_SN kept).
+stage_direct:
     lda TXR_SN
     beq @rts
     lda nmi_busy
@@ -800,12 +877,6 @@ stage_out:
     lda ppu_mask_shadow
     and #$18
     beq @direct
-    lda #0
-    sta TXR_UQR
-    lda TXR_SN
-    sta TXR_UQN
-    lda #1
-    sta TXR_ST
 @rts:
     rts
 @direct:
@@ -1593,6 +1664,14 @@ txr_rc:
     sta TXR_GCF
     beq rc_step
 txr_rcc:
+    lda TXR_UQN                 ; the last batch in CHR and its cells
+    ora TXR_RBQ                 ; released (or the GC's row read done)?
+    ora TXR_HB
+    beq @go
+    lda #1                      ; not yet: the stub waits a frame
+    sta TXR_ST
+    rts
+@go:
     lda #0
     sta TXR_SN
     bit TXR_GCS
@@ -1656,9 +1735,9 @@ rc_step:
     jmp @wait
     sta TXR_CB+1
 @tr:
-    jsr stage_out
-    lda TXR_ST
-    bne @rts                    ; uploads first (the cells are retried)
+    jsr stage_direct            ; rendering off or busy: the glyphs now
+    ldx vram_queue_write
+    stx TXR_HE                  ; (the cells' first byte, for now)
     lda #0
     sta TXR_G
 @q:
@@ -1675,6 +1754,23 @@ rc_step:
     ldx vram_queue_write
     lda #0
     sta $0400,x
+    lda TXR_SN
+    beq @nb
+    ; New glyphs: the cells go up in the NMI that uploads them
+    ; (TEXT_RENDERER.md "Upload speed", C).  Held back until then (the
+    ; game's flush stops at the 0); the NMI puts the byte back after the
+    ; batch and flushes them itself when the time allows.  The hold
+    ; first, then the batch: an NMI between them has nothing to release.
+    ldy TXR_HE
+    sty TXR_HI                  ; the held cells: TXR_HI .. TXR_HE
+    stx TXR_HE
+    lda $0400,y
+    ora #$80
+    sta TXR_HB
+    lda #0
+    sta $0400,y
+    jsr stage_pub
+@nb:
     lda #0
     sta TXR_GCF                 ; (the next cell may run the GC again)
     lda TXR_N

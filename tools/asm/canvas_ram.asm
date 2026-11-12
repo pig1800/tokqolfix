@@ -413,14 +413,10 @@ txr_rcx:
     jsr txr_call
     lda TXR_ST
     beq @end
-    lsr a                       ; 1: uploads, 2: the pause
-    bcc @pause
-@w:
-    jsr WAIT_VBLANK             ; the NMI uploads the batch (or reads a row)
-    lda TXR_UQN
-    ora TXR_RBQ
-    bne @w
-    beq @cont
+    lsr a                       ; 1: a frame for the NMI (TXF_RCC checks
+    bcc @pause                  ; the batch, its cells, the GC's row read)
+    jsr WAIT_VBLANK
+    jmp @cont
 @pause:                         ; the original's per-cell pause, per cell
     lda input_buttons
     and #$10

@@ -1074,4 +1074,42 @@ only, . = nothing):
   6-9 frames when a part fills.  Reading 2-3 rows per NMI would shorten
   it.
 
-Awaiting the user's choice.
+The user's choice: all of them, in the order C, E, B + D.
+
+### C done: glyphs and cells in one NMI
+
+- **Main thread** (`txr.asm` `rc_step`):
+  - A step with new glyphs queues its cells at once.
+  - The cells' first byte is held back (a 0 there stops the game's flush;
+    the byte is saved in `TXR_HB` with bit 7 set, the range in
+    `TXR_HI`..`TXR_HE`).
+  - Then the batch is published, and the step returns the pause as usual.
+  - The hold comes before the batch, so an NMI between them has nothing
+    to release.
+- **Rendering off or busy:** the glyphs are written at once
+  (`stage_direct`), and nothing is held.
+- **NMI** (`nmi_up`), when the batch is complete:
+  - it puts the byte back;
+  - it flushes the cells itself (`rel_flush`) when two tiles' worth of
+    budget is left and nothing queued before them is waiting;
+  - otherwise the game's next flush draws them.
+- **Waiting.**  `TXF_RCC` returns "wait" until the batch, its cells and
+  any GC row read are done.  The RAM stub then just waits a frame and
+  calls it again (the RAM image is 7 bytes smaller: 739).
+- **Safety.**  `txr_reset` never leaves cells held.
+- **Not changed: text_draw_line.**  Its hold also covers the attributes
+  that `draw_map_object` queues after the line returns.  Releasing it in
+  the NMI would draw rows before their attributes, so the main thread
+  still releases it.
+
+Checks (runs in `out/test/opt`; `c0` and `c1` are the shop greeting on the
+previous and the new build, each with its own RAM image):
+
+| Check | Result |
+|---|---|
+| Shop arrival and greeting, frames 1-100 | 20 U frames merged into B frames; the greeting and the list are complete 20 frames sooner |
+| Settled screens (frames 120, 199) | identical except the cursor's blink phase (the cursor blinks normally) |
+| New-game path from power-on, frames 1-4300 (`std0`, `std1`) | U frames 248 -> 115, B 18 -> 147; the GC runs at the same points (parts 3 and 2); `TXR_FULL` 0; the speech pages (幾 武器 用意 ...) identical |
+| A kanji's frame (4 tiles + 4 cells) | uploads end at line 253.6, cells 256.2, split armed 256.9 |
+| Lowest stack push (shop path) | `$010C` (previous build `$010A`), the same fixed-bank routine |
+| Original build | byte-identical |
