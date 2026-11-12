@@ -616,7 +616,7 @@ KANJI_EE:
     ldy text_col
     lda ($51),y
     inc text_col
-    cmp #$FC
+    cmp #$FB
     bcs kanji_ctl
     sta KANJI_CODE_HI
     jmp KANJI_EC
@@ -663,8 +663,10 @@ kanji_ctl:
     lda ($51),y                 ; skip variant A
     jmp @advance
 @low:
-    lsr a                       ; C = 1: $FD troop, C = 0: $FC back
+    lsr a                       ; C = 1: $FD troop / $FB tactic, C = 0: $FC back
     bcc @back
+    cmp #$7E
+    bcc @tact                   ; ($FB >> 1)
     stx KANJI_BUFX
     ldx $4B                     ; as $D549: ldy $4B / lda $60A8,y / cmp #8
     lda $60A8,x
@@ -696,6 +698,27 @@ kanji_ctl:
     iny
     sty text_col
     rts
+; $EE $FB lenA (2026-11-12): $D565's tactic name.  In a pool message
+; outside map mode its kanji (KNAME's way, reserved entries), then variant
+; A (の計); else variant B (the call and its kanji tail, as before).
+@tact:
+    stx KANJI_BUFX
+    bit TXR_ON
+    bmi @tb
+    bit KANJI_PAGES_LEFT
+    bvc @tb
+    lda #24
+    sta TXR_TA
+    jsr kn_put
+    beq @tb                     ; kana: variant B
+    lda #0
+    beq @ta
+@tb:
+    ldy text_col                ; lenA
+    lda ($51),y
+@ta:
+    ldy text_col
+    jmp @advance
 
 ; ----------------------------------------------------------------------
 ; One kanji escape: find the code in the current page record, have the
@@ -909,33 +932,22 @@ KNAME:                          ; $F4-$F7 (Y = 2 * (code - $EC): 16-22)
     sta KANJI_M1
     jmp (KANJI_M0)
 @pool:
-    cpy #22
-    beq @f7
-    cpy #18
-    bne @f6
-    ldx text_actor              ; $F5: text_actor's
-    bcs @x
-@f6:
-    cpy #20
-    bne @t
-    ldx party_slot              ; $F6: party_slot's, else text_target's
-    bpl @x
-@t:
-    ldx text_target             ; $F4: text_target's (none if negative)
-    bpl @x
+    sty TXR_TA                  ; the code: the renderer bank finds the record
     pla
     tax
-    rts
-@f7:
-    ldx $72                     ; $F7: the record of $05F0,[$72]
-    lda $05F0,x
-    bcs kn_rec
-@x:
-    lda $60A8,x                 ; the officer's record
-kn_rec:
-    sta TXR_TA
-    pla
-    sta KANJI_BUFX
+    jsr kn_put
+    beq @kana
+    rts                         ; put (or no officer: nothing)
+@kana:
+    ldy TXR_TA                  ; put_officer_name after its record lookup
+    ldx KANJI_BUFX
+    jmp $D4A5
+
+; TXR_TA = a name's code (TXF_NAME), X = the buffer position: its kanji
+; from the reserved entries.  X = the buffer position after; A = TXR_NM
+; (Z: kana, put nothing; N: no officer).
+kn_put:
+    stx KANJI_BUFX
     lda $10                     ; the game's $10/$11 (math temps)
     pha
     lda $11
@@ -952,9 +964,10 @@ kn_rec:
     pla
     sta $10
     ldx #TXF_NAME
-    jsr TXR_CALL                ; TXR_NM: kanji (0: kana), codes; TXR_NE: entry
+    jsr TXR_CALL                ; TXR_NM: kanji (0: kana, $FF: none), codes; TXR_NE: entry
     lda TXR_NM
-    beq @kana
+    beq @end
+    bmi @end
     lda #0                      ; (KANJI_M0-M2 are the block writer's while
     sta TXR_NJ                  ; post_wait yields: the loop's state is here)
 @k:
@@ -978,11 +991,10 @@ kn_rec:
     lda TXR_NJ
     cmp TXR_NM
     bne @k
-    rts
-@kana:
-    ldy TXR_TA                  ; put_officer_name after its record lookup
+@end:
     ldx KANJI_BUFX
-    jmp $D4A5
+    lda TXR_NM
+    rts
 
 kn_orig:
     .dw $D2E7, $D2E1, $D2DB, $D2CF

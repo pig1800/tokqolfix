@@ -464,8 +464,17 @@ def compile_tokens(tokens: list[str], cmap: dict[str, int]) -> bytes:
                 # tail), the kanji (kanji_overlay.asm kanji_ctl).
                 ptr = int(key[5:], 16)
                 cells, text = KANJI_SUFFIX_CALLS[ptr]
-                out += bytes((0xF8, ptr & 0xFF, ptr >> 8, 0xEE, 0xFC, cells))
-                out += compile_tokens(list(text), cmap)
+                tail = bytes((0xF8, ptr & 0xFF, ptr >> 8, 0xEE, 0xFC, cells))
+                tail += compile_tokens(list(text), cmap)
+                if ptr == 0xD565:
+                    # The tactic's name: $EE $FB lenA, variant A (の計, after
+                    # the name's kanji from the pool), $EE $FE lenB, variant
+                    # B (the call and its kanji tail; kanji_overlay.asm
+                    # kanji_ctl).  The name takes a page's reserved entries.
+                    va = compile_tokens(list("の" + text), cmap) + bytes((0xEE, 0xFE, len(tail)))
+                    out += bytes((0xEE, 0xFB, len(va))) + va + tail
+                else:
+                    out += tail
             elif key.startswith("CALL:"):
                 ptr = int(key[5:], 16)
                 out += bytes((0xF8, ptr & 0xFF, (ptr >> 8) & 0xFF))
@@ -561,8 +570,11 @@ def page_from_bytes(data: bytes, extra_used: set[int] | None = None) -> tuple[li
 
     while i < len(data):
         b = data[i]
-        if b == 0xEE and i + 1 < len(data) and data[i + 1] >= 0xFC:
+        if b == 0xEE and i + 1 < len(data) and data[i + 1] >= 0xFB:
             # Kanji-pick control: both variants' kanji stay in the page.
+            # $FB, the tactic's name, takes reserved entries like a name.
+            if data[i + 1] == 0xFB:
+                page.names += 1
             i += 4 if data[i + 1] == 0xFF else 3
             continue
         if 0xEC <= b <= 0xEE:
@@ -1040,12 +1052,15 @@ def line_width_issues(rec: "Record", data: bytes) -> list[str]:
     i = 0
     while i < len(data):
         b = data[i]
-        if b == 0xEE and i + 2 < len(data) and data[i + 1] >= 0xFC:
+        if b == 0xEE and i + 2 < len(data) and data[i + 1] >= 0xFB:
             # Pick: count variant A only ($EE $FE n then skips variant B);
-            # $EE $FC n steps back n cells.
+            # $EE $FC n steps back n cells; $FB's name counts 5 (with its
+            # の計, the 8 of a runtime name).
             if data[i + 1] == 0xFC:
                 width -= data[i + 2]
-            i += {0xFF: 4, 0xFD: 3, 0xFC: 3}.get(data[i + 1], 3 + data[i + 2])
+            if data[i + 1] == 0xFB:
+                width += 5
+            i += {0xFF: 4, 0xFD: 3, 0xFC: 3, 0xFB: 3}.get(data[i + 1], 3 + data[i + 2])
             continue
         if 0xEC <= b <= 0xEE:
             width += 2

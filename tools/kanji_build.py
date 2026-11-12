@@ -721,17 +721,25 @@ def build_txr_ui() -> None:
         r2[ptr] = (len(raw) - 1, enc(kanji))
     # Tactics ($A700 / $A720 + i, from byte 0; the word list's "XXのけい"
     # is "AB の計": the name is AB) and places (kanji_common.map_places).
+    # By tactic index too (TXF_NAME, battle messages: $D565's name in the
+    # pool): up to 3 kanji codes, 0 = kana.
     r0: dict[int, tuple[int, str]] = {}
+    tact: list[list[int]] = [[] for _ in range(32)]
     for i in range(32):
         ptr = b12[0x2700 + i] | (b12[0x2720 + i] << 8)
-        if not 0x8000 <= ptr < 0xC000 or ptr in r0:
+        if not 0x8000 <= ptr < 0xC000:
             continue
         raw = record(ptr, 0)
         kanji = by_kana.get(kana_of(raw) + "のけい")
         if kanji is None or not kanji.endswith("の計"):
-            missing.append(kana_of(raw) + "のけい")
+            if ptr not in r0:
+                missing.append(kana_of(raw) + "のけい")
             continue
-        r0[ptr] = (len(raw) - 1, enc(kanji[:-2]))
+        name = kanji[:-2]
+        if 1 <= len(name) <= 3 and all(kanji_common.KANJI_RE.fullmatch(ch) and ch in codes for ch in name):
+            tact[i] = [codes[ch] for ch in name]
+        if ptr not in r0:
+            r0[ptr] = (len(raw) - 1, enc(name))
     for i, (raw, kanji) in sorted(kanji_common.map_places().items()):
         ptr = b12[0x2100 + i] | (b12[0x2140 + i] << 8)
         if ptr not in r0:
@@ -801,6 +809,10 @@ def build_txr_ui() -> None:
     lines.append("ui_ri: .db " + ",".join(str(v) for v in ri))
     lines.append("nm_gc_lo: .db " + ",".join(f"${codes[ch] & 0xFF:02X}" for ch in nglyphs))
     lines.append("nm_gc_hi: .db " + ",".join(f"${codes[ch] >> 8:02X}" for ch in nglyphs))
+    lines.append("tn_n: .db " + ",".join(str(len(t)) for t in tact))
+    for k in range(3):
+        lines.append(f"tn_lo{k}: .db " + ",".join(f"${(t[k] if k < len(t) else 0) & 0xFF:02X}" for t in tact))
+        lines.append(f"tn_hi{k}: .db " + ",".join(f"${(t[k] if k < len(t) else 0) >> 8:02X}" for t in tact))
     for name, tab in (("r2", r2), ("r0", r0), ("r1", r1)):
         keys = sorted(tab)
         if not 0 < len(keys) < 128:

@@ -1541,3 +1541,55 @@ the menu cycle, the new-game path; 34 + 116 + 137 upload frames).
   have to move out.
 - **Gain:** one more kanji (4 a frame) or ~3 more kana, in those frames
   only.
+
+### Fixes after round 3 (2026-11-12, the user's states 1 and 2)
+
+**Tactic names in battle messages were kana** (state 2: 総攻撃, the
+level-up's 「麋竺 はじょうないの計を覚えた」; also 「れんかの計を使った」 when a
+tactic is used).
+- `<CALL:D565>` puts the tactic's kana from bank 12 and the kana tail
+  のけい; the compiler's `$EE $FC 2 計` turned the tail into 計.  Only map
+  mode substitutes the name (`txr_tp`).
+- **Now:**
+  - the compiler emits `$EE $FB lenA`, variant A (の計), `$EE $FE lenB`,
+    variant B (the old bytes), and counts the tactic as a runtime name of
+    the page (3 reserved pool entries);
+  - in a pool message outside map mode the overlay's `kanji_ctl` puts the
+    name's kanji as `KNAME` puts an officer's (`kn_put`, shared), then
+    variant A;
+  - in map mode, on the band page, or when the reserved entries cannot
+    hold it: variant B.
+- `TXF_NAME` (`txr_name`) now takes the name's code: 16-22 for
+  `$F4-$F7` (the officer selection moved there from the overlay, which
+  needed the bytes) and 24 for the tactic (`text_command`; tables `tn_*`
+  from the word list's 「XXの計」, 31 of 32 tactics, all 2 kanji).
+- The overlay is 2044 of 2048 bytes.
+- **Result:** 「麋竺 は城内の計を覚えた」, 「練火の計を使った」; the kanji type
+  half by half like officer names.
+
+**CHR splits 1-2 lines early with A held** (state 1, the save man).
+- Holding A speeds the text up.  When the dialogue scrolls, the game
+  flushes 104 bytes in one NMI: one more than `CV_FORCE_MAX` (103).
+- So `nmi_map` skipped the force (`v = $1000`) and armed the IRQ at once,
+  at line 260.7.  With v still at a nametable address, A12 rises at the
+  pre-render line's first background fetch: an extra MMC3 clock.  Stage
+  0 ran at line 261 instead of line 0, and the splits came at 69 / 117 /
+  165 (or 70 / 118 / 166) instead of 71 / 119 / 167.
+- **The build before round 3 misplaced these frames too:** its later arm
+  came after the pre-render line's real clock, so the splits fell one line
+  late (72 / 120 / 168).
+- **Fix:** `nmi_map` has its own limit, `CV_MAP_FORCE_MAX` = 106 (its
+  timing is ~2 lines earlier).
+  - The 104-byte scroll is now forced, with `v = $1000` at about line
+    259.9.
+  - The IRQ reload lands at 261.0, before the real clock (261.95).
+  - A 106-byte flush in one entry would put `v = $1000` at about line
+    260.7.
+- **Checked:** every frame of state 1 with A held (30 frames, 120 frames,
+  three short holds): splits at 71 / 119 / 167.  The largest map-mode
+  flush in the test runs is otherwise 93 bytes.
+- **Above 106 bytes** (not seen in map mode): no force, as before.  The
+  arm can then still precede the pre-render line.
+- **Regression:** the pictures are identical to the previous build for
+  the greeting, the menu cycle, a battle (frames 197-856) and the new-game
+  path.

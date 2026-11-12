@@ -115,7 +115,7 @@ nmi_map:
     tax                         ; X = bytes the game flushed this frame
     lda CV_STRM
     bne nm_strm                 ; cv_stream forced and armed (no uploads)
-    cpx #CV_FORCE_MAX+1
+    cpx #CV_MAP_FORCE_MAX+1
     bcs nm_late                 ; the game's NMI ran late: no force
     lda ppu_mask_shadow
     and #$18
@@ -2443,16 +2443,65 @@ ui_rn:
     clc
     rts
 
-; TXF_NAME (the overlay, battle messages): TXR_TA = an officer record id,
-; TXR_TX = the pool page's entry count byte (bits 0-4 the page's kanji,
-; bits 5-6 its names: 3 reserved entries each).  TXR_NM = the kanji of the
-; name, TXR_NM+1.. their codes' low bytes, TXR_NM+4.. the high bytes;
-; TXR_NE = the first reserved entry not taken (KANJI_UPLOADED).  TXR_NM = 0:
-; no kanji name, or the reserved entries left cannot hold it.
+; TXF_NAME (the overlay, battle messages): TXR_TA = the name's code, as
+; the overlay's dispatch index: 16-22 for $F4-$F7 (an officer: $F4
+; text_target's, $F5 text_actor's, $F6 party_slot's else text_target's,
+; $F7 the record of $05F0,[$72]; TXR_TA = the record after), 24 for $D565's
+; tactic (text_command).  TXR_TX = the pool page's entry count byte (bits
+; 0-4 the page's kanji, bits 5-6 its names: 3 reserved entries each).
+; TXR_NM = the name's kanji, TXR_NM+1.. their codes' low bytes, TXR_NM+4..
+; the high bytes; TXR_NE = the first reserved entry not taken
+; (KANJI_UPLOADED).  TXR_NM = 0: kana (no kanji name, or the reserved
+; entries left cannot hold it); $FF: no officer (nothing is put).
 txr_name:
     ldy #0
     sty TXR_NM
-    ldx TXR_TA
+    lda TXR_TA
+    cmp #24
+    bne @off
+    ldx text_command            ; a tactic (0-31)
+    lda tn_n,x
+    sta TXR_NM
+    lda tn_lo0,x
+    sta TXR_NM+1
+    lda tn_hi0,x
+    sta TXR_NM+4
+    lda tn_lo1,x
+    sta TXR_NM+2
+    lda tn_hi1,x
+    sta TXR_NM+5
+    lda tn_lo2,x
+    sta TXR_NM+3
+    lda tn_hi2,x
+    sta TXR_NM+6
+    jmp @r
+@off:
+    cmp #22
+    beq @f7
+    cmp #18
+    bne @f6
+    ldx text_actor              ; $F5
+    jmp @x
+@f6:
+    cmp #20
+    bne @t
+    ldx party_slot              ; $F6: party_slot's, else text_target's
+    bpl @x
+@t:
+    ldx text_target             ; $F4 (none if negative)
+    bpl @x
+    lda #$FF
+    sta TXR_NM
+    rts
+@f7:
+    ldx $72                     ; $F7: the record of $05F0,[$72]
+    lda $05F0,x
+    jmp @rec
+@x:
+    lda $60A8,x                 ; the officer's record
+@rec:
+    sta TXR_TA
+    tax
     cpx #UI_NRI
     bcs @r
     lda ui_ri,x                 ; the record's ui_rn index + 1
