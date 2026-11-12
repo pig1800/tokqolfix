@@ -546,7 +546,8 @@ Still kana:
 - Not map mode, so unchanged:
   - the title's menus (げーむをはじめる…), the speed menu `$29`, the name
     entry grid;
-  - the battle's prisoner window `$21`.
+  - (the battle's prisoner window `$21`: kanji since 2026-11-13,
+    INFO_SCREEN.md "The prisoner window").
 
 ### Window geometry
 

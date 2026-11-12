@@ -38,6 +38,7 @@ PATCHES = [
     (0xEAC8, 0xEADF),   # window $12 template
     (0xEB23, 0xEB3A),   # window $16 template (battle items)
     (0xEB43, 0xEB6C),   # window $17 template (battle tactics; title 残り)
+    (0xEC24, 0xEC31),   # window $21's template (the prisoner window in kanji)
     (0xEDC3, 0xEDC3),   # window $22's template pointer, low (reward window: bank 14 $923C)
     (0xEDF3, 0xEDF3),   # its high byte
     (0xD671, 0xD6C1),   # copy_pointer_triplet + divisor table: UIF_DEC stub, bs_wait, blk_main

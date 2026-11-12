@@ -21,7 +21,8 @@
 ; taken.
 ;
 ; Window templates (fixed bank, patched by kanji_build): "$F8 cv_wincb n"
-; per line; n = 0-3 command window line, $10 tactic line, $20 item line.
+; per line; n = 0-3 command window line, $10 tactic line, $20 item line,
+; $40-$41 the prisoner window's lines ($21: 仲間に入れる / 逃がす).
 ; The reward window $22 (bank 14's template): "$F8 cv_wincb", line $54.
 ; The canvas code's cv_sm hook calls UIF_SM after every row pair.
 ; ======================================================================
@@ -41,6 +42,7 @@ G_FIXED     = 8             ; group of ui_fixed_g[0]
 F_ZAN       = 12            ; ui_fixed_g index of 残 (group 20)
 F_DOU       = 13            ;   道 (group 21); 具 = 14 (group 22)
 WIN_LINE0   = $266C         ; line 0's top row (19), column 12, nametable 1
+PR_LINE0    = $25B4         ; window $21's line 0: top row 13, column 20
 ZAN_TOP     = $262E         ; row 17, columns 14-15: 残's top half
 ZAN_TILE    = $F4           ; group 20's first tile
 
@@ -348,6 +350,10 @@ win_glyphs:
     bne @not22
     jmp wg_reward
 @not22:
+    cmp #$21
+    bne @not21
+    jmp wg_prison
+@not21:
     cmp #$17
     bne @panel
     jmp wg_tactics
@@ -589,6 +595,8 @@ ui_wincb:
     cmp #$10
     beq @tactic
     bcc @panel
+    cmp #$40
+    bcs @prison
     cmp #$30
     bcs @reward
     lda battle_anim
@@ -603,6 +611,9 @@ ui_wincb:
     jmp @out
 @reward:
     jsr draw_reward_line
+    jmp @out
+@prison:
+    jsr draw_prison_line
 @out:
     sty UI_X
     ldx UI_X
@@ -1098,8 +1109,10 @@ redraw_line:
     sta B_BOT
     lda #>LBUF_B
     sta B_BOT+1
-    ldy #2                      ; column 12
+    ldy #2                      ; column 12 (window $21: 20)
     lda UI_WIN
+    cmp #$21
+    beq @prison
     cmp #$16
     beq @item
     cmp #$17
@@ -1135,6 +1148,27 @@ redraw_line:
     lda #>WIN_LINE0
     adc #0
     sta ZP_C
+    jmp @put
+@prison:
+    lda B_LINE
+    sta ZP_C
+    jsr draw_prison_line
+    lda #9                      ; columns 20-28
+    sta ZP_N
+    lda B_LINE
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    clc
+    adc #<PR_LINE0
+    sta ZP_T
+    lda #>PR_LINE0
+    adc #0
+    sta ZP_C
+@put:
     ldx vram_queue_write
     jsr @head
     ldy #2
@@ -1177,6 +1211,118 @@ redraw_line:
     sta ZP_J
     inx
     rts
+
+; ----------------------------------------------------------------------
+; Window $21: a captured officer (the victory, after the reward window):
+; 仲間に入れる / 逃がす (the original's なかまにいれる / にがす).  At the user's
+; call (2026-11-12) two columns wider to the left than the original:
+; columns 18-29, rows 12-17, text from column 20 (index 2).  Its kanji
+; take free groups (need); those among the messages' pool slots are kept
+; from the messages after the choice (UI_PRES), as the reward window's.
+; Columns 18-19 of rows 14-17 are the battle's P2: P0 while it is open
+; (the battle ends after it; rows 12-13 there are P0 already).
+; ----------------------------------------------------------------------
+wg_prison:
+    lda #0
+    sta ZP_K
+@k:
+    ldy ZP_K
+    lda ui_prison_g,y
+    jsr need
+    ldy ZP_K
+    lda ui_prison_g,y
+    sta ZP_G
+    ldx #NGROUPS-1              ; its group (none yet: drawn blank, placed
+@f:                             ; at the window's end)
+    lda UI_SLOT,x
+    cmp ZP_G
+    bne @n
+    lda UI_GF,x
+    and #GF_NREF
+    bne @res
+@n:
+    dex
+    bpl @f
+    bmi @next
+@res:
+    cpx #POOL_SLOTS
+    bcs @next
+    txa                         ; a pool slot: the messages keep off it
+    lsr a
+    lsr a
+    lsr a
+    tay
+    txa
+    and #7
+    tax
+    lda bit_of,x
+    ora UI_PRES,y
+    sta UI_PRES,y
+@next:
+    inc ZP_K
+    lda ZP_K
+    cmp #PR_N
+    bne @k
+    ldx vram_queue_write
+    ldy #0
+@a:
+    lda pr_attr,y
+    sta $0400,x
+    inx
+    iny
+    cpy #8
+    bne @a
+    lda #0
+    sta $0400,x
+    stx vram_queue_write
+    lda #1
+    sta B_Q
+    rts
+; $27DC (rows 12-15, columns 16-19): the reward window's $A2, now with
+; rows 14-15 columns 18-19 P0; $27E4 (rows 16-19, columns 16-19): the
+; battle's $0A, with rows 16-17 columns 18-19 P0.
+pr_attr:
+    .db $27,$DC,1,$22, $27,$E4,1,$02
+PR_N        = 4             ; ui_prison_g: 仲 間 入 逃
+
+; Line ZP_C & 1 of window $21 at Y: ui_prison_g index, $FE kana, $FF end.
+draw_prison_line:
+    lda ZP_C
+    and #1
+    tax
+    lda pr_line_lo,x
+    sta ZP_A
+    lda pr_line_hi,x
+    sta ZP_A+1
+    lda #0
+    sta ZP_J
+@tok:
+    sty ZP_X
+    ldy ZP_J
+    inc ZP_J
+    lda (ZP_A),y
+    ldy ZP_X
+    cmp #$FF
+    beq @done
+    cmp #$FE
+    bne @kanji
+    ldy ZP_J
+    inc ZP_J
+    lda (ZP_A),y
+    ldy ZP_X
+    jsr put_kana
+    jmp @tok
+@kanji:
+    tax
+    lda ui_prison_g,x
+    jsr put_glyph_cell
+    jmp @tok
+@done:
+    rts
+pr_line_lo: .db <pr_l0, <pr_l1
+pr_line_hi: .db >pr_l0, >pr_l1
+pr_l0:      .db 0, 1, $FE,$20, 2, $FE,$34, $FE,$33, $FF    ; 仲間に入れる
+pr_l1:      .db 3, $FE,$90, $FE,$17, $FF                    ; 逃がす
 
 ; ----------------------------------------------------------------------
 ; Reward window $22 (victory: gold, food, experience; step B item 8).  The

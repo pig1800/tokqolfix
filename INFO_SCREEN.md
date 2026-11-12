@@ -799,6 +799,32 @@ between them.  The message window starts at row 18, so `$21` cannot move
 down.  The user keeps it: windows overlaying each other is how the
 original's windows behave.
 
+**The prisoner window in kanji** (2026-11-13, the user's report: the
+choices were kana).
+- Now 仲間に入れる / 逃がす (the original's なかまにいれる / にがす).
+- 仲間に入れる is 9 cells and the window had room for 7 after the cursor.
+  At the user's call it is two columns wider to the left: columns 18-29,
+  text from column 20.  Its top border now covers the reward window's
+  whole bottom edge.
+- **Template** (fixed bank `$EC24`, `kanji_build` `PRISON_TPL`): one
+  metatile further left, width 12, and two `$F8 cv_wincb` lines (`$40`,
+  `$41`).
+- **Drawing:** `ui_battle.asm` `wg_prison` / `draw_prison_line`.
+  - 仲 間 入 逃 are UI glyphs (`ui_prison_g`; the UI set is now 147).
+  - They take free groups (`need`).
+  - Those among the message pool's slots are reserved (`UI_PRES`), so the
+    messages after the choice (「それもよかろう 韓忠が我が軍に加わります」,
+    「韓忠を釈放した」) print elsewhere.
+  - `redraw_line` knows the window's position (`PR_LINE0`) for a kanji
+    that had to wait for the window's end.
+- **Palette:** columns 18-19 of rows 14-17 were the battle's P2.  When the
+  window opens, `$27DC` = `$22` and `$27E4` = `$02` make them P0.  The
+  battle ends after the window; the area beside it is black.
+- **Checked** on the user's state 2 (総攻撃, a victory capturing 韓忠): both
+  choices, the cursor on either line, the kanji kept through the messages
+  after.  The battle `r17_pre_battle_normal` (every frame 197-856) and
+  state 2 up to the prompt are identical to the previous build.
+
 RAM: `UI_RAM2` `$7F9E-$7FBF` (34 bytes: `UI_MC_LO`, `UI_MC_HI`, `UI_PRES`,
 `KANJI_PMASK`; `kanji.inc`).  The canvas RAM code still ends at `$7F93`
 (its image is unchanged, so the converted states stay valid).

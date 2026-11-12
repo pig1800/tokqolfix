@@ -109,6 +109,11 @@ CV_RAM_PAGES = 7
 UI_BANK = 28
 UI_RAM = 0x7F9C                 # kanji.inc UI_DECY, UI_DECX, UI_RAM2, UI_RAM: the UI bank's battery-RAM state
 REWARD_KANJI = "金兵糧経験値"   # the reward window $22 (ui_battle.asm ui_reward_g)
+PRISON_KANJI = "仲間入逃"       # the prisoner window $21 (ui_battle.asm ui_prison_g)
+# Window $21's template (fixed bank $EC24): "ff 02 0a" (rows -1, columns +2
+# metatiles, width 10), なかまにいれる, にがす.  Kanji (2026-11-12, the user):
+# one metatile further left, width 12, two cv_wincb lines ($40, $41).
+PRISON_TPL = (0xEC24, bytes.fromhex("ff020afa1f1029203e3433fa209017ff"))
 REWARD_TPL = 0x923C             # its template in bank 14 (bank14.asm b14_k_reward_tpl)
 UI_ITEM_TYPES = ("weapon", "armor", "helmet", "consumable", "keyitem")
 # The battle command window's 15 fixed kanji in group order 8-22 (step B
@@ -187,6 +192,7 @@ PATCH_SITES = {
     0xEB23: bytes.fromhex("02fd14faf89186f89186faf89186f89186faf89186f89186"),
     0xEB43: bytes.fromhex("02fd146d0c0c0c2314320af6f70a0a0a0a0c0c0c0c0c6efaf88a96f823b7f823b7faf823b7f823b7faf8"),
     # window $22's template pointer (data_EDA1 / data_EDD1 + $22): $EC34
+    PRISON_TPL[0]: PRISON_TPL[1],
     0xEDC3: bytes((0x34,)),
     0xEDF3: bytes((0xEC,)),
     # battle setup: jsr wait_vblank_queued (the enemy roll, the name
@@ -516,6 +522,9 @@ def build_ui_data() -> int:
     lines.append("ui_reward_g:")
     lines.append(".db " + ",".join(f"${gid(ch):02X}" for ch in REWARD_KANJI)
                  + "  ; " + REWARD_KANJI)
+    lines.append("ui_prison_g:")
+    lines.append(".db " + ",".join(f"${gid(ch):02X}" for ch in PRISON_KANJI)
+                 + "  ; " + PRISON_KANJI)
     lines.append("ui_reward_clo:")
     lines.append(".db " + ",".join(f"${codes[ch] & 0xFF:02X}" for ch in REWARD_KANJI))
     lines.append("ui_reward_chi:")
@@ -1055,6 +1064,14 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
                                      cvl["cv_nmi"] >> 8, 0xEA, 0xEA)))
     # Map mode: the renderer's uploads before the original's scroll,
     # PPUMASK, ppu_nmi_on and task timers (nmi_gate, txr.asm nmi_map).
+    # The prisoner window $21 in kanji (ui_battle.asm wg_prison): two
+    # columns wider, two cv_wincb lines.
+    wcb = cvl["cv_wincb"]
+    tpl = bytes((0xFF, 0x01, 0x0C, 0xFA, 0xF8, wcb & 0xFF, wcb >> 8, 0x40,
+                 0xFA, 0xF8, wcb & 0xFF, wcb >> 8, 0x41, 0xFF))
+    if len(tpl) > len(PRISON_TPL[1]):
+        raise SystemExit("window $21's template outgrew the original")
+    apply_patch(bank, PRISON_TPL[0], tpl + PRISON_TPL[1][len(tpl):])
     apply_patch(bank, 0xEED0, bytes((0x4C, labels["nmi_gate"] & 0xFF,
                                      labels["nmi_gate"] >> 8)))
     apply_patch(bank, 0xEF31, bytes((0x4C, labels["ef31_gate"] & 0xFF,
