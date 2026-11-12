@@ -1311,3 +1311,98 @@ kanji does not fit:
 - Lowest stack push `$010A` (the same fixed-bank routine).
 - Original build byte-identical.
 
+### Round 3 (2026-11-12): assessment, a third kanji per frame
+
+**The question (the user's):** can the original game's NMI give up about
+100 more cycles, so that a third kanji fits in a frame?  MMC3 8 KiB
+banking may be used freely in our own code.
+
+**What a third kanji needs.**  Measured with an instruction trace of
+2-kanji frames (no game flush; `out/test/opt/ntrace.lua`, `ntr.txt`):
+- The second kanji's last write is at cycle ~1,890 after the NMI (line
+  257.7).
+- A third would end at ~2,330 (line 261.6).
+- `v = $1000` (the force) comes ~124 cycles after the last upload write
+  and must land before line 261.0 (cycle ~2,263).
+- So a third kanji is ~190 cycles short at zero margin.
+- Today's worst case (1 kana + 2 kanji, the second started with exactly
+  `UP_KANJI` left) keeps ~60 cycles before line 261.  Keeping that
+  margin means saving ~250 cycles.  100 is not enough.
+
+**The game's NMI, NMI -> `$EF08`** (808 cycles, measured):
+
+| Part | Cycles | Needed before our uploads? |
+|---|---|---|
+| entry, pushes, PPUCTRL, PPUMASK off, OAMADDR | 48 | yes |
+| OAM DMA | 517 | in vblank, but its place in it doesn't matter |
+| the game's queue flush (empty) | 32, +~15 a byte | yes |
+| palette check, `flush_palette` | 24 | yes (PPU work) |
+| scroll, PPUMASK on, `ppu_nmi_on` (`$EECE-$EEDF`) | 45 | no, in map mode: the force rewrites PPUCTRL and the scroll; PPUMASK only needs to be on before line 261 |
+| frame counter, the task timers, the `nmi_mode` branch (`$EEE0-$EF07`) | 142 | no: no PPU access |
+
+- **Deferrable: 187 cycles.**  A gate at `$EECE` would skip to `$EF08`
+  in map mode (not busy, `nmi_mode` 0, `TXR_ON`).  The map path then
+  does the skipped work after the uploads.  The gate costs ~15 cycles
+  and needs ~20 bytes of fixed bank (`$C489-$C49D` has 21 free).
+- **Net: ~170 cycles.**
+- When the force is skipped (`CV_FORCE_MAX`: a long flush), the map
+  path must write the scroll, PPUCTRL and PPUMASK itself, at once.
+- Busy NMIs already jump to `$EEE0`; they keep the timers in place.
+
+**Our path, `$EF08` -> first glyph byte** (326 cycles, measured):
+
+| Part | Cycles | Lean |
+|---|---|---|
+| fixed-bank gate, RAM stub, R6, `nmi_cv`, `nmi_live` | 62 | ~30: the gate maps bank 26 and jumps in |
+| `cvn_map` up to `nmi_up` | 78 | ~40: R0, `KANJI_LAST39` and `KANJI_QPOS` written after the uploads |
+| `nmi_up` setup and budget, up to `mk_run` | 89 | ~40: one budget decision from the main thread's per-record costs |
+| `mk_run` budget, glyph bank, R0, address | 97 | ~85 |
+
+- **Saves ~135 before the first write, and ~12 per later kanji: ~160
+  for 3 kanji.**
+- **The tail:** the last write -> force is 110 cycles of bookkeeping (the
+  R0 restore, the held cells, the queue index).  Doing the force and
+  arm first moves the upload deadline ~80 cycles later.
+
+**8 KiB banking: a page-aligned glyph copy for the NMI.**
+- 256 glyphs per 8 KiB bank, row r of glyph c at `$A000 + r * 256 + c`,
+  mapped with R7 only.  The uploader stays in bank 26's NMI half: no
+  copy of `mk_run` in each glyph bank, no call, no R6 switch.
+- **Per kanji:**
+  - the R7-only switch: 12;
+  - no +256 branch: 7;
+  - no page crossings: 6-16 measured, 32 at worst;
+  - the call: ~18.
+  - **That is ~40-50 a kanji, ~130 for 3**, and a constant kanji time,
+    so the charge can be exact.
+- **Cost:** 32 KiB in four 8 KiB banks (982 glyphs).
+  - Banks 17b and 27a are empty.
+  - Two more need small moves: the 751-byte RAM image in 27b and 563
+    bytes in 29a.
+  - The glyph tables in banks 23-25 stay for the main thread and the
+    other screens.
+
+**Totals:**
+
+| Levers | Saved | A third kanji |
+|---|---|---|
+| the game's NMI only | ~170 | no (needs ~190) |
+| + our path | ~330 | yes, ~130 to spare (today: ~60) |
+| + the tail | (+80 deadline) | ~210 to spare |
+| + the 8 KiB glyph copy | ~460 | ~340 to spare: 3 kanji + 1 kana |
+
+- A fourth kanji needs ~370 more: not reachable with these.
+
+**A bigger, separate lever: skipping the OAM DMA (517 cycles).**
+- The game rewrites the sprite buffer every 1-3 frames (`$C459`,
+  `$C950-$C95F`; 87-111 bytes).
+- Measured while a window drew: 0 bytes changed in nearly every frame
+  (frames 1-120 of the greeting).
+- With a dirty flag (the writers patched to compare before they store),
+  the NMI could skip the DMA when nothing changed.  OAMADDR would then
+  not be written either.  On hardware, OAM keeps its contents while
+  rendering is on every frame.
+- That would give room for about a fourth kanji in those frames.
+- More invasive: it patches two game routines and changes when sprites
+  are sent.
+
