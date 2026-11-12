@@ -1199,7 +1199,7 @@ clock.  The game's own long-flush frames end the force near line 261.8.
 |---|---|---|---|---|
 | Shop greeting and item list, from `u3b` (last upload frame) | 100 | 79 | 79 | 74 |
 | Command window, first open (frames from the first publish to complete) | 14 | 14 | 11 | 8 |
-| Command window, opened again | 13 | 13 | 0 uploads (the game's row pace) | 0 uploads |
+| Command window, opened again | (not run; as C) | 13 | 0 uploads (the game's row pace) | 0 uploads |
 | Menu cycle x4, 4,233 frames: U + P frames | | 441 | 165 | 117 |
 | New-game path, frames 1-4300: U frames | 248 | 115 | 115 | 113 |
 
