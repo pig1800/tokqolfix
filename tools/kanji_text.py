@@ -40,6 +40,10 @@ BANK_INFO = {
 DATA_START = {10: 0x03E8, 11: 0x0380}
 TRAMPOLINE_ADDR = 0xBF00     # F8 body, identical in banks 10/11
 MAX_PAGES = 32
+META_WIN = 0x20             # kanji.inc: metadata byte 0 bit 5, a victory message
+# b10_msg_059 「…との戦いに勝った」 (after the scripted battles' victory face),
+# 061 / 062 (the rewards): the battle is won (kanji_overlay message_setup).
+WIN_LABELS = {"b10_msg_059", "b10_msg_061", "b10_msg_062"}
 MAX_PAGE_ENTRIES = 16
 # Free tiles a page must leave unassigned.  Revision 16: 0 (was 4, a slack
 # from the shared-CHR design; the runtime never needs a spare tile).
@@ -1181,7 +1185,16 @@ def build() -> int:
             for t in page.used:
                 if 0 <= t < 0x80:
                     kana[t >> 3] |= 0x80 >> (t & 7)
-        rec.meta_blob = (bytes((len(page_blobs),)) + bytes(kana)
+        # Byte 0: the page count; bit 5 (META_WIN, kanji.inc) marks a
+        # victory message: in a battle the overlay then gives the pool the
+        # portrait tiles $80-$A3 (no portrait after the win).
+        if len(page_blobs) >= META_WIN:
+            raise SystemExit(f"{rec.labels[:1]}: {len(page_blobs)} pages "
+                             f"(page count bit 5 is META_WIN)")
+        count = len(page_blobs)
+        if set(rec.labels) & WIN_LABELS:
+            count |= META_WIN
+        rec.meta_blob = (bytes((count,)) + bytes(kana)
                          + b"".join(page_blobs))
 
     # Deduplicate identical message streams and page assignments.

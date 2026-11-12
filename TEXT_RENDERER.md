@@ -1777,3 +1777,72 @@ switched off.**
     nametables.
   - The greeting, the menu cycle, a battle, the title and the new-game path
     are identical to the previous build.
+
+### Done (2026-11-13): the battle messages' kanji after a win, and a last-resort collection
+
+The user's order: once the battle is won, tiles `$80-$A3` are free for
+9 more kanji; if even that is not enough, count what is on screen and
+cannot be purged, treat every other kanji tile as free and upload there.
+The window is cleared only when even that fails.  The battle-only pool
+code moved out of the overlay into the UI bank (bank 28, through
+`call_ui`); the overlay keeps two stubs.
+
+- **Slots** (`kanji.inc`, `ui_battle.asm` `ui_pchoose` / `ui_ptiles`), 4
+  tiles each in 8x16 order:
+
+  | slots | tiles | when |
+  |---|---|---|
+  | 0-14 | `$A4-$DF` (groups 0-14) | always, as before |
+  | 16-24 | `$80-$A3` | once the battle is won |
+  | 25-30 | `$E0-$F7` (groups 15-20) | the collection, when the rest is full |
+
+  Groups 21-22 (`$F8-$FF`) stay out: their top tiles would be the text
+  engine's line-end codes `$F8-$FF` (`render_ctl` now draws `$80-$F7`).
+- **The win:** `b10_msg_059` 「…との戦いに勝った」 and the rewards
+  `b10_msg_061` / `062` carry bit 5 of the metadata's page count
+  (`META_WIN`, `kanji_text.py` `WIN_LABELS`).  When one starts in a
+  battle, `message_setup` sets `UI_BATTLE` bit 7 (`UI_WON`); the battle
+  start clears it.  `$80-$A3` are the battle portrait's 36 tiles; measured
+  in a portrait battle (state r4/s2, enemies poked to 1 troop) no
+  portrait is shown when 059 starts (the last one closes before it) and
+  nothing writes `$80-$A3` after it.  The scripted battles' victory face
+  (`b14_battle_victory_event`) comes before 059 in the code; it was not
+  played.
+- **The tries** (`ui_pchoose`):
+  1. Slots 0-14 (and 16-24 once won), minus the kanji in the window's
+     lines and `UI_PRES` (the reward and prisoner windows).
+  2. The collection: also slots 25-30, minus every group a window on
+     screen shows or the window being drawn uses (`GF_REF`, `GF_NREF`).
+  3. The fallback, as before: the window is cleared.
+  The lines are now read only in each row's 20 window cells: bytes 20-23
+  are never shown, and the battle windows' row buffers (the same
+  `$0300-$03BF`) left gauge and command tiles there, which used to block
+  slots.
+- **After the collection:** a group 15-20 taken by a message is marked
+  `$FE` in `UI_SLOT`; the command window puts its kanji back when it opens
+  (`need_fixed`, one per NMI: up to 6 frames later than usual, only
+  before the win).  The glyph upload keeps plane 1 of `$E0-$F7` (HP gauges,
+  S P; `hack.asm` `plane1_blank`).
+- **The reward and prisoner windows** open beside the message window.
+  They now keep off every slot the message may show (`UI_PML`: the lines
+  at the last page start plus every slot placed since; `grp_shown` in
+  `grp_safe` and in the reward window's group search).  The reward window
+  takes groups 15-22, then a free pool group (reserved in `UI_PRES`), and
+  overwrites only when nothing else is left.
+- **Measured:**
+  - The capture victory (r5/s2): the 4th message (「二君に仕える気はない」)
+    now scrolls on with slots 14, 16-18 (it was cleared: 1 free of 4).
+    Identical to the previous build up to there.
+  - The portrait battle's forced win: 「関羽は兵士数が 191になった」 scrolls
+    on instead of clearing.
+  - The collection, forced (`UI_PRES` poked to block the whole pool):
+    `b10_msg_061` took groups 15-18; the gauges stayed; the reward window
+    then used groups 20-22 and pool groups 0-2, and the message stayed
+    intact.
+  - Greeting, menu cycle, the officer-switch battle, the title and the
+    standard path: identical to the previous build.
+- **Limits:** before the win 15 slots, plus up to 6 from the collection;
+  after it 24, plus up to 6.  A page over `POOL_PAGE_MAX` (12) still uses
+  the band page.  At `text_line` 0 all four lines still count as shown,
+  including leftovers of other windows in them.
+- **Space:** the overlay is 1790 of 2048 bytes; the UI bank 12839 of 16384.

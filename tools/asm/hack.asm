@@ -1142,6 +1142,16 @@ tile_addr:
     sta PPUDATA
     lda tab+(k*8+7)*GSTRIDE,x
     sta PPUDATA
+    jmp plane1_blank            ; (Y = k still)
+.endm
+
+; Plane 1 of the tile just written (KANJI_TILES+Y) blank, except in the
+; battle screen's groups 15-20 ($E0-$F7, the battle messages' last resort,
+; ui_pchoose): their plane 1 holds the HP gauges and S P.
+plane1_blank:
+    lda KANJI_TILES,y
+    cmp #$E0
+    bcs @rts
     lda #0
     sta PPUDATA
     sta PPUDATA
@@ -1151,32 +1161,25 @@ tile_addr:
     sta PPUDATA
     sta PPUDATA
     sta PPUDATA
-.endm
+@rts:
+    rts
 
 upload_low_0:
     UPLOAD_TILE GLYPH_TAB, 0
-    rts
 upload_low_1:
     UPLOAD_TILE GLYPH_TAB, 1
-    rts
 upload_low_2:
     UPLOAD_TILE GLYPH_TAB, 2
-    rts
 upload_low_3:
     UPLOAD_TILE GLYPH_TAB, 3
-    rts
 upload_high_0:
     UPLOAD_TILE GLYPH_TAB+256, 0
-    rts
 upload_high_1:
     UPLOAD_TILE GLYPH_TAB+256, 1
-    rts
 upload_high_2:
     UPLOAD_TILE GLYPH_TAB+256, 2
-    rts
 upload_high_3:
     UPLOAD_TILE GLYPH_TAB+256, 3
-    rts
 
 ; ======================================================================
 ; NMI epilogue, split frames only (ef31_gate): the scene page, no band, no

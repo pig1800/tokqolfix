@@ -526,8 +526,8 @@ def build_ui_data() -> int:
     lines.append("ui_fixed_g:")
     lines.append(".db " + ",".join(f"${gid(ch):02X}" for ch in UI_FIXED)
                  + "  ; " + UI_FIXED)
-    # The reward window: each kanji's UI glyph and its text code (the code a
-    # message's pool slot records in UI_MC_LO/HI).
+    # The reward window: each kanji's UI glyph and its text code (a message
+    # kanji with that code marks its pool slot in UI_MC, ui_ptiles).
     codes = kanji_common.code_map()
     missing = [ch for ch in REWARD_KANJI if ch not in codes]
     if missing:

@@ -89,7 +89,11 @@ overlay_entry:
 ; so the overlay owns KANJI_A.
 message_setup:
     bit TXR_ON                  ; map mode: the text renderer owns the
-    bmi @txr                    ; tiles (no band, no pool, no requests)
+    bpl @notxr                  ; tiles (no band, no pool, no requests)
+    lda #0
+    sta KANJI_BAND
+    beq @meta
+@notxr:
     jsr pool_decide             ; C set: the battle pool
     bcc @band
     jsr release_all
@@ -118,6 +122,17 @@ message_setup:
     sta $11
     ldy #0
     lda ($10),y
+    cmp #META_WIN               ; a victory message (b10_msg_059 / 061 / 062):
+    bcc @count                  ; in a battle, the battle is won (the pool
+    and #META_WIN-1             ; gets tiles $80-$A3, UIF_PCHOOSE)
+    ldy UI_BATTLE
+    beq @count
+    pha
+    tya
+    ora #UI_WON
+    sta UI_BATTLE
+    pla
+@count:
     sta KANJI_PAGES_LEFT
     pla                         ; give the game its $10/$11 back
     sta $11
@@ -153,10 +168,6 @@ message_setup:
     sta KANJI_UPLOADED+1        ; lines still on screen
 @done:
     rts
-@txr:
-    lda #0
-    sta KANJI_BAND
-    beq @meta
 
 ; ----------------------------------------------------------------------
 ; Window geometry from the engine's current line cell address
@@ -376,6 +387,7 @@ pool_decide:
     sta $11
     ldy #0
     lda ($10),y                 ; page count
+    and #META_WIN-1             ; (bit 5: a victory message)
     sta KANJI_M0
     lda $10
     clc
@@ -816,54 +828,14 @@ KANJI_EC:
     inx
     rts
 
-; Pool entry KANJI_M2 -> KANJI_TILES: the k-th slot this page's
-; KANJI_PMASK leaves free (pool_choose leaves the page's entries free),
-; tiles t = $A4 + 4 * slot ..+3 in 8x16 order (2026-11-13, the user's
-; call; the battle screen's groups' order): t TL, t+1 BL, t+2 TR, t+3 BR.
-; KANJI_TILES is in the glyph's order (TL, TR, BL, BR: the upload's tile
-; k goes to KANJI_TILES+k), so it gets t, t+2, t+1, t+3.  The battle
-; screen's slot table (UI bank) marks it a message kanji, maybe shown,
-; with its code (the reward window uses a kanji a message left in the
-; pool).
+; Pool entry KANJI_M2 -> KANJI_TILES (the UI bank's ui_ptiles, 2026-11-13:
+; the battle-only pool code lives there): the k-th slot this page's
+; KANJI_PMASK leaves free, its tiles t..t+3 in 8x16 order (t TL, t+1 BL,
+; t+2 TR, t+3 BR; KANJI_TILES gets them in the glyph's order, t, t+2, t+1,
+; t+3).  KANJI_M2 is kept; A, X, Y clobbered.
 pool_tiles:
-    ldy KANJI_M2
-    ldx #0
-@walk:
-    lda slot_lo,x
-    and KANJI_PMASK
-    bne @blocked
-    lda slot_hi,x
-    and KANJI_PMASK+1
-    bne @blocked
-    dey
-    bmi @slot
-@blocked:
-    inx
-    cpx #POOL_SLOTS
-    bne @walk
-    ldx #0
-    beq @walk
-@slot:
-    lda #$FE
-    sta UI_SLOT,x
-    lda KANJI_CODE_LO
-    sta UI_MC_LO,x
-    lda KANJI_CODE_HI
-    sta UI_MC_HI,x
-    txa
-    asl a
-    asl a                       ; C clear (slot < 64)
-    adc #POOL_FIRST             ; C clear (t <= $DC)
-    ldx #0
-@pool4:                         ; X = 0: TL t, BL t+1; X = 1: TR t+2, BR t+3
-    sta KANJI_TILES,x
-    adc #1
-    sta KANJI_TILES+2,x
-    adc #1
-    inx
-    cpx #2                      ; C clear while X < 2
-    bne @pool4
-    rts
+    ldx #UIF_PTILES
+    jmp CALL_UI
 
 ; KANJI_TILES into the text buffers at KANJI_BUFX (two cells); X after them.
 put_tiles:
@@ -1164,121 +1136,25 @@ record_n:
     rts
 
 ; ----------------------------------------------------------------------
-; Battle pool slots for a page of A entries (revision 20; step B item 8).
-; The window scrolls on, so the page's slots must avoid every pool tile
-; still in the text lines of this window ($0300 + $30 per line, lines 0 to
-; text_line: the lines below hold rows of earlier windows; at text_line 0
-; all four, the last window may still be on screen), and while UI_BATTLE is
-; set the reward window's (UI_PRES).  KANJI_PMASK = the blocked slots:
-; entry k takes the k-th free slot (KANJI_EC).  C clear: n slots are free
-; beside both.  C set: fewer; KANJI_PMASK then gives up the lines' slots,
-; and if that is not enough the reward window's too (the callers that
-; cleared the window use it; page_flip clears the window instead).  A = 0
-; (the old first-slot nibble of KANJI_UPLOADED+1).
-; KANJI_M0/M1 = the blocked slots being tried (bit per slot), KANJI_M2 = n.
+; Battle pool slots for a page needing A slots (revision 20; since
+; 2026-11-13 the UI bank's ui_pchoose: the lines' slots, the reward and
+; prisoner windows', tiles $80-$A3 once the battle is won, then every
+; kanji tile no window shows).  KANJI_PMASK = the blocked slots (entry k
+; takes the k-th free one, pool_tiles).  C clear: they fit beside the
+; lines on screen (the window scrolls on).  C set: fewer; the mask then
+; gives up the lines' slots (the callers clear the window).  A = 0 (the
+; old first-slot nibble of KANJI_UPLOADED+1).  X, Y clobbered.
 ; ----------------------------------------------------------------------
 pool_choose:
     sta KANJI_M2                ; n
-    lda #0
-    sta KANJI_M0
-    sta KANJI_M1
-    sta KANJI_PMASK
-    sta KANJI_PMASK+1
-    ldx text_line
-    cpx #4
-    bcc @lines
-    ldx #3
-@lines:
-    lda scan_len,x
-    tax
-@scan:
-    lda $02FF,x
+    ldx #UIF_PCHOOSE
+    jsr CALL_UI                 ; V: the result (the bank switch keeps it)
+    clc
+    bvc @fits
     sec
-    sbc #POOL_FIRST
-    cmp #POOL_SLOTS*4
-    bcs @next
-    lsr a
-    lsr a                       ; slot 0-14
-    cmp #8
-    and #7
-    tay
-    lda bitmask,y
-    bcs @hi
-    ora KANJI_M0
-    sta KANJI_M0
-    bcc @next
-@hi:
-    ora KANJI_M1
-    sta KANJI_M1
-@next:
-    dex
-    bne @scan
-    lda UI_BATTLE               ; KANJI_PMASK = the reward window's slots
-    beq @try
-    lda UI_PRES
-    sta KANJI_PMASK
-    ora KANJI_M0
-    sta KANJI_M0
-    lda UI_PRES+1
-    sta KANJI_PMASK+1
-    ora KANJI_M1
-    sta KANJI_M1
-    lda #0                      ; (first try)
-    pha
-@try:
-    ldy #0                      ; free slots
-    ldx #POOL_SLOTS-1
-@count:
-    lda slot_lo,x
-    and KANJI_M0
-    bne @cnext
-    lda slot_hi,x
-    and KANJI_M1
-    bne @cnext
-    iny
-@cnext:
-    dex
-    bpl @count
-    cpy KANJI_M2
-    bcs @fits
-    pla
-    lda #1                      ; (a fallback)
-    pha
-    lda KANJI_M0                ; too few: without the lines' slots, then
-    cmp KANJI_PMASK             ; without the reward window's
-    bne @nolines
-    lda KANJI_M1
-    cmp KANJI_PMASK+1
-    bne @nolines
-    lda #0
-    sta KANJI_M0
-    sta KANJI_M1
-    beq @fits                   ; (all 15 free)
-@nolines:
-    lda KANJI_PMASK
-    sta KANJI_M0
-    lda KANJI_PMASK+1
-    sta KANJI_M1
-    jmp @try
 @fits:
-    lda KANJI_M0
-    sta KANJI_PMASK
-    lda KANJI_M1
-    sta KANJI_PMASK+1
-    pla
-    cmp #1                      ; C set: a fallback
     lda #0
     rts
-
-; Slot bit in KANJI_M0 (slots 0-7) and KANJI_M1 (slots 8-14).
-slot_lo:
-    .db $80, $40, $20, $10, $08, $04, $02, $01, 0, 0, 0, 0, 0, 0, 0
-slot_hi:
-    .db 0, 0, 0, 0, 0, 0, 0, 0, $80, $40, $20, $10, $08, $04, $02
-
-scan_len:                       ; text_line 0: a new window, whose rows still
-    .db $C0, $60, $90, $C0      ; hold the last window's lines (maybe shown)
-
 
 bitmask:
     .db $80, $40, $20, $10, $08, $04, $02, $01

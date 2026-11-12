@@ -767,12 +767,16 @@ over bank 14, so for `$22` it takes the line from `$54`.
 
 **Kanji** (`wg_reward`, `ui_battle.asm`), for each of 金 兵 糧 経 験 値:
 1. a group holding its UI glyph (`UI_SLOT`; 8x16 order);
-2. else a pool slot a message left it in: `kanji_overlay` now records the
-   text code of each pool slot it prints into (`UI_MC_LO/HI`; `q_glyph`
-   and the battle start mark a slot as no message kanji).  The slot is in
-   8x16 order like a group (the messages' pool order since 2026-11-13;
-   before, TL, TR, BL, BR, drawn that way);
-3. else an upload into groups 15-22 (the command window's), one per NMI.
+2. else a pool slot a message left it in: the message's slot placement
+   records which reward kanji each pool slot holds (`UI_MC`, `$F0` + its
+   index; since 2026-11-13 `ui_ptiles` in the UI bank, before the text code
+   in `UI_MC_LO/HI`; `q_glyph` and the battle start mark a slot as no
+   message kanji).  The slot is in 8x16 order like a group (the messages'
+   pool order since 2026-11-13; before, TL, TR, BL, BR, drawn that way);
+3. else an upload into groups 15-22 (the command window's), one per NMI;
+   since 2026-11-13 first those the message window may not show, then a
+   free pool group (TEXT_RENDERER.md "the battle messages' kanji after a
+   win").
 
 A pool slot the window uses is reserved (`UI_PRES`): the messages after
 the victory (level-up, prisoners) print into the other slots, until the
@@ -825,8 +829,8 @@ choices were kana).
   after.  The battle `r17_pre_battle_normal` (every frame 197-856) and
   state 2 up to the prompt are identical to the previous build.
 
-RAM: `UI_RAM2` `$7F9E-$7FBF` (34 bytes: `UI_MC_LO`, `UI_MC_HI`, `UI_PRES`,
-`KANJI_PMASK`; `kanji.inc`).  The canvas RAM code still ends at `$7F93`
+RAM: `UI_RAM2` `$7F9E-$7FBF` (34 bytes; since 2026-11-13 `KANJI_PMASK`
+(4), `UI_PML`, scratch, `UI_MC`, `UI_PRES`, `UI_SHOWCHK`; `kanji.inc`).  The canvas RAM code still ends at `$7F93`
 (its image is unchanged, so the converted states stay valid).
 
 Hand edit for item 8 (bank 14, `.ifdef KANJI_TARGET`): `$923C-$9257`

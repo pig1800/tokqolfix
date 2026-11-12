@@ -79,7 +79,7 @@ ui_fns:
     .dw ui_info_draw-1, ui_binfo_enter-1, ui_binfo_exit-1, ui_army-1
     .dw ui_info_enter-1, ui_bstart-1, ui_wincb-1, ui_sm-1, ui_info_busy-1
     .dw ui_bsetup-1, ui_bsetup_end-1, ui_dec-1, ui_div-1, ui_wipe-1
-    .dw ui_wipe_rows-1, ui_rowev-1
+    .dw ui_wipe_rows-1, ui_rowev-1, ui_pchoose-1, ui_ptiles-1
 
 ; ======================================================================
 ; UIF_WIPE / UIF_WIPE_ROWS: around sub_CE2D's loop (bank 15 $CE2D, bank

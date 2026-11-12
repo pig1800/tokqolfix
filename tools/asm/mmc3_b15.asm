@@ -308,16 +308,18 @@ txr_tp:
 
 ; text_render_cell, patched at $DBED (its "jmp loc_DC7C"): a row-buffer
 ; byte with bit 7 set ends the line in the original, whose tiles are all
-; below $80.  The battle pool's kanji tiles $A4-$DF (revision 18) are drawn
-; like any tile; every other byte keeps the original path.
+; below $80 and whose line ends are the text codes $FA-$FF.  The battle
+; messages' kanji tiles (the pool $A4-$DF since revision 18; $80-$A3 after
+; a win and groups 15-20 $E0-$F7 since 2026-11-13, ui_pchoose) are drawn
+; like any tile: $80-$F7 are tiles, $F8-$FF end the line.
 render_ctl:
-    cmp #POOL_FIRST
-    bcc @ctl
-    cmp #POOL_LAST+1
+    cmp #$F8
     bcs @ctl
     jmp $DBEF                   ; queue the cell (top tile in A)
 @ctl:
     jmp $DC7C                   ; end of line, as the original
+    .db $EA, $EA, $EA, $EA      ; (irq_tail keeps its address: the RAM code
+                                ; of old save states jumps there)
 
 ; IRQ tail: $8000 back to the main thread's select.
 irq_tail:

@@ -136,6 +136,7 @@ battle_state_reset:
     dex
     bpl @slot
     sta UI_SPST
+    sta UI_SHOWCHK
     sta UI_PEND
     sta UI_WIN
     sta B_MODE
@@ -145,7 +146,7 @@ battle_state_reset:
     ldx #POOL_SLOTS-1
     lda #$FF
 @mc:
-    sta UI_MC_HI,x              ; no message kanji known in the pool
+    sta UI_MC,x                 ; no message kanji known in the pool
     dex
     bpl @mc
     lda KANJI_CODE_HI           ; load_text_graphics posted a pool check
@@ -198,7 +199,7 @@ q_glyph:
     cpx #POOL_SLOTS
     bcs @nopool
     lda #$FF
-    sta UI_MC_HI,x              ; (no message kanji there any more)
+    sta UI_MC,x                 ; (no message kanji there any more)
 @nopool:
     txa
     asl a
@@ -255,10 +256,14 @@ q_flush:
 ; C set when group X may be rewritten now.  Window start (B_MODE 0): not
 ; used by this window, not shown by a window on screen, no message kanji.
 ; Window end (B_MODE 1, the old window is gone): not used by this window.
+; Never one the message may show while the reward or prisoner window opens
+; beside the message window (grp_shown).
 grp_safe:
     lda UI_GF,x
     and #GF_NREF
     bne @no
+    jsr grp_shown               ; a message line shows it (window $21 / $22
+    bcs @no                     ; beside the message window, win_begin)
     lda B_MODE
     bne @yes
     lda UI_GF,x
@@ -627,6 +632,15 @@ win_begin:
 @empty:
     lda text_mode
     sta UI_WIN
+    ldx #0
+    cmp #$21                    ; the prisoner and reward windows open beside
+    beq @beside                 ; the message window: its kanji stay (UI_PML,
+    cmp #$22                    ; grp_shown); other windows cover it
+    bne @pml
+@beside:
+    inx
+@pml:
+    stx UI_SHOWCHK
     ldx #NGROUPS-1
 @nref:
     lda UI_GF,x
@@ -1339,10 +1353,13 @@ pr_l1:      .db 3, $FE,$90, $FE,$17, $FF                    ; 逃がす
 ;   row 12      border        reward_tail
 ; Kanji from column 20 (index 2), 7 digits at columns 21-27 (index 3-9).
 ; A kanji already in CHR is used from there: a group with its UI glyph,
-; or a pool slot a message left it in (UI_MC_LO/HI), whose slot the later
+; or a pool slot a message left it in (UI_MC), whose slot the later
 ; messages then leave alone (UI_PRES).  Both are in 8x16 order (the
-; messages' since 2026-11-13).  The rest go to groups 15-22: the command
-; window does not come back after a victory.
+; messages' since 2026-11-13).  The rest go to groups 15-22 (the command
+; window does not come back after a victory), first those without a
+; message kanji the message window may show (grp_shown: since 2026-11-13
+; the messages' last resort takes groups 15-20), then a pool group nothing
+; shows (reserved in UI_PRES), then any.
 ; ----------------------------------------------------------------------
 RW_BASE     = ZP_C          ; the row pair's base ($00 / $30), after the line
 RW_DIG      = $0650         ; 7: digit tiles (the $0600 page, within a call)
@@ -1370,29 +1387,78 @@ wg_reward:
 @find:
     lda UI_SLOT,x
     cmp ZP_G
-    beq @have
+    beq @have_n
     dex
     bpl @find
-    ldx #POOL_SLOTS-1           ; a pool slot with it from a message
+    tya                         ; a pool slot with it from a message
+    ora #$F0
+    sta UI_BE
+    ldx #POOL_SLOTS-1
 @pool:
-    lda UI_MC_LO,x
-    cmp ui_reward_clo,y
-    bne @pnext
-    lda UI_MC_HI,x
-    cmp ui_reward_chi,y
-    beq @have
-@pnext:
+    lda UI_MC,x
+    cmp UI_BE
+    beq @have_n
     dex
     bpl @pool
-    ldx #15                     ; else a command group
-@alloc:
+    bmi @groups
+@have_n:
+    jmp @have
+@groups:
+    ldx #15                     ; else a command group: first one without a
+@alloc:                         ; message kanji (ui_ptiles' last resort),
+    lda UI_GF,x                 ; then one the message lines don't show,
+    and #GF_NREF                ; then any
+    bne @anext
+    jsr grp_shown
+    bcs @anext
+    lda UI_SLOT,x
+    cmp #$FE
+    bne @up
+@anext:
+    inx
+    cpx #NGROUPS
+    bne @alloc
+    ldx #15
+@alloc2:
+    lda UI_GF,x
+    and #GF_NREF
+    bne @a2next
+    jsr grp_shown
+    bcc @up
+@a2next:
+    inx
+    cpx #NGROUPS
+    bne @alloc2
+    ldx #0                      ; then a pool group no window or message
+@alloc4:                        ; shows (the messages then keep off it)
+    jsr grp_safe
+    bcs @uppool
+    inx
+    cpx #POOL_SLOTS
+    bne @alloc4
+    ldx #15
+@alloc3:
     lda UI_GF,x
     and #GF_NREF
     beq @up
     inx
     cpx #NGROUPS
-    bne @alloc
+    bne @alloc3
     beq @next                   ; (8 groups for 6 kanji: not reached)
+@uppool:
+    stx UI_BE
+    txa
+    lsr a
+    lsr a
+    lsr a
+    tay
+    txa
+    and #7
+    tax
+    lda bit_of,x
+    ora UI_PRES,y
+    sta UI_PRES,y
+    ldx UI_BE
 @up:
     jsr set_nref
     lda ZP_G
@@ -1417,7 +1483,9 @@ wg_reward:
     inc ZP_K
     lda ZP_K
     cmp #RW_N
-    bne @k
+    beq @done
+    jmp @k
+@done:
     rts
 bit_of:
     .db $80, $40, $20, $10, $08, $04, $02, $01
@@ -1548,13 +1616,13 @@ rw_half:
 @no:
     dex
     bpl @find
+    tya
+    ora #$F0
+    sta UI_BE
     ldx #POOL_SLOTS-1
 @pool:
-    lda UI_MC_LO,x
-    cmp ui_reward_clo,y
-    bne @pn
-    lda UI_MC_HI,x
-    cmp ui_reward_chi,y
+    lda UI_MC,x
+    cmp UI_BE
     bne @pn
     lda UI_GF,x
     and #GF_NREF
@@ -1722,4 +1790,395 @@ reward_tail:
     lda #0
     sta $0400,x
     stx vram_queue_write
+    rts
+
+; ======================================================================
+; The battle messages' kanji slots (2026-11-13, the user's order; moved
+; here from kanji_overlay, which calls these through call_ui).  Slots
+; (kanji.inc): 0-14 the pool groups 0-14 ($A4-$DF), 16-24 tiles $80-$A3
+; once the battle is won (UI_BATTLE bit 7, set by a victory message), 25-30
+; the groups 15-20 ($E0-$F7).  KANJI_PMASK: bit set = blocked.  No zero
+; page here: the text engine's state is live around these calls.
+; ======================================================================
+
+; ----------------------------------------------------------------------
+; UIF_PCHOOSE: slots for a page needing KANJI_M2 of them.  V clear: they
+; fit beside the lines still on screen (the window scrolls on); V set: the
+; caller clears the window.
+;   1. the pool, and $80-$A3 once won: beside every pool tile in the
+;      window's lines (all four at text_line 0 and from 3 on, else lines
+;      0 to text_line; each row's 20 window cells only) and the reward /
+;      prisoner windows' (UI_PRES)
+;   2. garbage collection: every kanji tile none of those shows and no
+;      window on screen (or being drawn) uses: also groups 15-20 (their
+;      command kanji come back with the command window, need_fixed) and
+;      minus every group of a window on screen (GF_REF, GF_NREF)
+;   3. fallback (V set): try 1 without the lines (the window is cleared),
+;      then without UI_PRES
+; Outside the battle screen's state (UI_BATTLE 0): tries 1 and 3 with the
+; pool alone and no UI_PRES, as before.
+; ----------------------------------------------------------------------
+ui_pchoose:
+    jsr scan_lines
+    ; Try 1: the base mask, the lines, UI_PRES.
+    ldy #0                      ; Y = the base masks' offset: the pool only
+    lda UI_BATTLE
+    beq @t1
+    bpl @t1b
+    ldy #4                      ; won: with $80-$A3
+@t1b:
+    sty UI_PS2
+    jsr pc_base
+    jsr pc_or_lines
+    jsr pc_or_pres
+    jsr pc_count
+    bcs @fits
+    ; Try 2: every kanji tile no window shows.
+    lda UI_PS2
+    ora #8
+    tay
+    jsr pc_base
+    jsr pc_or_lines
+    jsr pc_or_pres
+    ldx #20                     ; groups 0-20 a window shows or uses
+@gf:
+    lda UI_GF,x
+    and #GF_REF|GF_NREF
+    beq @gnext
+    stx UI_PS0
+    txa
+    cpx #15
+    bcc @gslot
+    adc #PS_GRP-15-1            ; (C set) group 15-20 -> slot 25-30
+@gslot:
+    tay
+    lda pt_byte,y
+    tax
+    lda pt_bit,y
+    ora UI_PMT,x
+    sta UI_PMT,x
+    ldx UI_PS0
+@gnext:
+    dex
+    bpl @gf
+    jsr pc_count
+    bcs @fits
+    ; Fallback: try 1's slots without the lines, then without UI_PRES.
+    ldy UI_PS2
+    jsr pc_base
+    jsr pc_or_pres
+    jsr pc_count
+    bcs @fb
+    ldy UI_PS2
+    jsr pc_base
+@fb:
+    jsr pc_set
+    bit pc_v40                  ; V set: fallback
+    rts
+@t1:                            ; no battle screen state: the pool alone
+    jsr pc_base                 ; (Y = 0)
+    jsr pc_or_lines
+    jsr pc_count
+    bcs @fits
+    ldy #0
+    jsr pc_base
+    jsr pc_set
+    bit pc_v40
+    rts
+@fits:
+    jsr pc_set
+    clv
+    rts
+pc_v40:
+    .db $40
+
+; UI_PML = the slots of every kanji tile in the message window's lines: all
+; four at text_line 0 (a new window: the last window's lines may still be
+; shown) and from 3 on, else lines 0 to text_line; per row the window's 20
+; cells (frame and 18 text cells; bytes 20-23 are never shown, and other
+; code's row buffers leave tiles there).  A, X, Y clobbered.
+scan_lines:
+    ldx #3
+    lda #0
+@z:
+    sta UI_PML,x
+    dex
+    bpl @z
+    ldx text_line
+    cpx #4
+    bcc @lines
+    ldx #3
+@lines:
+    lda pc_scan_rows,x
+    sta UI_PS1                  ; rows to scan
+    ldx #0
+@row:
+    lda #20
+    sta UI_PS2
+@cell:
+    lda $0300,x
+    bpl @cnext                  ; (kana and frame tiles: fast)
+    jsr tile_slot
+    bcs @cnext
+    tay                         ; Y = the slot
+    lda pt_bit,y
+    sta UI_PS0
+    lda pt_byte,y
+    tay                         ; Y = its mask byte
+    lda UI_PS0
+    ora UI_PML,y
+    sta UI_PML,y
+@cnext:
+    inx
+    dec UI_PS2
+    bne @cell
+    txa
+    clc
+    adc #4
+    tax
+    dec UI_PS1
+    bne @row
+    rts
+
+; C set when the window being drawn opens beside the message window
+; (UI_SHOWCHK) and the message may show group X (UI_PML: the lines at the
+; last pool_choose and every slot placed since; groups 0-14 and 15-20 have
+; slots).  X kept, A and Y clobbered.
+grp_shown:
+    lda UI_SHOWCHK
+    beq @no
+    txa
+    cpx #15
+    bcc @slot
+    cpx #21
+    bcs @no
+    adc #PS_GRP-15-1            ; (C set) group 15-20 -> slot 25-30
+@slot:
+    tay
+    lda pt_byte,y
+    sty UI_PS0
+    tay
+    lda UI_PML,y
+    ldy UI_PS0
+    and pt_bit,y
+    beq @no
+    sec
+    rts
+@no:
+    clc
+    rts
+
+; UI_PMT = base mask Y (pc_masks + Y: 0 the pool, 4 with $80-$A3, 8 the
+; pool and groups 15-20, 12 all three).
+pc_base:
+    ldx #0
+@b:
+    lda pc_masks,y
+    sta UI_PMT,x
+    iny
+    inx
+    cpx #4
+    bne @b
+    rts
+pc_masks:
+    .db $00, $01, $FF, $FF      ; 0: slots 0-14
+    .db $00, $01, $00, $7F      ; 4: + 16-24
+    .db $00, $01, $FF, $81      ; 8: + 25-30
+    .db $00, $01, $00, $01      ; 12: + 16-24 and 25-30
+
+pc_or_lines:
+    ldx #3
+@l:
+    lda UI_PML,x
+    ora UI_PMT,x
+    sta UI_PMT,x
+    dex
+    bpl @l
+    rts
+
+pc_or_pres:
+    lda UI_PRES
+    ora UI_PMT
+    sta UI_PMT
+    lda UI_PRES+1
+    ora UI_PMT+1
+    sta UI_PMT+1
+    rts
+
+; C set when UI_PMT leaves at least KANJI_M2 slots free.
+pc_count:
+    lda #0
+    sta UI_PS1
+    ldx #3
+@byte:
+    lda UI_PMT,x
+    and #$0F
+    tay
+    lda pc_z4,y
+    clc
+    adc UI_PS1
+    sta UI_PS1
+    lda UI_PMT,x
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda pc_z4,y
+    clc
+    adc UI_PS1
+    sta UI_PS1
+    dex
+    bpl @byte
+    lda UI_PS1
+    cmp KANJI_M2
+    rts
+pc_z4:                          ; clear bits of a nibble
+    .db 4,3,3,2,3,2,2,1,3,2,2,1,2,1,1,0
+
+; KANJI_PMASK = UI_PMT.
+pc_set:
+    ldx #3
+@s:
+    lda UI_PMT,x
+    sta KANJI_PMASK,x
+    dex
+    bpl @s
+    rts
+
+; A = tile -> C clear, A = its slot; C set: no slot (below $80, $F8 up).
+tile_slot:
+    cmp #$F8
+    bcs @none
+    cmp #$E0
+    bcs @grp
+    cmp #POOL_FIRST
+    bcs @pool
+    cmp #WIN_FIRST
+    bcc @none
+    lsr a                       ; $80-$A3: slot 16-24
+    lsr a
+    sec
+    sbc #(WIN_FIRST>>2)-PS_WIN
+    clc
+    rts
+@grp:
+    lsr a                       ; $E0-$F7: slot 25-30
+    lsr a
+    sec
+    sbc #($E0>>2)-PS_GRP
+    clc
+    rts
+@pool:
+    sbc #POOL_FIRST             ; (C set) $A4-$DF: slot 0-14
+    lsr a
+    lsr a
+    clc
+    rts
+@none:
+    sec
+    rts
+
+; Slot s: its KANJI_PMASK byte and bit.
+pt_byte:
+    .db 0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1, 2,2,2,2,2,2,2,2, 3,3,3,3,3,3,3,3
+pt_bit:
+    .db $80,$40,$20,$10,$08,$04,$02,$01, $80,$40,$20,$10,$08,$04,$02,$01
+    .db $80,$40,$20,$10,$08,$04,$02,$01, $80,$40,$20,$10,$08,$04,$02,$01
+
+pc_scan_rows:                   ; text_line 0: a new window, whose rows
+    .db 8, 4, 6, 8              ; still hold the last window's lines
+
+; ----------------------------------------------------------------------
+; UIF_PTILES: page entry KANJI_M2 (kept) -> KANJI_TILES: the k-th slot
+; KANJI_PMASK leaves free, tiles t..t+3 in 8x16 order (t TL, t+1 BL, t+2
+; TR, t+3 BR; KANJI_TILES is in the glyph's order: t, t+2, t+1, t+3).  A
+; pool group or group 15-20 is marked a message kanji, maybe shown
+; (UI_SLOT $FE); a pool slot also notes a reward kanji (UI_MC).
+; ----------------------------------------------------------------------
+ui_ptiles:
+    lda KANJI_M2
+    sta UI_PS1                  ; free slots to pass
+    lda #64                     ; (two rounds at most; a full mask: slot 0)
+    sta UI_PS2
+    ldx #0
+@walk:
+    ldy pt_byte,x
+    lda KANJI_PMASK,y
+    and pt_bit,x
+    bne @blocked
+    dec UI_PS1
+    bmi @found
+@blocked:
+    dec UI_PS2
+    beq @slot0
+    inx
+    txa
+    and #31
+    tax
+    jmp @walk
+@slot0:
+    ldx #0
+@found:
+    ldy pt_byte,x               ; the message shows it now (grp_shown)
+    lda pt_bit,x
+    ora UI_PML,y
+    sta UI_PML,y
+    cpx #POOL_SLOTS
+    bcs @notpool
+    lda #$FE
+    sta UI_SLOT,x
+    jsr reward_of
+    sta UI_MC,x
+    txa
+    asl a
+    asl a                       ; (C clear)
+    adc #POOL_FIRST
+    bne @tiles                  ; (always)
+@notpool:
+    cpx #PS_GRP
+    bcs @grp
+    txa
+    sbc #PS_WIN-1               ; (C clear) slot 16-24 -> 0-8
+    asl a
+    asl a                       ; (C clear)
+    adc #WIN_FIRST
+    bne @tiles                  ; (always)
+@grp:
+    lda #$FE
+    sta UI_SLOT+15-PS_GRP,x     ; group 15-20
+    txa
+    sbc #PS_GRP                 ; (C set) slot 25-30 -> 0-5
+    asl a
+    asl a                       ; (C clear)
+    adc #$E0
+@tiles:
+    sta KANJI_TILES             ; TL t
+    adc #1                      ; (C clear: t <= $F4)
+    sta KANJI_TILES+2           ; BL t+1
+    adc #1
+    sta KANJI_TILES+1           ; TR t+2
+    adc #1
+    sta KANJI_TILES+3           ; BR t+3
+    rts
+
+; KANJI_CODE_LO/HI -> A = $F0 + its index in ui_reward_g's kanji, else
+; $FF.  X kept.
+reward_of:
+    ldy #RW_N-1
+@r:
+    lda KANJI_CODE_LO
+    cmp ui_reward_clo,y
+    bne @n
+    lda KANJI_CODE_HI
+    cmp ui_reward_chi,y
+    beq @hit
+@n:
+    dey
+    bpl @r
+    lda #$FF
+    rts
+@hit:
+    tya
+    ora #$F0
     rts

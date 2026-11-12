@@ -288,6 +288,9 @@ UIF_WIPE          = 13      ; sub_CE2D (bank 14's room transfer wipe), before
 UIF_WIPE_ROWS     = 14      ; after it: the two buffer rows, the text row back
 UIF_ROWEV         = 15      ; sub_CE7A (bank 15 $CE7A is a stub): an event's
                             ; map change, the player's metarow redrawn
+UIF_PCHOOSE       = 16      ; kanji_overlay pool_choose: a pool page's slots
+                            ; (n in KANJI_M2; V set: fallback, clear the window)
+UIF_PTILES        = 17      ; kanji_overlay pool_tiles: entry KANJI_M2's tiles
 ; The fixed-bank trampolines of UIF_WIPE_ROWS and UIF_ROWEV (sub_CE2D's
 ; and sub_CE7A's space; mmc3_b15.asm checks these): bank 14 mapped while
 ; the game's routines run and while they yield, the UI bank again on return.
@@ -299,16 +302,41 @@ UI_DECX           = $7F9D   ; UIF_DEC, UIF_DIV: the caller's X (the bytes before
                             ; UI_RAM2; the canvas RAM code ends below them)
 ; The reward window (victory) and the message pool (step B item 8).
 UI_RAM2           = $7F9E   ; battery RAM after the canvas RAM code (below UI_RAM)
-UI_MC_LO          = UI_RAM2+0 ; 15: text code of the message kanji in pool slot k
-                            ; (kanji_overlay, with UI_SLOT's $FE)
-UI_MC_HI          = UI_RAM2+15 ; 15: its high byte; $FF: no message kanji there
-                            ; (the UI bank wrote the group, or a battle start)
-UI_PRES           = UI_RAM2+30 ; 2: pool slots the reward window shows (bit per
-                            ; slot as pool_choose's KANJI_M0/M1); the messages
+; Battle pool slots (2026-11-13; ui_battle.asm ui_pchoose): 0-14 the pool
+; groups 0-14 ($A4 + 4s), 16-24 tiles $80-$A3 once the battle is won
+; (UI_BATTLE bit 7: the portrait tiles, no portrait after the win), 25-30
+; the battle screen's groups 15-20 ($E0 + 4(s - 25), the last resort when
+; the rest is full); 15 and 31 never.  Bit per slot: byte s >> 3, bit
+; $80 >> (s & 7).  Groups 21-22 stay out: their top tiles $F8-$FE are the
+; text engine's line ends (render_ctl).
+KANJI_PMASK       = UI_RAM2+0 ; 4: the current pool page's blocked slots: entry
+                            ; k takes the k-th slot whose bit is clear
+                            ; (UIF_PCHOOSE, UIF_PTILES)
+UI_PML            = UI_RAM2+4 ; 4: the slots the message window may show: its
+                            ; lines at the last UIF_PCHOOSE and every slot
+                            ; UIF_PTILES placed since (the reward and
+                            ; prisoner windows keep off them: grp_shown)
+UI_PMT            = UI_RAM2+8 ; 4: UIF_PCHOOSE scratch: the slots being tried
+UI_PS0            = UI_RAM2+12 ; UIF_PCHOOSE / UIF_PTILES scratch
+UI_PS1            = UI_RAM2+13
+UI_PS2            = UI_RAM2+14
+UI_MC             = UI_RAM2+15 ; 15: pool slot k holds a message's copy of
+                            ; reward kanji i (ui_reward_g): $F0 + i; $FF:
+                            ; none (UIF_PTILES; the UI bank's own uploads
+                            ; and the battle start clear it)
+UI_PRES           = UI_RAM2+30 ; 2: pool slots the reward window shows (bits
+                            ; as KANJI_PMASK's first two bytes); the messages
                             ; take other slots while UI_BATTLE is set
-KANJI_PMASK       = UI_RAM2+32 ; 2: the current pool page's blocked slots (same
-                            ; bits): entry k takes the k-th slot whose bit is
-                            ; clear (kanji_overlay pool_choose, KANJI_EC)
+UI_SHOWCHK        = UI_RAM2+32 ; 1: the window being drawn opens beside the
+                            ; message window ($21 / $22: grp_shown applies)
+                            ; (UI_RAM2+33: free)
+PS_WIN            = 16      ; first slot of tiles $80-$A3
+PS_GRP            = 25      ; first slot of groups 15-20
+WIN_FIRST         = $80
+UI_WON            = $80     ; UI_BATTLE bit 7: the battle is won (a message
+                            ; with META_WIN started: b10_msg_059 / 061 / 062)
+META_WIN          = $20     ; metadata byte 0 (page count) bit 5: a victory
+                            ; message (kanji_text WIN_LABELS)
 UI_RAM            = $7FC0   ; battery RAM after UI_RAM2
 UI_PATH           = UI_RAM+0 ; 1 = the info screen was opened from a battle
 UI_P2             = UI_RAM+1 ; 3 bytes: the battle's P2 colours 1-3
@@ -331,7 +359,8 @@ UI_SPST           = UI_RAM+7 ; battle: 1 = the tactic window's S P / 残 cells
 ; Battle screen (step B item 7).  Kanji area: plane 0 of the 23 groups
 ; $A4 + 4k (k = 0-22, tiles in 8x16 order t, t+1, t+2, t+3 = TL, BL, TR, BR);
 ; groups 8-22 hold the 15 fixed command kanji, filled from the back.
-UI_BATTLE         = UI_RAM+8 ; 1 = the battle screen's kanji state is live
+UI_BATTLE         = UI_RAM+8 ; not 0: the battle screen's kanji state is live
+                            ; (1; bit 7 UI_WON once the battle is won)
 UI_X              = UI_RAM+9 ; template CALL: the row-buffer index X
 UI_SMRET          = UI_RAM+10 ; cv_sm's return address low byte ($82: the
                             ; window's last row pair)
