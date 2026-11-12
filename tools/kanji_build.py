@@ -150,8 +150,13 @@ TXR_TABLES = 0x7BF5
 # to them (bank12_names.bin, bank 12 $A900-$BFFF).  Bank 17 held only a
 # stale glyph table from an old layout.  kanji.inc's NAME_FONT_BANK (the
 # UI bank's army screen reads the glyphs too).
-NAME_FONT_BANK = int(re.search(r"^NAME_FONT_BANK\s*=\s*(\d+)", (
-    ROOT / "decomp" / "include" / "kanji.inc").read_text(encoding="utf-8"), re.M).group(1))
+_KINC = (ROOT / "decomp" / "include" / "kanji.inc").read_text(encoding="utf-8")
+NAME_FONT_BANK = int(re.search(r"^NAME_FONT_BANK\s*=\s*(\d+)", _KINC, re.M).group(1))
+# The army screen's 大将 / 軍師 (the original read bank 1's first six name
+# glyphs, 大 将 劉 備 軍 師, into tiles $C0-$D7): the same six in the name
+# font at kanji.inc's NAME_FONT_LABELS.
+NAME_FONT_LABELS = int(re.search(r"^NAME_FONT_LABELS\s*=\s*\$([0-9A-F]+)", _KINC, re.M).group(1), 16)
+NAME_FONT_LABEL_TEXT = "大将劉備軍師"
 
 # The reset code's mapper writes and RAM-clear setup ($F004-$F039) are
 # rewritten by the fixed-bank source; these are the original bytes.
@@ -1124,10 +1129,12 @@ def build_name_font() -> None:
         for ch in names[i]:
             if ch not in chars:
                 chars.append(ch)
-    if len(chars) > 0x100:
-        raise SystemExit(f"name font: {len(chars)} kanji, max 256")
+    first_label = (NAME_FONT_LABELS - 0x8000) // 32
+    if len(chars) > first_label:
+        raise SystemExit(f"name font: {len(chars)} kanji, max {first_label} (the labels follow)")
     font = bytearray(0x4000)
-    for n, ch in enumerate(chars):
+    for n, ch in list(enumerate(chars)) + [(first_label + j, ch) for j, ch in
+                                           enumerate(NAME_FONT_LABEL_TEXT)]:
         g = kanji_common.glyph_bytes(ch)            # 16 rows x (left, right)
         out = bytes(g[2 * y] for y in range(8)) + bytes(g[2 * y] for y in range(8, 16))
         out += bytes(g[2 * y + 1] for y in range(8)) + bytes(g[2 * y + 1] for y in range(8, 16))

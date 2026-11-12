@@ -10,7 +10,6 @@ import textdata
 
 ROOT = Path(__file__).resolve().parent.parent
 PLAN = ROOT / "decomp" / "text" / "kanji_plan"
-FONT_TTF = ROOT / "JF-Dot-Shinonome16.ttf"
 INDEX_TSV = ROOT / "assets" / "fonts" / "kanji_index.tsv"
 
 # U+3005 (iteration mark) is a 16x16 glyph too (revision 15).
@@ -360,45 +359,96 @@ def code_map() -> dict[str, int]:
     return {ch: code_of(i) for i, (ch, _) in enumerate(inventory())}
 
 
-# Glyphs missing from the primary font are drawn from these, in order, and
-# reported by the font builder.  (JF-Dot-Shinonome16 lacks a few JIS X 0212
-# characters such as 鄧 and 瓚.)
-FALLBACK_FONTS = (
-    ROOT / "DotGothic16-Regular.ttf",
-    Path("C:/Windows/Fonts/msgothic.ttc"),
-)
+# Glyphs (the user's choice, 2026-11-12): every kanji is MS Gothic's own
+# 16-pixel embedded bitmap (the EBDT strike at 16 ppem), never rendered from
+# the outlines.  The strike has kanji as 16 x 16 cells (ascender 14).
+MSGOTHIC = Path("C:/Windows/Fonts/msgothic.ttc")
 FALLBACK_USED: dict[str, str] = {}
-DOTGOTHIC_DY = 1               # rows to move DotGothic16 glyphs down
+_MSG: dict = {}
 
 
-def _covers(path: Path, ch: str) -> bool:
-    from fontTools.ttLib import TTFont, TTCollection
-    try:
-        if path.suffix.lower() == ".ttc":
-            fonts = TTCollection(str(path)).fonts
-        else:
-            fonts = [TTFont(str(path))]
-    except Exception:
-        return False
-    return any(ord(ch) in f.getBestCmap() for f in fonts)
+def _msgothic() -> dict:
+    if not _MSG:
+        from fontTools.ttLib import TTCollection
+        font = TTCollection(str(MSGOTHIC)).fonts[0]          # MS Gothic
+        eblc, ebdt = font["EBLC"], font["EBDT"]
+        i = next(n for n, st in enumerate(eblc.strikes) if st.bitmapSizeTable.ppemY == 16)
+        subs = {}
+        for sub in eblc.strikes[i].indexSubTables:
+            for name in sub.names:
+                subs[name] = sub
+        _MSG.update(cmap=font.getBestCmap(), data=ebdt.strikeData[i], subs=subs,
+                    asc=eblc.strikes[i].bitmapSizeTable.hori.ascender)
+    return _MSG
 
 
-def font_for(ch: str) -> Path:
-    if _covers(FONT_TTF, ch):
-        return FONT_TTF
-    for path in FALLBACK_FONTS:
-        if path.exists() and _covers(path, ch):
-            FALLBACK_USED[ch] = path.name
-            return path
-    FALLBACK_USED[ch] = "none"
-    return FONT_TTF
+def msgothic_rows(ch: str) -> list[list[int]] | None:
+    """MS Gothic's 16 ppem bitmap of ch as 16 rows of 16 pixels, or None
+    when the strike has no bitmap for it."""
+    m = _msgothic()
+    name = m["cmap"].get(ord(ch))
+    glyph = m["data"].get(name) if name else None
+    if glyph is None:
+        return None
+    sub = m["subs"][name]
+    if sub.imageFormat not in (5, 7):
+        raise SystemExit(f"{ch}: MS Gothic bitmap format {sub.imageFormat}")
+    met = sub.metrics if sub.indexFormat in (2, 5) else glyph.metrics
+    bits = "".join(f"{b:08b}" for b in glyph.imageData)  # bit-aligned rows
+    out = [[0] * 16 for _ in range(16)]
+    for y in range(met.height):
+        for x in range(met.width):
+            if bits[y * met.width + x] == "1":
+                yy, xx = m["asc"] - met.horiBearingY + y, met.horiBearingX + x
+                if not (0 <= yy < 16 and 0 <= xx < 16):
+                    raise SystemExit(f"{ch}: MS Gothic bitmap outside the 16 x 16 cell")
+                out[yy][xx] = 1
+    return out
 
 
-# Name kanji the primary font lacks (璝: it draws a placeholder) and the
-# fallbacks draw poorly: the original game's own name glyph instead (bank 1
-# or 2 at index * 32: 8 bytes each of TL, BL, TR, BR), found through the
-# officer records.
-NAME_GLYPH_ORIGINAL = "傕彧昱汜玠褚詡邕郃鄧闞顗騭龐璝"
+# Kanji MS Gothic has only as outlines (JIS X 0212 / 0213): built from parts
+# of its bitmaps.  A part: (donor kanji, columns c0-c1, rows r0-r1, placed
+# at x, y, the part's columns dropped); then the pixels erased.
+GLYPH_COMPOSE = {
+    "鄱": ((("翻", 0, 5, 0, 15, 1, 0, ()), ("部", 9, 15, 0, 15, 9, 0, ())), ()),
+    "邢": ((("刑", 0, 8, 0, 15, 0, 0, ()), ("部", 9, 15, 0, 15, 9, 0, ())), ()),
+    "涪": ((("河", 0, 4, 0, 15, 0, 0, ()), ("倍", 5, 15, 0, 15, 5, 0, ())), ()),
+    "瓚": ((("理", 0, 4, 0, 15, 0, 0, ()), ("讃", 5, 15, 0, 15, 5, 0, ())), ()),
+    "詡": ((("語", 0, 5, 0, 15, 0, 0, ()), ("翔", 6, 15, 0, 15, 6, 0, ())), ()),
+    "傕": ((("何", 0, 4, 0, 15, 0, 0, ()), ("確", 5, 15, 0, 15, 5, 0, ())), ()),
+    "郃": ((("鴿", 0, 7, 0, 15, 0, 0, ()), ("部", 8, 15, 0, 15, 8, 0, ())), ()),
+    "璝": ((("理", 0, 4, 0, 15, 0, 0, ()), ("潰", 5, 15, 0, 15, 5, 0, ())), ()),
+    "褚": ((("補", 0, 6, 0, 15, 0, 0, ()), ("緒", 6, 15, 0, 15, 6, 0, ())), ()),
+    "玠": ((("理", 0, 4, 0, 15, 0, 0, ()), ("价", 4, 15, 0, 15, 4, 0, ())), ()),
+    "雒": ((("路", 7, 14, 0, 15, 0, 0, (3, 4)), ("雄", 6, 15, 0, 15, 6, 0, ())), ()),
+    "龐": ((("店", 0, 15, 0, 2, 0, 0, ()), ("店", 0, 1, 3, 15, 0, 3, ()),
+            ("寵", 1, 14, 3, 14, 3, 3, (6, 11))), ((14, 3),)),
+}
+
+
+def composed_rows(ch: str) -> list[list[int]] | None:
+    if ch not in GLYPH_COMPOSE:
+        return None
+    parts, erase = GLYPH_COMPOSE[ch]
+    out = [[0] * 16 for _ in range(16)]
+    for donor, c0, c1, r0, r1, x0, y0, drop in parts:
+        src = msgothic_rows(donor)
+        if src is None:
+            raise SystemExit(f"{ch}: donor {donor} has no MS Gothic bitmap")
+        cols = [c for c in range(c0, c1 + 1) if c - c0 not in drop]
+        for y in range(r0, r1 + 1):
+            for x, c in enumerate(cols):
+                if src[y][c]:
+                    out[y0 + y - r0][x0 + x] = 1
+    for x, y in erase:
+        out[y][x] = 0
+    return out
+
+
+# Name kanji MS Gothic lacks that its parts cannot build well: the original
+# game's own name glyph (bank 1 or 2 at index * 32: 8 bytes each of TL, BL,
+# TR, BR), found through the officer records.
+NAME_GLYPH_ORIGINAL = "闞騭邕"
 _ORIG_GLYPHS: dict[str, tuple[int, int]] = {}
 
 
@@ -421,33 +471,32 @@ def original_glyph(ch: str) -> bytes | None:
     return bytes(out)
 
 
-def glyph_bytes(ch: str, font_size: int = 16, threshold: int = 128) -> bytes:
-    """Render one kanji to 32-byte 1bpp: 16 rows x 2 bytes (left, right)."""
-    from PIL import Image, ImageDraw, ImageFont
+def glyph_available(ch: str) -> bool:
+    return (ch in GLYPH_COMPOSE or ch in NAME_GLYPH_ORIGINAL
+            or msgothic_rows(ch) is not None)
 
-    if ch in NAME_GLYPH_ORIGINAL:
-        g = original_glyph(ch)
-        if g is None:
-            raise SystemExit(f"{ch}: no original name glyph")
-        FALLBACK_USED[ch] = "original name glyph"
-        return g
 
-    path = font_for(ch)
-    font = ImageFont.truetype(str(path), font_size)
-    img = Image.new("L", (16, 16), 0)
-    draw = ImageDraw.Draw(img)
-    # DotGothic16 sits one pixel higher than Shinonome on the 16x16 grid.
-    dy = DOTGOTHIC_DY if path.name.lower().startswith("dotgothic") else 0
-    draw.text((0, dy), ch, font=font, fill=255, anchor="lt")
+def glyph_bytes(ch: str) -> bytes:
+    """One kanji as 32-byte 1bpp: 16 rows x 2 bytes (left, right).  MS
+    Gothic's bitmap, else a GLYPH_COMPOSE composite, else the original
+    name glyph; else blank, recorded as "none" (the font build fails)."""
+    rows = msgothic_rows(ch)
+    if rows is None and ch in GLYPH_COMPOSE:
+        rows = composed_rows(ch)
+        FALLBACK_USED[ch] = "composed from MS Gothic bitmaps"
+    if rows is None:
+        if ch in NAME_GLYPH_ORIGINAL:
+            g = original_glyph(ch)
+            if g is None:
+                raise SystemExit(f"{ch}: no original name glyph")
+            FALLBACK_USED[ch] = "original name glyph"
+            return g
+        FALLBACK_USED[ch] = "none"
+        return bytes(32)
     out = bytearray()
-    for y in range(16):
-        left = 0
-        right = 0
-        for x in range(8):
-            if img.getpixel((x, y)) >= threshold:
-                left |= 0x80 >> x
-            if img.getpixel((x + 8, y)) >= threshold:
-                right |= 0x80 >> x
+    for row in rows:
+        left = sum(0x80 >> x for x in range(8) if row[x])
+        right = sum(0x80 >> x for x in range(8) if row[8 + x])
         out += bytes((left, right))
     return bytes(out)
 

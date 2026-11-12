@@ -875,3 +875,54 @@ screen, info screen, army screen):
 
 Not checked on screen: the victory / capture messages, the boss battle,
 `$F6` / `$F7` in battle messages.
+
+## MS Gothic bitmaps (2026-11-12)
+
+The user's direction: JF-Dot-Shinonome16 lacks too many kanji.  Every
+glyph now comes from MS Gothic (`C:/Windows/Fonts/msgothic.ttc`), using
+its embedded bitmaps only, never rendered from the outlines.  The game's
+own kanji move to it too.
+
+- **Source:** `kanji_common.glyph_bytes` reads the EBDT strike at 16 ppem.
+  Its kanji are 16 x 16 cells, ascender 14, bit-aligned format 5.
+- **Where it applies:** everything that takes its glyphs from
+  `glyph_bytes`:
+  - the message / renderer font in banks 23-25;
+  - the UI bank's copy;
+  - the boot screens' fixed set;
+  - the name font in bank 17.
+- **Not changed:** the kanji codes, so no text or table moves.
+- **Kanji with no 16 ppem bitmap:** 15 of the 982, all JIS X 0212 / 0213.
+  - Composed from parts of MS Gothic bitmaps (`GLYPH_COMPOSE`: donor
+    columns and rows placed in the cell):
+    - 鄱 = 翻 + 部
+    - 邢 = 刑 + 部
+    - 涪 = 河 + 倍
+    - 瓚 = 理 + 讃
+    - 詡 = 語 + 翔
+    - 傕 = 何 + 確
+    - 郃 = 鴿 + 部
+    - 璝 = 理 + 潰
+    - 褚 = 補 + 緒
+    - 玠 = 理 + 价
+    - 雒 = 路 (各, 2 columns dropped) + 雄
+    - 龐 = 店's 广 + 寵's 龍 (2 columns dropped)
+  - The original game's name glyph (`NAME_GLYPH_ORIGINAL`): 闞 騭 邕.  Their
+    composites (門 around a squeezed 敢, 陟 squeezed over 馬, 巛 over a
+    squeezed 邑) were not legible.
+- **The game's own kanji:**
+  - Names: the name font (bank 17) is MS Gothic.
+  - The army screen's 大将 / 軍師: the original read the first six
+    glyphs of bank 1 (大 将 劉 備 軍 師).  The UI bank now reads the same
+    six from the name font at `NAME_FONT_LABELS` (`$9F40`).
+  - Nothing else reads the original name font in the kanji target.
+  - The map's shop signs (武 etc.) are map tiles drawn as pictures, not
+    font glyphs; they are unchanged.
+- **The contact sheet** (`assets/fonts/kanji_16x16_ext.png`) leaves out
+  the 3 original glyphs (red boxes); the ROM's data stays out of git.
+
+**Checks:**
+- The officer list, the 渡す message.
+- The info screen and the army screen (大将, 軍師, names).
+- Battle names and messages.
+- The original build is byte-identical.

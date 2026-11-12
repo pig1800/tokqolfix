@@ -62,10 +62,9 @@ def main() -> int:
                 if len(parts) >= 3:
                     gloss[parts[1]] = parts[2]
     try:
-        from kanji_common import _covers, FONT_TTF, FALLBACK_FONTS
-        fonts = [FONT_TTF] + [p for p in FALLBACK_FONTS if p.exists()]
+        from kanji_common import glyph_available
     except Exception:
-        fonts = []
+        glyph_available = None
     font_cache: dict[str, bool] = {}
     for head, body in oblocks:
         if head in seen:
@@ -105,12 +104,12 @@ def main() -> int:
         vis_src = TOKEN.sub("", s).replace("/", "").replace("▼", "").strip("　 ")
         if vis_src and not plain.replace("|", "").replace("/", "").replace("▼", ""):
             errors.append(f"{head}: converted text is empty")
-        if fonts:
+        if glyph_available:
             for ch in set(KANJI.findall(plain)):
                 if ch not in font_cache:
-                    font_cache[ch] = any(_covers(f, ch) for f in fonts)
+                    font_cache[ch] = bool(glyph_available and glyph_available(ch))
                 if not font_cache[ch]:
-                    errors.append(f"{head}: kanji {ch} is in no available font")
+                    errors.append(f"{head}: kanji {ch} has no MS Gothic bitmap or composite")
         for kana, kanji in gloss.items():
             if kana and len(kana) >= 3 and kana in TOKEN.sub("", s).replace("　", "") and kanji and kanji not in plain:
                 pass  # informational only; glossary use is checked by review

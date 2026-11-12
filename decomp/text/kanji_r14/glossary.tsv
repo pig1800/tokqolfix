@@ -7,7 +7,7 @@
 #   and NAME C5 shows as ケイウエイ (really ケイドウエイ = 邢道栄). Use the kanji below in both cases.
 # Inside tokens, <CALL:21D0=ソウジン> and <CALL:21D4=ソウユウ> are copied byte for byte, never converted; the compiler prints them as 宋仁/宋勇 (kanji pick, tools/kanji_common.py KANJI_CALLS).
 # Not a name, but noted: b10_msg_239 おプたそうです is probably a ROM typo for おえた (生涯を終えた); left to the batch owner.
-# Characters missing from JF-Dot-Shinonome16 that the build takes from fallback fonts: 汜 釭 (DotGothic16), 龐 瓚 詡 邢 涪 雒 鄱 (MS Gothic).
+# Glyphs are MS Gothic's 16-pixel bitmaps.  Kanji it has only as outlines (龐 瓚 詡 邢 涪 雒 鄱 and some names) are composed from parts of its bitmaps (tools/kanji_common.py GLYPH_COMPOSE).
 #kind	kana	kanji	note
 PERSON	リュウビ	劉備	Hero lord. Compounds: リュウビぐん 劉備軍, リュウビさま 劉備様, リュウビどの 劉備殿.
 PERSON	ゲントク	玄徳	劉備's courtesy name (his mother and the Lady use it; b10_msg_129-133).
@@ -20,7 +20,7 @@ PERSON	ショカツキン	諸葛瑾	孔明's elder brother, holds 呉城 (b11_ms
 PERSON	キン	均	諸葛均, 孔明's younger brother (b10_msg_446 おとうとの キン; b11_msg_139 キンとなのる しょうねん). Given name only, as in the kana.
 PERSON	フクリュウ	伏龍	Sobriquet of 孔明 (b10_msg_335/336/392). 龍 (not 竜) to match 青龍刀 / 子龍.
 PERSON	ホウスウ	鳳雛	Sobriquet of 龐統 (b10_msg_435).
-PERSON	ホウトウ	龐統	龐 is not in JF-Dot-Shinonome16 or DotGothic16; the build draws it from the MS Gothic fallback.
+PERSON	ホウトウ	龐統	龐 has no MS Gothic bitmap; the build composes it (GLYPH_COMPOSE).
 PERSON	スイキョウ	水鏡	Sobriquet of 司馬徽. スイキョウせんせい = 水鏡先生.
 PERSON	スイキョウせんせい	水鏡先生	
 PERSON	モウコウイ	孟公威	孔明's friend (孟建) who writes the letter of introduction (b10_msg_333/335). WORD 0C.
@@ -51,7 +51,7 @@ PERSON	トウタク	董卓	Compounds: トウタクぐん 董卓軍, トウタク
 PERSON	トウタクしょうこく	董卓相国	b10_msg_291/298.
 PERSON	リョフ	呂布	NAME BC/C0/C4 are all 呂布.
 PERSON	カユウ	華雄	
-PERSON	カク	賈詡	b10_msg_261 カクのさくりゃく. NAME 1A, the 董卓-faction strategist (read カク), next to 李傕/郭汜 in the name table. Not 郭嘉 (that is カクカ, NAME 97). 詡 comes from the MS Gothic fallback.
+PERSON	カク	賈詡	b10_msg_261 カクのさくりゃく. NAME 1A, the 董卓-faction strategist (read カク), next to 李傕/郭汜 in the name table. Not 郭嘉 (that is カクカ, NAME 97).
 PERSON	テイゲン	丁原	呂布's adoptive father (ようふ, b10_msg_242).
 PERSON	オウイン	王允	Owner of the 七星刀 (b10_msg_231).
 PERSON	エンジュツ	袁術	
@@ -59,7 +59,7 @@ PERSON	エンショウ	袁紹	NAME 26.
 PERSON	キレイ	紀霊	
 PERSON	ガンリョウ	顔良	
 PERSON	ブンシュウ	文醜	
-PERSON	コウソンサン	公孫瓚	瓚 comes from the MS Gothic fallback (already in the build).
+PERSON	コウソンサン	公孫瓚	
 PERSON	チョウカク	張角	Yellow Turban leader.
 PERSON	チョウホウ	張宝	AMBIGUOUS (1 of 2). Yellow Turban, 張角's brother (NAME 0D). Use in @b10_msg_168 @b10_msg_172 @b10_msg_173 @b10_msg_186 @b10_msg_214.
 PERSON	チョウホウ	張苞	AMBIGUOUS (2 of 2). 張飛's son (NAME AD), joins in the 呉 chapter. Use in @b11_msg_078 @b11_msg_081 @b11_msg_086.
@@ -79,7 +79,7 @@ PERSON	バリョウ	馬良
 PERSON	バショク	馬謖	
 PERSON	リョウ	良	馬良. In b10_msg_398 馬謖 says あに リョウが なんとうのいおりで まっております, and in b10_msg_399 the man says わたしが バリョウです. Not 諸葛亮 (the old draft's choice).
 PERSON	チョウハン	趙範	太守 of 桂陽 (b10_msg_410).
-PERSON	ケイウエイ	邢道栄	零陵's champion (b10_msg_422). The game's NAME C5 is ケイドウエイ: reconv_prep.py strips the <D5:ド> token, so the input shows ケイウエイ. 邢 comes from the MS Gothic fallback.
+PERSON	ケイウエイ	邢道栄	零陵's champion (b10_msg_422). The game's NAME C5 is ケイドウエイ: reconv_prep.py strips the <D5:ド> token, so the input shows ケイウエイ.
 PERSON	カンコウ	関興	関羽's son (b11_msg_143).
 PERSON	カンサク	関索	関羽's son (b11_msg_204).
 PERSON	そんし	孫子	In b11_msg_207 そんしのしょ = 孫子の書.
@@ -110,7 +110,7 @@ PLACE	ロウソウソン	楼桑村	劉備's home village (b11_msg_185 ロウソ�
 PLACE	ラクヨウ	洛陽	PLACE 51/71.
 PLACE	ラクヨウじょう	洛陽城	Not in the current text; listed for consistency if needed.
 PLACE	チョウアン	長安	
-PLACE	シスイカン	汜水関	汜 (not 氾). 汜 comes from the DotGothic16 fallback.
+PLACE	シスイカン	汜水関	汜 (not 氾).
 PLACE	コロウカン	虎牢関	
 PLACE	ヨウシュウ	雍州	The province of 長安: the castle overlooks 洛陽 and 長安 (b10_msg_256). Not 揚州 (呉). Name-table ヨウシュウ (楊修) is not used.
 PLACE	ヨウシュウじょう	雍州城	
@@ -140,9 +140,9 @@ PLACE	ブリョウ	武陵
 PLACE	ブリョウじょう	武陵城	
 PLACE	カンチュウ	漢中	AMBIGUOUS (2 of 2). The state threatening 蜀 from outside (張魯's 漢中). Always followed by ぐん: カンチュウぐん = 漢中軍. Use in @b10_msg_448 @b11_msg_007 @b11_msg_017. For the person 韓忠 see the PERSON row.
 PLACE	カンチュウぐん	漢中軍	@b10_msg_448 @b11_msg_007 @b11_msg_017.
-PLACE	フスイ	涪水	涪水 (the Fu River; the novel's 涪水関). Castle in 蜀 where 劉璋 is held (b11_msg_002). 涪 comes from the MS Gothic fallback.
+PLACE	フスイ	涪水	涪水 (the Fu River; the novel's 涪水関). Castle in 蜀 where 劉璋 is held (b11_msg_002).
 PLACE	フスイじょう	涪水城	
-PLACE	ラク	雒	雒城 in 蜀 (b11_msg_005/011). 雒 comes from the MS Gothic fallback.
+PLACE	ラク	雒	雒城 in 蜀 (b11_msg_005/011).
 PLACE	ラクじょう	雒城	
 PLACE	ゴウテツザン	剛鉄山	Game-specific iron mountain in 蜀 (b11_msg_006/012/019). 剛鉄 = hard iron; xneo.jp also uses 剛鉄山.
 PLACE	メンチクカン	綿竹関	
@@ -150,7 +150,7 @@ PLACE	セイト	成都
 PLACE	セイトじょう	成都城	
 PLACE	ケンアン	建安	建安郡 in 呉.
 PLACE	ケンアンじょう	建安城	
-PLACE	ハンヨウ	鄱陽	呉 region: ハンヨウ fort (b11_msg_072/073/079), ハンヨウざん (the mountain blasted to dam the water, b11_msg_055) and ハンヨウコ (the lake that flooded, b11_msg_050). 鄱陽 (the Han-era spelling is 番陽, read はんよう). Alternative 番陽 uses only common characters. 鄱 comes from the MS Gothic fallback.
+PLACE	ハンヨウ	鄱陽	呉 region: ハンヨウ fort (b11_msg_072/073/079), ハンヨウざん (the mountain blasted to dam the water, b11_msg_055) and ハンヨウコ (the lake that flooded, b11_msg_050). 鄱陽 (the Han-era spelling is 番陽, read はんよう). Alternative 番陽 uses only common characters.
 PLACE	ハンヨウざん	鄱陽山	b11_msg_055.
 PLACE	ハンヨウコ	鄱陽湖	b11_msg_050.
 PLACE	カイケイ	会稽	カイケイのとりで = 会稽の砦.
@@ -263,7 +263,7 @@ ITEM	けん	剣	ITEM 46.
 ITEM	めいけん	名剣	b10_msg_243/245.
 ITEM	かんしょうのけん	干将の剣	ITEM 4D.
 ITEM	ばくやのけん	莫耶の剣	ITEM 4E. Do not confuse with ばくやく (爆薬).
-ITEM	せいこうのけん	青釭の剣	ITEM 4F. 青釭 is the novel's sword of 曹操; xneo.jp writes 青紅. 釭 comes from the DotGothic16 fallback.
+ITEM	せいこうのけん	青釭の剣	ITEM 4F. 青釭 is the novel's sword of 曹操; xneo.jp writes 青紅.
 ITEM	どりゅうのけん	屠龍の剣	ITEM 50. 屠龍 = dragon-slaying. xneo.jp writes 土龍, but 土竜 means "mole" in Japanese, so it was rejected.
 ITEM	せいりゅうとう	青龍刀	ITEM 51. The game's word is せいりゅうとう, so 青龍刀 (not 青龍偃月刀).
 ITEM	ろうぼくのえだ	老木の枝	WORD A8; quest item.

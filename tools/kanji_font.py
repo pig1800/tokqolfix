@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
-"""Build the 16x16 kanji font for the expanded target from JF-Dot-Shinonome16.
-
-JF-Dot-Shinonome16 is a bitmap-derived TTF: at size 16 with the "lt" anchor it
-rasterises to pure 0/255 pixels on the 16x16 grid, so the threshold never
-produces 2-pixel strokes.  Glyphs fill the full cell like the game's own
-16x16 name glyphs (bank 1), so no offset is applied.
+"""Build the 16x16 kanji font for the expanded target from MS Gothic's
+embedded 16-pixel bitmaps (kanji_common.glyph_bytes; never its outlines).
 """
 from __future__ import annotations
 
@@ -13,7 +9,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from kanji_common import (FALLBACK_USED, FONT_TTF, INDEX_TSV, MAX_GLYPHS,
+from kanji_common import (FALLBACK_USED, INDEX_TSV, MAX_GLYPHS,
                           code_of, glyph_bytes, write_index)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -56,16 +52,16 @@ def build() -> int:
     SHEET.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(SHEET)
     print(f"kanji inventory: {len(inv)} glyphs -> {OUT / 'kanji_font.bin'}")
-    fb = ["# glyphs drawn from a fallback font (JF-Dot-Shinonome16 lacks them)",
+    fb = ["# glyphs MS Gothic has no 16-pixel bitmap for (kanji_common.glyph_bytes)",
           "# code\tchar\tU+\tfont\tcount"]
     counts = dict(inv)
     order = {ch: i for i, (ch, _) in enumerate(inv)}
     for ch, name in sorted(FALLBACK_USED.items(), key=lambda kv: order.get(kv[0], 0)):
-        print(f"  fallback font for U+{ord(ch):04X}: {name}")
+        print(f"  no MS Gothic bitmap for U+{ord(ch):04X}: {name}")
         fb.append("\t".join((f"{code_of(order[ch]):04X}", ch, f"U+{ord(ch):04X}", name, str(counts.get(ch, 0)))))
     (ROOT / "assets" / "fonts" / "kanji_fallback.tsv").write_text(chr(10).join(fb) + chr(10), encoding="utf-8")
     if any(name == "none" for name in FALLBACK_USED.values()):
-        raise SystemExit("a kanji is missing from every configured font")
+        raise SystemExit("a kanji has no MS Gothic bitmap, composite or original glyph")
     print(f"contact sheet:   {SHEET}")
     return 0
 

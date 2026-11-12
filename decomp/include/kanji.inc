@@ -332,6 +332,7 @@ UI_RAM_END        = UI_RAM+64
 ; ----------------------------------------------------------------------
 TXR_BANK          = 26
 NAME_FONT_BANK    = 17      ; officer names: the original name engine's glyphs (kanji_build build_name_font)
+NAME_FONT_LABELS  = $9F40   ; in it: 大 将 劉 備 軍 師 (the army screen's $C0-$D7, the original's bank 1 $8000)
 TXF_MAPINIT       = 0       ; the map's font load: page 1 lower = the fixed set
 TXF_RESTORE       = 1       ; clear_screen: the font back into page 1 lower
 TXF_DL            = 2       ; text_draw_line's entries: translate before the commit

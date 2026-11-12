@@ -464,7 +464,7 @@ pool_unchecked:
 ;   NMI that shows the screen sends it).  Its CHR: tiles $00-$0F (bank 9
 ;   $BA00, plane-1 glyphs) to plane 0, plane 1 cleared; the UI block's
 ;   $F0-$FE (bank 9 $BF00; $E0-$EF get the labels);
-; - 大将 / 軍師 ($C0-$D7, bank 1 $8000) to plane 0, the six label kanji
+; - 大将 / 軍師 ($C0-$D7, the name font's NAME_FONT_LABELS) to plane 0, the six label kanji
 ;   to $D8-$EF, M S P to plane 0 of $F5-$F7 (planes 1 cleared);
 ; - the leader's portrait: text_load_page's six parts and colours, read
 ;   directly; sub_CFA1's string around it (fixed bank);
@@ -1270,7 +1270,7 @@ rr_end:
 ar_chr:
     .db $10,$00, 9, $00,$BA, 16, 0      ; $00-$0F: plane-1 glyphs to plane 0
     .db $1F,$00, 9, $00,$BF, 240, 1     ; $F0-$FE: the UI block's rest
-    .db $1C,$00, 1, $00,$80, 24, 0      ; $C0-$D7: 大将 軍師
+    .db $1C,$00, NAME_FONT_BANK, <NAME_FONT_LABELS, >NAME_FONT_LABELS, 24, 0 ; $C0-$D7: 大将 軍師
     .db 0
 
 ; gold $6076, food $6079, experience $6070: rows 6, 8, 10, columns 23-29
