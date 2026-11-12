@@ -1499,3 +1499,45 @@ worst case.
   `out/test/opt/convstate.lua` saves at an NMI entry with the main
   thread in the fixed bank.
 - States the user saves on this build are fine.
+
+### Round 4 (2026-11-12): assessment, skipping the OAM DMA in upload frames
+
+**The proposal (the user's):** a frame that lags because of tile uploads
+needs no OAM DMA (517 cycles).  The NMI can predict such a frame from the
+tiles waiting to go up.
+
+**Findings** (`out/test/opt/oamup.lua` on the round-3 build: the greeting,
+the menu cycle, the new-game path; 34 + 116 + 137 upload frames).
+- **The main thread does not stop while it waits.**
+  - `wait_vblank` gives the text task a one-frame timer and returns to
+    `main_loop`, whose scheduler runs the other ready tasks.
+  - So the sprite buffer is still rebuilt every 1-3 frames
+    (`update_oam`, `clear_oam_shadow`).
+- **It changed in 3, 89 and 146 frames of the three runs, never in an
+  upload frame.**  Sprites happen to stay still while windows draw, but
+  nothing guarantees it (NPCs, the map task).
+- **No upload frame was budget-limited after round 3.**
+  - At most 3 records (15 bytes) were waiting at any NMI.
+  - None was left over after the uploads.
+  - The main thread publishes a row's or a cell's new glyphs and waits.
+    In these screens a batch never held more than one NMI uploads.
+- **So the 517 cycles would save no frame on the tested screens.**  They
+  would only help a batch of 4 or more kanji: a row drawn whole with 4+
+  glyphs not yet in CHR.
+
+**If wanted later** (a screen with such rows):
+- **Decide at the NMI's start**, before `$EE93`:
+  - the staged batch's total charge (a running sum kept by the staging
+    code, 1 byte) against `UP_UNITS` less the game's queue length;
+  - and the sprite buffer unchanged since the last DMA.
+- **Unchanged:** a dirty flag set by the game's sprite routines (patched
+  to compare before they store).  Without it, a skipped frame shows the
+  sprites one frame late.
+- **Skip OAMADDR too:** on the 2C02, writing OAMADDR can corrupt OAM, and
+  the DMA normally repairs it.  OAM keeps its contents while rendering is
+  on every frame.
+- **Space:** the fixed bank has none left.  The `$EE8B-$EE97` rewrite
+  needs a few bytes more than it frees, so a fixed-bank routine would
+  have to move out.
+- **Gain:** one more kanji (4 a frame) or ~3 more kana, in those frames
+  only.
