@@ -135,7 +135,9 @@ WINROW_LOWER      = $40         ; KANJI_WIN_ROW: four-screen lower half (row
 ; the scene page blank and never shows them.  A message printed while the
 ; battle graphics set is loaded, once the hack has read those tiles back
 ; blank, puts its kanji there (page 1, plane 0) instead of on the band
-; page: entry k of a page uses tiles $A4+4k..+3.  No band, no sprite 0.
+; page: entry k of a page uses tiles $A4+4k..+3, in 8x16 order (TL, BL,
+; TR, BR; since 2026-11-13, as the battle screen's groups).  No band, no
+; sprite 0.
 POOL_FIRST        = $A4
 POOL_LAST         = $DF
 POOL_SLOTS        = 15

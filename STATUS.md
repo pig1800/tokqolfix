@@ -80,7 +80,9 @@ tests; see CHANGELOG for what each revision fixed.
   set 8 (battle) is loaded, the hack reads them back; all blank arms the
   pool, and any game write into them disarms it.  A message printed then,
   with no page over 15 kanji, puts its kanji there (entry k of a page in
-  `$A4+4k..+3`, plane 0, scene page): no band, no IRQ.
+  `$A4+4k..+3`, plane 0, scene page): no band, no IRQ.  Each slot's
+  tiles are in 8x16 order, TL, BL, TR, BR (2026-11-13; before: TL, TR,
+  BL, BR), as the battle screen's groups.
   The engine's row renderer draws `$A4-$DF` as tiles (`render_ctl`).
   Everywhere else, and for a page over 15 kanji, the band page as below.
   Revision 20: the battle window scrolls as in the original.  A page takes

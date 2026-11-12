@@ -769,9 +769,9 @@ over bank 14, so for `$22` it takes the line from `$54`.
 1. a group holding its UI glyph (`UI_SLOT`; 8x16 order);
 2. else a pool slot a message left it in: `kanji_overlay` now records the
    text code of each pool slot it prints into (`UI_MC_LO/HI`; `q_glyph`
-   and the battle start mark a slot as no message kanji).  The slot keeps
-   the message routine's order (TL, TR, BL, BR), and the window draws it
-   that way;
+   and the battle start mark a slot as no message kanji).  The slot is in
+   8x16 order like a group (the messages' pool order since 2026-11-13;
+   before, TL, TR, BL, BR, drawn that way);
 3. else an upload into groups 15-22 (the command window's), one per NMI.
 
 A pool slot the window uses is reserved (`UI_PRES`): the messages after

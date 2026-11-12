@@ -818,9 +818,13 @@ KANJI_EC:
 
 ; Pool entry KANJI_M2 -> KANJI_TILES: the k-th slot this page's
 ; KANJI_PMASK leaves free (pool_choose leaves the page's entries free),
-; tiles $A4 + 4 * slot ..+3.  The battle screen's slot table (UI bank)
-; marks it a message kanji, maybe shown, with its code (the reward window
-; uses a kanji a message left in the pool).
+; tiles t = $A4 + 4 * slot ..+3 in 8x16 order (2026-11-13, the user's
+; call; the battle screen's groups' order): t TL, t+1 BL, t+2 TR, t+3 BR.
+; KANJI_TILES is in the glyph's order (TL, TR, BL, BR: the upload's tile
+; k goes to KANJI_TILES+k), so it gets t, t+2, t+1, t+3.  The battle
+; screen's slot table (UI bank) marks it a message kanji, maybe shown,
+; with its code (the reward window uses a kanji a message left in the
+; pool).
 pool_tiles:
     ldy KANJI_M2
     ldx #0
@@ -849,14 +853,15 @@ pool_tiles:
     txa
     asl a
     asl a                       ; C clear (slot < 64)
-    adc #POOL_FIRST
+    adc #POOL_FIRST             ; C clear (t <= $DC)
     ldx #0
-@pool4:
+@pool4:                         ; X = 0: TL t, BL t+1; X = 1: TR t+2, BR t+3
     sta KANJI_TILES,x
-    clc
+    adc #1
+    sta KANJI_TILES+2,x
     adc #1
     inx
-    cpx #4
+    cpx #2                      ; C clear while X < 2
     bne @pool4
     rts
 

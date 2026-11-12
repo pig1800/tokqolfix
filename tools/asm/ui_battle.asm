@@ -1338,10 +1338,10 @@ pr_l1:      .db 3, $FE,$90, $FE,$17, $FF                    ; 逃がす
 ;   row 11      experience    reward_tail
 ;   row 12      border        reward_tail
 ; Kanji from column 20 (index 2), 7 digits at columns 21-27 (index 3-9).
-; A kanji already in CHR is used from there: a group with its UI glyph
-; (8x16 order), or a pool slot a message left it in (UI_MC_LO/HI; the
-; message routine's order TL, TR, BL, BR), whose slot the later messages
-; then leave alone (UI_PRES).  The rest go to groups 15-22: the command
+; A kanji already in CHR is used from there: a group with its UI glyph,
+; or a pool slot a message left it in (UI_MC_LO/HI), whose slot the later
+; messages then leave alone (UI_PRES).  Both are in 8x16 order (the
+; messages' since 2026-11-13).  The rest go to groups 15-22: the command
 ; window does not come back after a victory.
 ; ----------------------------------------------------------------------
 RW_BASE     = ZP_C          ; the row pair's base ($00 / $30), after the line
@@ -1558,7 +1558,7 @@ rw_half:
     bne @pn
     lda UI_GF,x
     and #GF_NREF
-    bne @row
+    bne @col
 @pn:
     dex
     bpl @pool
@@ -1582,22 +1582,6 @@ rw_half:
     sta (ZP_A),y
     iny
     adc #2
-    sta (ZP_A),y
-    iny
-    rts
-@row:                           ; the message's order: upper t, t+1; lower
-    txa                         ; t+2, t+3
-    asl a
-    asl a
-    adc #$A4
-    ldy ZP_J
-    beq @r0
-    adc #2
-@r0:
-    ldy ZP_X
-    sta (ZP_A),y
-    iny
-    adc #1
     sta (ZP_A),y
     iny
     rts
