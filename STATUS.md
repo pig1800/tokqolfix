@@ -26,10 +26,10 @@ tests; see CHANGELOG for what each revision fixed.
   names).  A message printed by menu code, or jumping into it, never
   borrows the kana of the menus that code opens (derived from the
   original banks 13-15; build fails on a conflict).
-- Font (2026-11-12): MS Gothic's embedded 16-pixel bitmaps only (never its
-  outlines).  The 15 kanji it has only as outlines are composed from its
-  bitmaps, or are the original game's name glyph; listed in
-  `assets/fonts/kanji_fallback.tsv` (TEXT_RENDERER.md "MS Gothic bitmaps").
+- Font (2026-11-12): Izumi16's embedded 16-pixel bitmaps only
+  (`JF-Dot-Izumi16.ttf`, never its outlines), one column left.  璝, which it
+  lacks, is composed from its bitmaps (`assets/fonts/kanji_fallback.tsv`;
+  TEXT_RENDERER.md "Izumi16 bitmaps").
 
 ## Runtime design
 
@@ -228,4 +228,4 @@ refreshes the hack addresses the gates hook).
   `decomp/text/kanji_r14/batch_*.txt`, which now refuses to overwrite them
   without `--force`.  The older `*_kanji_fixed.dtx` drafts are used only
   when the r14 files are absent.
-- `C:/Windows/Fonts/msgothic.ttc` (its 16 ppem bitmap strike; `JF-Dot-Shinonome16.ttf` and `DotGothic16-Regular.ttf` are no longer used)
+- `JF-Dot-Izumi16.ttf` (its 16 ppem bitmap strike; `JF-Dot-Shinonome16.ttf` and `DotGothic16-Regular.ttf` are no longer used)

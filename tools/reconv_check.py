@@ -109,7 +109,7 @@ def main() -> int:
                 if ch not in font_cache:
                     font_cache[ch] = bool(glyph_available and glyph_available(ch))
                 if not font_cache[ch]:
-                    errors.append(f"{head}: kanji {ch} has no MS Gothic bitmap or composite")
+                    errors.append(f"{head}: kanji {ch} has no Izumi16 bitmap or composite")
         for kana, kanji in gloss.items():
             if kana and len(kana) >= 3 and kana in TOKEN.sub("", s).replace("　", "") and kanji and kanji not in plain:
                 pass  # informational only; glossary use is checked by review

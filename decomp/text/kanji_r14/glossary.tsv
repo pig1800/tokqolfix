@@ -7,7 +7,7 @@
 #   and NAME C5 shows as ケイウエイ (really ケイドウエイ = 邢道栄). Use the kanji below in both cases.
 # Inside tokens, <CALL:21D0=ソウジン> and <CALL:21D4=ソウユウ> are copied byte for byte, never converted; the compiler prints them as 宋仁/宋勇 (kanji pick, tools/kanji_common.py KANJI_CALLS).
 # Not a name, but noted: b10_msg_239 おプたそうです is probably a ROM typo for おえた (生涯を終えた); left to the batch owner.
-# Glyphs are MS Gothic's 16-pixel bitmaps.  Kanji it has only as outlines (龐 瓚 詡 邢 涪 雒 鄱 and some names) are composed from parts of its bitmaps (tools/kanji_common.py GLYPH_COMPOSE).
+# Glyphs are Izumi16's 16-pixel bitmaps (JF-Dot-Izumi16.ttf).  It lacks only 璝, composed from parts of its bitmaps (tools/kanji_common.py GLYPH_COMPOSE).
 #kind	kana	kanji	note
 PERSON	リュウビ	劉備	Hero lord. Compounds: リュウビぐん 劉備軍, リュウビさま 劉備様, リュウビどの 劉備殿.
 PERSON	ゲントク	玄徳	劉備's courtesy name (his mother and the Lady use it; b10_msg_129-133).
@@ -20,7 +20,7 @@ PERSON	ショカツキン	諸葛瑾	孔明's elder brother, holds 呉城 (b11_ms
 PERSON	キン	均	諸葛均, 孔明's younger brother (b10_msg_446 おとうとの キン; b11_msg_139 キンとなのる しょうねん). Given name only, as in the kana.
 PERSON	フクリュウ	伏龍	Sobriquet of 孔明 (b10_msg_335/336/392). 龍 (not 竜) to match 青龍刀 / 子龍.
 PERSON	ホウスウ	鳳雛	Sobriquet of 龐統 (b10_msg_435).
-PERSON	ホウトウ	龐統	龐 has no MS Gothic bitmap; the build composes it (GLYPH_COMPOSE).
+PERSON	ホウトウ	龐統	
 PERSON	スイキョウ	水鏡	Sobriquet of 司馬徽. スイキョウせんせい = 水鏡先生.
 PERSON	スイキョウせんせい	水鏡先生	
 PERSON	モウコウイ	孟公威	孔明's friend (孟建) who writes the letter of introduction (b10_msg_333/335). WORD 0C.

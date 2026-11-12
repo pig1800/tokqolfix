@@ -359,70 +359,62 @@ def code_map() -> dict[str, int]:
     return {ch: code_of(i) for i, (ch, _) in enumerate(inventory())}
 
 
-# Glyphs (the user's choice, 2026-11-12): every kanji is MS Gothic's own
-# 16-pixel embedded bitmap (the EBDT strike at 16 ppem), never rendered from
-# the outlines.  The strike has kanji as 16 x 16 cells (ascender 14).
-MSGOTHIC = Path("C:/Windows/Fonts/msgothic.ttc")
+# Glyphs (the user's choice, 2026-11-12): every kanji is Izumi16's own
+# 16-pixel bitmap (JF-Dot-Izumi16.ttf, the 出水 bitmap font series, which its
+# authors declare equivalent to public domain): the EBDT strike at 16 ppem,
+# never rendered from the outlines.  Izumi16 draws kanji in a 15 x 15 box at
+# columns 1-15, rows 0-14; they move one column left, so a kanji keeps a
+# free column on its right and a free row below (as the MS Gothic bitmaps
+# used before did).
+GLYPH_FONT = ROOT / "JF-Dot-Izumi16.ttf"
 FALLBACK_USED: dict[str, str] = {}
-_MSG: dict = {}
+_GF: dict = {}
 
 
-def _msgothic() -> dict:
-    if not _MSG:
-        from fontTools.ttLib import TTCollection
-        font = TTCollection(str(MSGOTHIC)).fonts[0]          # MS Gothic
+def _glyph_font() -> dict:
+    if not _GF:
+        from fontTools.ttLib import TTFont
+        font = TTFont(str(GLYPH_FONT))
         eblc, ebdt = font["EBLC"], font["EBDT"]
         i = next(n for n, st in enumerate(eblc.strikes) if st.bitmapSizeTable.ppemY == 16)
         subs = {}
         for sub in eblc.strikes[i].indexSubTables:
             for name in sub.names:
                 subs[name] = sub
-        _MSG.update(cmap=font.getBestCmap(), data=ebdt.strikeData[i], subs=subs,
-                    asc=eblc.strikes[i].bitmapSizeTable.hori.ascender)
-    return _MSG
+        _GF.update(cmap=font.getBestCmap(), data=ebdt.strikeData[i], subs=subs,
+                   asc=eblc.strikes[i].bitmapSizeTable.hori.ascender)
+    return _GF
 
 
-def msgothic_rows(ch: str) -> list[list[int]] | None:
-    """MS Gothic's 16 ppem bitmap of ch as 16 rows of 16 pixels, or None
-    when the strike has no bitmap for it."""
-    m = _msgothic()
+def font_rows(ch: str) -> list[list[int]] | None:
+    """Izumi16's 16 ppem bitmap of ch, one column left, as 16 rows of 16
+    pixels; None when the strike has no bitmap for it."""
+    m = _glyph_font()
     name = m["cmap"].get(ord(ch))
     glyph = m["data"].get(name) if name else None
     if glyph is None:
         return None
     sub = m["subs"][name]
     if sub.imageFormat not in (5, 7):
-        raise SystemExit(f"{ch}: MS Gothic bitmap format {sub.imageFormat}")
+        raise SystemExit(f"{ch}: Izumi16 bitmap format {sub.imageFormat}")
     met = sub.metrics if sub.indexFormat in (2, 5) else glyph.metrics
     bits = "".join(f"{b:08b}" for b in glyph.imageData)  # bit-aligned rows
     out = [[0] * 16 for _ in range(16)]
     for y in range(met.height):
         for x in range(met.width):
             if bits[y * met.width + x] == "1":
-                yy, xx = m["asc"] - met.horiBearingY + y, met.horiBearingX + x
+                yy, xx = m["asc"] - met.horiBearingY + y, met.horiBearingX + x - 1
                 if not (0 <= yy < 16 and 0 <= xx < 16):
-                    raise SystemExit(f"{ch}: MS Gothic bitmap outside the 16 x 16 cell")
+                    raise SystemExit(f"{ch}: Izumi16 bitmap outside the cell moved one column left")
                 out[yy][xx] = 1
     return out
 
 
-# Kanji MS Gothic has only as outlines (JIS X 0212 / 0213): built from parts
-# of its bitmaps.  A part: (donor kanji, columns c0-c1, rows r0-r1, placed
-# at x, y, the part's columns dropped); then the pixels erased.
+# Kanji Izumi16 lacks: built from parts of its bitmaps (as font_rows gives
+# them).  A part: (donor kanji, columns c0-c1, rows r0-r1, placed at x, y,
+# the part's columns dropped); then the pixels erased.
 GLYPH_COMPOSE = {
-    "鄱": ((("翻", 0, 5, 0, 15, 1, 0, ()), ("部", 9, 15, 0, 15, 9, 0, ())), ()),
-    "邢": ((("刑", 0, 8, 0, 15, 0, 0, ()), ("部", 9, 15, 0, 15, 9, 0, ())), ()),
-    "涪": ((("河", 0, 4, 0, 15, 0, 0, ()), ("倍", 5, 15, 0, 15, 5, 0, ())), ()),
-    "瓚": ((("理", 0, 4, 0, 15, 0, 0, ()), ("讃", 5, 15, 0, 15, 5, 0, ())), ()),
-    "詡": ((("語", 0, 5, 0, 15, 0, 0, ()), ("翔", 6, 15, 0, 15, 6, 0, ())), ()),
-    "傕": ((("何", 0, 4, 0, 15, 0, 0, ()), ("確", 5, 15, 0, 15, 5, 0, ())), ()),
-    "郃": ((("鴿", 0, 7, 0, 15, 0, 0, ()), ("部", 8, 15, 0, 15, 8, 0, ())), ()),
-    "璝": ((("理", 0, 4, 0, 15, 0, 0, ()), ("潰", 5, 15, 0, 15, 5, 0, ())), ()),
-    "褚": ((("補", 0, 6, 0, 15, 0, 0, ()), ("緒", 6, 15, 0, 15, 6, 0, ())), ()),
-    "玠": ((("理", 0, 4, 0, 15, 0, 0, ()), ("价", 4, 15, 0, 15, 4, 0, ())), ()),
-    "雒": ((("路", 7, 14, 0, 15, 0, 0, (3, 4)), ("雄", 6, 15, 0, 15, 6, 0, ())), ()),
-    "龐": ((("店", 0, 15, 0, 2, 0, 0, ()), ("店", 0, 1, 3, 15, 0, 3, ()),
-            ("寵", 1, 14, 3, 14, 3, 3, (6, 11))), ((14, 3),)),
+    "璝": ((("理", 0, 4, 0, 15, 0, 0, ()), ("潰", 4, 15, 0, 15, 4, 0, ())), ()),
 }
 
 
@@ -432,9 +424,9 @@ def composed_rows(ch: str) -> list[list[int]] | None:
     parts, erase = GLYPH_COMPOSE[ch]
     out = [[0] * 16 for _ in range(16)]
     for donor, c0, c1, r0, r1, x0, y0, drop in parts:
-        src = msgothic_rows(donor)
+        src = font_rows(donor)
         if src is None:
-            raise SystemExit(f"{ch}: donor {donor} has no MS Gothic bitmap")
+            raise SystemExit(f"{ch}: donor {donor} has no Izumi16 bitmap")
         cols = [c for c in range(c0, c1 + 1) if c - c0 not in drop]
         for y in range(r0, r1 + 1):
             for x, c in enumerate(cols):
@@ -445,52 +437,19 @@ def composed_rows(ch: str) -> list[list[int]] | None:
     return out
 
 
-# Name kanji MS Gothic lacks that its parts cannot build well: the original
-# game's own name glyph (bank 1 or 2 at index * 32: 8 bytes each of TL, BL,
-# TR, BR), found through the officer records.
-NAME_GLYPH_ORIGINAL = "闞騭邕"
-_ORIG_GLYPHS: dict[str, tuple[int, int]] = {}
-
-
-def original_glyph(ch: str) -> bytes | None:
-    """The original name glyph of ch as 16 rows x 2 bytes, or None."""
-    if not _ORIG_GLYPHS:
-        names = officer_names()
-        for i, (_p, _k, gl) in officer_records().items():
-            if i in names and len(names[i]) == len(gl):
-                for g, c in zip(gl, names[i]):
-                    _ORIG_GLYPHS.setdefault(c, g)
-    g = _ORIG_GLYPHS.get(ch)
-    if g is None:
-        return None
-    d = textdata.prg()[g[0] * 0x4000 + g[1] * 32:][:32]
-    out = bytearray()
-    for y in range(16):
-        q = 0 if y < 8 else 8
-        out += bytes((d[q + y % 8], d[16 + q + y % 8]))
-    return bytes(out)
-
-
 def glyph_available(ch: str) -> bool:
-    return (ch in GLYPH_COMPOSE or ch in NAME_GLYPH_ORIGINAL
-            or msgothic_rows(ch) is not None)
+    return ch in GLYPH_COMPOSE or font_rows(ch) is not None
 
 
 def glyph_bytes(ch: str) -> bytes:
-    """One kanji as 32-byte 1bpp: 16 rows x 2 bytes (left, right).  MS
-    Gothic's bitmap, else a GLYPH_COMPOSE composite, else the original
-    name glyph; else blank, recorded as "none" (the font build fails)."""
-    rows = msgothic_rows(ch)
+    """One kanji as 32-byte 1bpp: 16 rows x 2 bytes (left, right).  Izumi16's
+    bitmap, else a GLYPH_COMPOSE composite; else blank, recorded as "none"
+    (the font build fails)."""
+    rows = font_rows(ch)
     if rows is None and ch in GLYPH_COMPOSE:
         rows = composed_rows(ch)
-        FALLBACK_USED[ch] = "composed from MS Gothic bitmaps"
+        FALLBACK_USED[ch] = "composed from Izumi16 bitmaps"
     if rows is None:
-        if ch in NAME_GLYPH_ORIGINAL:
-            g = original_glyph(ch)
-            if g is None:
-                raise SystemExit(f"{ch}: no original name glyph")
-            FALLBACK_USED[ch] = "original name glyph"
-            return g
         FALLBACK_USED[ch] = "none"
         return bytes(32)
     out = bytearray()

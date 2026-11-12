@@ -926,3 +926,36 @@ own kanji move to it too.
 - The info screen and the army screen (大将, 軍師, names).
 - Battle names and messages.
 - The original build is byte-identical.
+
+## Izumi16 bitmaps (2026-11-12, replaces "MS Gothic bitmaps")
+
+The user checked the 15 kanji MS Gothic lacks against jiskan16 and Izumi16,
+and chose Izumi16 for every glyph.
+
+**Source:** `JF-Dot-Izumi16.ttf` (repo root), its embedded bitmap strike at
+16 ppem; never the outlines.
+- Licence: its authors declare the 出水 bitmap font series equivalent to
+  public domain.  The published patch carries no MS Gothic data.
+- **Placement:** Izumi16 draws kanji in a 15 x 15 box at columns 1-15,
+  rows 0-14.  `font_rows` moves them one column left, so a kanji keeps a
+  free column on its right and a free row below, as with MS Gothic.  No
+  inventory kanji uses column 0; the build fails if one would leave the
+  cell.
+
+**Coverage:** 981 of the 982 kanji.  璝 is not in the font.  It is composed
+from Izumi16's 理 (王, columns 0-4) and 潰 (貴, columns 4-15)
+(`GLYPH_COMPOSE`).
+
+**Removed:** the MS Gothic composites and the original game's name glyphs
+(闞 騭 邕 are Izumi16's now).  No glyph comes from the ROM any more.  The
+contact sheet shows every glyph.
+
+**Unchanged:** the kanji codes, the name font layout (bank 17, with the
+army screen's 大将 / 軍師 at `NAME_FONT_LABELS`).
+
+**Checks:**
+- The officer list, the 渡す message.
+- The info screen and the army screen.
+- Battle names and messages.
+- A party list of 歩騭 龐統 闞沢 諸葛謹 蔡邕 劉璝.
+- The original build is byte-identical.

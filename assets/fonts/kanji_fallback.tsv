@@ -1,17 +1,3 @@
-# glyphs MS Gothic has no 16-pixel bitmap for (kanji_common.glyph_bytes)
+# glyphs Izumi16 has no 16-pixel bitmap for (kanji_common.glyph_bytes)
 # code	char	U+	font	count
-014F	鄱	U+9131	composed from MS Gothic bitmaps	5
-0215	龐	U+9F90	composed from MS Gothic bitmaps	4
-0263	涪	U+6DAA	composed from MS Gothic bitmaps	3
-02D4	雒	U+96D2	composed from MS Gothic bitmaps	2
-0334	詡	U+8A61	composed from MS Gothic bitmaps	1
-034D	瓚	U+74DA	composed from MS Gothic bitmaps	1
-035E	邢	U+90A2	composed from MS Gothic bitmaps	1
-049C	傕	U+5095	composed from MS Gothic bitmaps	0
-04A3	邕	U+9095	original name glyph	0
-04AF	郃	U+90C3	composed from MS Gothic bitmaps	0
-04BC	璝	U+749D	composed from MS Gothic bitmaps	0
-04CB	騭	U+9A2D	original name glyph	0
-04D0	闞	U+95DE	original name glyph	0
-04D7	褚	U+891A	composed from MS Gothic bitmaps	0
-04E8	玠	U+73A0	composed from MS Gothic bitmaps	0
+04BC	璝	U+749D	composed from Izumi16 bitmaps	0

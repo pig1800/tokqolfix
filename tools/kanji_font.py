@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the 16x16 kanji font for the expanded target from MS Gothic's
+"""Build the 16x16 kanji font for the expanded target from Izumi16's
 embedded 16-pixel bitmaps (kanji_common.glyph_bytes; never its outlines).
 """
 from __future__ import annotations
@@ -37,11 +37,6 @@ def build() -> int:
         g = data[i * 32:(i + 1) * 32]
         x0 = (i % cols) * 17
         y0 = (i // cols) * 17
-        if FALLBACK_USED.get(ch) == "original name glyph":
-            # The sheet is committed: no glyph taken from the ROM goes into
-            # it (an outlined cell instead).
-            draw.rectangle((x0, y0, x0 + 15, y0 + 15), outline=(200, 80, 80))
-            continue
         for y in range(16):
             lo, hi = g[y * 2], g[y * 2 + 1]
             for x in range(8):
@@ -52,16 +47,16 @@ def build() -> int:
     SHEET.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(SHEET)
     print(f"kanji inventory: {len(inv)} glyphs -> {OUT / 'kanji_font.bin'}")
-    fb = ["# glyphs MS Gothic has no 16-pixel bitmap for (kanji_common.glyph_bytes)",
+    fb = ["# glyphs Izumi16 has no 16-pixel bitmap for (kanji_common.glyph_bytes)",
           "# code\tchar\tU+\tfont\tcount"]
     counts = dict(inv)
     order = {ch: i for i, (ch, _) in enumerate(inv)}
     for ch, name in sorted(FALLBACK_USED.items(), key=lambda kv: order.get(kv[0], 0)):
-        print(f"  no MS Gothic bitmap for U+{ord(ch):04X}: {name}")
+        print(f"  no Izumi16 bitmap for U+{ord(ch):04X}: {name}")
         fb.append("\t".join((f"{code_of(order[ch]):04X}", ch, f"U+{ord(ch):04X}", name, str(counts.get(ch, 0)))))
     (ROOT / "assets" / "fonts" / "kanji_fallback.tsv").write_text(chr(10).join(fb) + chr(10), encoding="utf-8")
     if any(name == "none" for name in FALLBACK_USED.values()):
-        raise SystemExit("a kanji has no MS Gothic bitmap, composite or original glyph")
+        raise SystemExit("a kanji has no Izumi16 bitmap or composite")
     print(f"contact sheet:   {SHEET}")
     return 0
 
