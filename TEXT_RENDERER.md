@@ -1113,3 +1113,33 @@ previous and the new build, each with its own RAM image):
 | A kanji's frame (4 tiles + 4 cells) | uploads end at line 253.6, cells 256.2, split armed 256.9 |
 | Lowest stack push (shop path) | `$010C` (previous build `$010A`), the same fixed-bank routine |
 | Original build | byte-identical |
+
+### E done: glyphs kept when windows close
+
+- **At a close** (`redraw_start`, `TXF_RESET` -> `txr_close`):
+  - no part shows text any more;
+  - a part keeps its glyphs (kana map, kanji groups, tiles), so a window
+    opened again finds them and uploads nothing;
+  - a part with fewer than `KEEP_MIN` = 48 free tiles (12 kanji) is freed
+    there instead.  That costs nothing at that moment and spares a
+    read-back GC (a frame per row, 7-10 frames) in the next window.
+- **Unchanged:**
+  - the map setup still frees every part (page 1 held the font or another
+    screen's tiles);
+  - the GC still frees what no row shows when a part fills within a
+    window.
+- `txr_reset` is now a loop over `part_reset`; `part_free` counts a
+  part's free tiles.
+
+Checks (`out/test/opt`):
+
+| Check | Result |
+|---|---|
+| Command window opened, closed, opened (`e_k1` C only, `e_k2` C + E) | the second open uploads nothing and draws in consecutive frames (`F..FFFF`); before, `PUBUUUUUFUUUU` |
+| Menu cycle x4 from `u3b`: talk (shop list), officers, items, formation (4,233 frames) | tiles uploaded: 1,437 (C only), 204 (E without the close-time free), 512 (E); U + P frames 441 / 59 / 165.  Every window the same picture as with C only (cursor blink and NPC sprites aside) |
+| Part 1 made full (every group taken, nothing shown; pokes) before the close | freed at the close: the next command window opens with no GC (12 frames; with the GC ~22) |
+| The same, made full after the close | GC part 0 (~10 frames), then the window right; the same pictures as without the close-time free |
+| New-game path from power-on (`std3`) | identical to C only at every 20th frame from 2000 to 4300; the GC at the same points; `TXR_FULL` 0 |
+| Lowest stack push (menu cycle) | `$010C`, the same fixed-bank routine as before |
+| Original build | byte-identical |
+

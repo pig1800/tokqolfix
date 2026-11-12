@@ -487,7 +487,7 @@ txr_mi:
     jmp txr_call
 
 ; redraw_start's first instruction: the full redraw that closes every map
-; window; every page's glyphs are free again.  X and Y kept.
+; window (TXF_RESET: the glyphs stay; txr.asm txr_close).  X and Y kept.
 txr_rd:
     bit TXR_ON
     bpl @r

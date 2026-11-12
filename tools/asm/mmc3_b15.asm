@@ -876,7 +876,7 @@ attr_table_hi:
 ; screen below; this starts them 17 rows below the player (an up step
 ; draws 8 rows above its position).  Returns A = 17 rows.
 redraw_start:
-    jsr TXR_RD                  ; the map's text glyphs free again (TEXT_RENDERER.md)
+    jsr TXR_RD                  ; the map renderer's window close (TEXT_RENDERER.md)
     inc text_y
     lda #$02
     jsr $D7A9                   ; cursor_add_x: cursor = text + 2 rows

@@ -337,7 +337,7 @@ TXF_MAPINIT       = 0       ; the map's font load: page 1 lower = the fixed set
 TXF_RESTORE       = 1       ; clear_screen: the font back into page 1 lower
 TXF_DL            = 2       ; text_draw_line's entries: translate before the commit
 TXF_RC            = 3       ; text_render_cell, in map mode
-TXF_RESET         = 4       ; redraw_start: every page's glyphs free again
+TXF_RESET         = 4       ; redraw_start (windows closed): the glyphs stay (txr_close)
 TXF_DLC           = 5       ; text_draw_line: continue after the uploads
 TXF_RCC           = 6       ; text_render_cell: continue (after uploads or a pause)
 TXF_FILL          = 7       ; set_ppu_scroll's fill (cv_fill)

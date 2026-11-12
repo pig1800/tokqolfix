@@ -50,11 +50,11 @@ txr_dispatch:                   ; (Y kept: TXF_PUT and TXF_LABEL keep it)
     pha
     rts
 txr_fnl:
-    .db <(txr_mapinit-1), <(txr_restore-1), <(txr_dl-1), <(txr_rc-1), <(txr_reset-1)
+    .db <(txr_mapinit-1), <(txr_restore-1), <(txr_dl-1), <(txr_rc-1), <(txr_close-1)
     .db <(txr_dlc-1), <(txr_rcc-1), <(txr_fill-1), <(txr_put-1), <(txr_label-1)
     .db <(txr_menuinit-1), <(txr_name-1)
 txr_fnh:
-    .db >(txr_mapinit-1), >(txr_restore-1), >(txr_dl-1), >(txr_rc-1), >(txr_reset-1)
+    .db >(txr_mapinit-1), >(txr_restore-1), >(txr_dl-1), >(txr_rc-1), >(txr_close-1)
     .db >(txr_dlc-1), >(txr_rcc-1), >(txr_fill-1), >(txr_put-1), >(txr_label-1)
     .db >(txr_menuinit-1), >(txr_name-1)
 
@@ -530,41 +530,128 @@ txr_restore:
     sta KANJI_IRQ_ST
     rts
 
-; Every part's glyphs free: kana maps empty, groups free, the bitmaps
-; holding only the pinned tiles; page 1's コマンド kana pinned.
-txr_reset:
+; redraw_start (TXF_RESET: the full redraw that closes the map's windows):
+; no part shows text now.  A part keeps its glyphs, so a window opened
+; again finds them and uploads nothing (TEXT_RENDERER.md "Upload speed",
+; E), unless it has fewer than KEEP_MIN free tiles: then it is freed here,
+; for nothing, instead of by a read-back GC (a frame per row) in the next
+; window.
+KEEP_MIN        = 48            ; free tiles (12 kanji) a part keeps its glyphs with
+txr_close:
     lda #0
+    sta TXR_SKIP
+    ldx #3
+@p:
+    stx TXR_P
+    jsr part_free
+    cmp #KEEP_MIN
+    bcs @keep
+    jsr part_reset
+@keep:
+    ldx TXR_P
+    dex
+    bpl @p
+    rts
+
+; A = the free tiles of part TXR_P (zero bits in its bitmap).
+part_free:
+    ldx TXR_P
+    lda part_b,x
     tax
-@km:
-    sta TXR_KM,x
-    sta TXR_KM+$100,x
-    inx
-    bne @km
-    lda #$FF
-    ldx #TXR_NG*4-1
-@g:
-    sta TXR_GHI,x
-    dex
-    bpl @g
-    ldx #63
-@b:
+    lda #16
+    sta TXR_J
     lda #0
-    sta TXR_TBM,x
+    sta TXR_I
+@b:
+    lda TXR_TBM,x
+    and #$0F
+    tay
+    lda nib_free,y
+    clc
+    adc TXR_I
+    sta TXR_I
+    lda TXR_TBM,x
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tay
+    lda nib_free,y
+    clc
+    adc TXR_I
+    sta TXR_I
+    inx
+    dec TXR_J
+    bne @b
+    lda TXR_I
+    rts
+nib_free:   .db 4, 3, 3, 2, 3, 2, 2, 1, 3, 2, 2, 1, 2, 1, 1, 0
+
+; Every part's glyphs free.  The map setup only (page 1 held the font, or
+; another screen's tiles, before).
+txr_reset:
+    ldx #3
+@p:
+    stx TXR_P
+    jsr part_reset
+    ldx TXR_P
     dex
-    bpl @b
-    ldx #48
-@pin:
+    bpl @p
+    lda TXR_HB                  ; (never left held: the queue would stop)
+    beq @nh
+    and #$7F
+    ldy TXR_HI
+    sta $0400,y
+@nh:
+    lda #0
+    sta TXR_HB
+    sta TXR_UQN
+    sta TXR_FULL
+    sta TXR_SKIP
+    rts
+
+; Part TXR_P's glyphs free: its kana map empty, its groups free, its bitmap
+; holding only the pinned tiles (the fixed set, the blank; page 1's
+; コマンド, whose kana stay mapped).
+part_reset:
+    ldx TXR_P
+    lda part_kml,x
+    sta PTR
+    lda part_kmh,x
+    sta PTR+1
+    lda #0
+    ldy #127
+@km:
+    sta (PTR),y
+    dey
+    bpl @km
+    lda part_g,x
+    tay
+    ldx #TXR_NG
+    lda #$FF
+@g:
+    sta TXR_GHI,y
+    iny
+    dex
+    bne @g
+    ldx TXR_P
+    lda part_b,x
+    tax
     lda #$FF                    ; tiles $00-$07, $08-$0B: fixed
     sta TXR_TBM,x
     lda #$F0
     sta TXR_TBM+1,x
-    lda #$01                    ; $7F blank
-    sta TXR_TBM+15,x
-    txa
-    sec
-    sbc #16
-    tax
-    bpl @pin
+    lda #0
+    ldy #13
+@z:
+    sta TXR_TBM+2,x
+    inx
+    dey
+    bne @z
+    lda #$01                    ; $7F blank (byte 15: X is base + 13)
+    sta TXR_TBM+2,x
+    lda TXR_P
+    bne @r
     lda #$1F                    ; page 1: $7B-$7F
     sta TXR_TBM+15
     ldx #3
@@ -577,17 +664,7 @@ txr_reset:
     sta TXR_KM,y
     dex
     bpl @cmd
-    lda TXR_HB                  ; (never left held: the queue would stop)
-    beq @nh
-    and #$7F
-    ldy TXR_HI
-    sta $0400,y
-@nh:
-    lda #0
-    sta TXR_HB
-    sta TXR_UQN
-    sta TXR_FULL
-    sta TXR_SKIP
+@r:
     rts
 
 ; ----------------------------------------------------------------------
