@@ -1265,3 +1265,49 @@ clock.  The game's own long-flush frames end the force near line 261.8.
   - kanji: 3 instead of 2 (just fits by the line-260 rule);
   - kana: about 9 instead of 6.
 
+### Round 2 done: precomputed records
+
+**The user's choice:** options 1 + 2 of the round-2 assessment.
+
+**Records** are 5 bytes, built by the main thread (`rec_head`):
+- kana: `R0, PPU hi, lo, the glyph's offset in its 256-byte font page,
+  the page`;
+- kanji: `R0 | $80, PPU hi, lo of tile t, the glyph's column, its bank's
+  R6 value | $80 for the +256 half`.
+- So the NMI does no tile-to-address, code-to-offset or bank arithmetic.
+
+**Caches in the NMI:**
+- R0 is written only when a record's page differs (`KANJI_T1`).
+- The glyph bank only when it changes (`KANJI_T0`).
+
+**Measured** (injected batches, `out/test/opt/inj9_*`):
+
+| | Before | Now |
+|---|---|---|
+| kana | ~188 cycles | ~157 cycles |
+| kanji with a bank switch | ~500 cycles | ~420 cycles |
+| 6 kana: last write | line 259.5 | line 258.0 |
+| 2 kanji: last write | line 258.6 | line 257.6 |
+
+- Charges: `UP_KANA` 10, `UP_KANJI` 27 (`UP_UNITS` 67, `UP_KRUN` 3).
+- A frame now holds 2 kanji + 1 kana (before: 2 kanji), 6 kana, or
+  1 kanji + 3 kana.
+- The hack bank's second segment ends at `$BEEA`.
+
+**Unchanged:** the frame counts of the tested screens (shop, command
+window, menu cycle, new-game path).  They are kanji-bound, and a third
+kanji does not fit:
+- 3 kanji need ~1,100-1,160 cycles from the first write (line 251.1);
+- about 1,000 cycles are left before line 260.
+- The fixed path before the first write is the game's NMI work (to line
+  248.2) plus ~2.8 lines of ours.  Trimming ours further gains well under
+  a line.
+
+**Checks:**
+- Pictures identical to the previous build: shop, command window,
+  menu cycle, GC, forced screen-off (8 direct writes), the new-game path
+  (every 20th frame) and a battle (every frame 200-859).
+- Latest upload write on the new-game path: line 257.95 (before 258.52).
+- Lowest stack push `$010A` (the same fixed-bank routine).
+- Original build byte-identical.
+

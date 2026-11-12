@@ -258,6 +258,8 @@ nmi_up:
     sta MMC3_SELECT             ; NMI never reads $A000-$BFFF otherwise;
     lda #KANJI_HACK_BANK*2+1    ; the game's NMI end maps the bank back)
     sta MMC3_DATA
+    lda #CHR_SCENE_LO
+    sta KANJI_T1                ; R0 now (cvn_map): written again only when a record's differs
     bit PPUSTATUS
     ldx TXR_UQR
 @rec:
@@ -311,10 +313,11 @@ nmi_up:
     ldx TXR_Q0
     rts
 
-; The kana records of TXR_UQ from X on (R0, tile, code): the glyph's 8
-; bytes from this bank's font copy (in the NMI's half).  Stops at a kanji
-; record or the batch's end (C clear), or when TXR_UB has no UP_KANA left
-; (C set).  X = the next record; Y lost.
+; The kana records of TXR_UQ from X on (R0, PPU address hi, lo, the
+; glyph's offset in its font page, the page 0-3): 8 bytes from this bank's
+; font copy (in the NMI's half).  R0 written only when it changes
+; (KANJI_T1).  Stops at a kanji record or the batch's end (C clear), or
+; when TXR_UB has no UP_KANA left (C set).  X = the next record; Y lost.
 .macro KANA8 src
     lda src+0,y
     sta PPUDATA
@@ -343,35 +346,25 @@ uk_rec:
     rts
 @fits:
     sta TXR_UB
-    lda #MMC3_R0
-    sta MMC3_SELECT
     lda TXR_UQ,x
+    cmp KANJI_T1
+    beq @r0
+    sta KANJI_T1
+    ldy #MMC3_R0
+    sty MMC3_SELECT
     sta MMC3_DATA
-    lda TXR_UQ+1,x              ; tile: the PPU address
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    ora #$10
-    sta PPUADDR
+@r0:
     lda TXR_UQ+1,x
-    asl a
-    asl a
-    asl a
-    asl a
     sta PPUADDR
-    lda TXR_UQ+2,x              ; code: page code >> 5, offset (code * 8) & $FF
-    asl a
-    asl a
-    asl a
-    tay
     lda TXR_UQ+2,x
-    and #$60
+    sta PPUADDR
+    ldy TXR_UQ+3,x
+    lda TXR_UQ+4,x
     bne @n0
     KANA8 font_copy
     jmp uk_next
 @n0:
-    cmp #$40
+    cmp #2
     beq @p2
     bcs @p3
     KANA8 font_copy+$100
@@ -382,12 +375,13 @@ uk_rec:
 @p3:
     KANA8 font_copy+$300
 uk_next:
-    inx
-    inx
-    inx
+    txa
+    clc
+    adc #5
+    tax
     lda TXR_UQN
     sec
-    sbc #3
+    sbc #5
     sta TXR_UQN
     beq @out
     lda TXR_UQ,x
@@ -1027,22 +1021,51 @@ is_direct:
     lda #0
     rts
 
-; Kana TXR_B as tile TXR_T of part TXR_P: a record (R0, tile, code), or
-; with rendering off / busy the glyph written now.
+; The record at TXR_SN: R0 = part TXR_P's (| A), the PPU address of tile
+; TXR_T at +1/+2.  X = TXR_SN.
+rec_head:
+    ldx TXR_SN
+    ldy TXR_P
+    ora part_r0,y
+    sta TXR_UQ,x
+    lda TXR_T
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora #$10
+    sta TXR_UQ+1,x
+    lda TXR_T
+    asl a
+    asl a
+    asl a
+    asl a
+    sta TXR_UQ+2,x
+    rts
+
+; Kana TXR_B as tile TXR_T of part TXR_P: a record (R0, PPU address hi,
+; lo, the glyph's offset in its 256-byte font page, the page), or with
+; rendering off / busy the glyph written now.
 stage_kana:
     jsr is_direct
     beq @now
-    ldx TXR_SN
-    ldy TXR_P
-    lda part_r0,y
-    sta TXR_UQ,x
-    lda TXR_T
-    sta TXR_UQ+1,x
+    lda #0
+    jsr rec_head
     lda TXR_B
-    sta TXR_UQ+2,x
+    asl a
+    asl a
+    asl a
+    sta TXR_UQ+3,x
+    lda TXR_B
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta TXR_UQ+4,x
     txa
     clc
-    adc #3
+    adc #5
     sta TXR_SN
     rts
 @now:
@@ -1057,25 +1080,31 @@ stage_kana:
     jmp busy_off
 
 ; Kanji TXR_K as group tiles TXR_T .. TXR_T + 3 of part TXR_P: a record
-; (R0 | $80, tile, glyph code lo, hi), or with rendering off / busy the
-; glyph written now (TXR_T + 4 after).
+; (R0 | $80, PPU address hi, lo of tile TXR_T, the glyph's column, the
+; glyph bank's R6 value | $80 for the +256 half), or with rendering off /
+; busy the glyph written now (TXR_T + 4 after).
 stage_kanji:
     jsr is_direct
     beq @now
-    ldx TXR_SN
-    ldy TXR_P
-    lda part_r0,y
-    ora #$80
-    sta TXR_UQ,x
-    lda TXR_T
-    sta TXR_UQ+1,x
+    lda #$80
+    jsr rec_head
     lda TXR_K
-    sta TXR_UQ+2,x
-    lda TXR_K+1
     sta TXR_UQ+3,x
+    lda TXR_K+1                 ; bank index * 2 + the half
+    and #$FE
+    clc
+    adc #KANJI_HACK_BANK*2
+    sta TXR_UQ+4,x
+    lda TXR_K+1
+    lsr a
+    bcc @lo
+    lda TXR_UQ+4,x
+    ora #$80
+    sta TXR_UQ+4,x
+@lo:
     txa
     clc
-    adc #4
+    adc #5
     sta TXR_SN
     rts
 @now:
@@ -1186,7 +1215,7 @@ xlate:
     ldy TXR_B
     lda (PTR),y
     bne @ok
-    lda #3
+    lda #5
     jsr stage_room
     bcs @rts
     jsr alloc_kana
@@ -1231,7 +1260,7 @@ xlate:
     sta TXR_K+1
     jsr find_group
     bcc @have
-    lda #4
+    lda #5
     jsr stage_room
     bcs @rts
     jsr alloc_group

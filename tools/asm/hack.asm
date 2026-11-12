@@ -1550,30 +1550,31 @@ bitmask:
 
 ; ----------------------------------------------------------------------
 ; Map text renderer, NMI (txr.asm nmi_up; TEXT_RENDERER.md "Upload
-; speed", B + D): the kanji records of TXR_UQ from X on (R0 | $80, tile
-; t, glyph code lo, hi), each one's four tiles t..t+3 (top-left,
+; speed", B + D and round 2): the kanji records of TXR_UQ from X on (R0 |
+; $80, PPU address hi, lo of tile t, the glyph's column, its bank's R6
+; value | $80 for the +256 half), each one's four tiles t..t+3 (top-left,
 ; bottom-left, top-right, bottom-right = glyph tiles 0, 2, 1, 3) in plane
 ; 0 of page R0, straight from the glyph table, unrolled.  Stops at a kana
 ; record or the batch's end (TXR_UQN 0): C clear; or when TXR_UB has no
 ; UP_KANJI left: C set.  Entered with R7 = the upper half of a hack bank
-; (this code is the same in each: it maps R7 to another one under its
-; own feet) and R6 = the renderer bank's lower half; maps R6/R7 to each
-; glyph's bank (KANJI_T0: the R6 value mapped; $FF from the caller), R6
-; back before returning.
+; (this code is the same in each: it maps R7 to another one under its own
+; feet) and R6 = the renderer bank's lower half; maps R6/R7 to each
+; glyph's bank (KANJI_T0: the R6 value mapped; $FF from the caller), R0
+; when it changes (KANJI_T1: the caller's), R6 back before returning.
 ; X = the next record; Y lost; PPUCTRL +1 increments set by the caller.
 ; ----------------------------------------------------------------------
 .macro MKT tab, j, k
-    lda KANJI_T1
+    lda TXR_UQ+1,x
     sta PPUADDR
-    lda KANJI_T2
+    lda TXR_UQ+2,x
     ora #j*16
     sta PPUADDR
     MK8 tab, k
 .endm
 .macro MKT0 tab
-    lda KANJI_T1
+    lda TXR_UQ+1,x
     sta PPUADDR
-    lda KANJI_T2
+    lda TXR_UQ+2,x
     sta PPUADDR
     MK8 tab, 0
 .endm
@@ -1606,10 +1607,8 @@ mk_rec:
     jmp mk_exit
 @fits:
     sta TXR_UB
-    lda TXR_UQ+3,x              ; code high: bank index * 2 + the +256 half
-    and #$FE
-    clc
-    adc #KANJI_HACK_BANK*2      ; R6: the glyph bank's lower half
+    lda TXR_UQ+4,x              ; the glyph bank's R6 value
+    and #$7F
     cmp KANJI_T0
     beq @mapped
     sta KANJI_T0
@@ -1621,28 +1620,18 @@ mk_rec:
     sty MMC3_SELECT
     sta MMC3_DATA               ; (the same code there)
 @mapped:
-    lda #MMC3_R0
-    sta MMC3_SELECT
     lda TXR_UQ,x
     and #$7F
-    sta MMC3_DATA
-    lda TXR_UQ+1,x              ; tile t: the PPU address's high byte
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    ora #$10
+    cmp KANJI_T1
+    beq @r0
     sta KANJI_T1
-    lda TXR_UQ+1,x              ; and low (t + j: + j * 16, t = $0C + 4g)
-    asl a
-    asl a
-    asl a
-    asl a
-    sta KANJI_T2
-    ldy TXR_UQ+2,x              ; the glyph's column
-    lda TXR_UQ+3,x
-    lsr a
-    bcc @lo
+    ldy #MMC3_R0
+    sty MMC3_SELECT
+    sta MMC3_DATA
+@r0:
+    ldy TXR_UQ+3,x              ; the glyph's column
+    lda TXR_UQ+4,x
+    bpl @lo
     jmp mk_hi
 @lo:
     MKT0 GLYPH_TAB
@@ -1656,13 +1645,13 @@ mk_hi:
     MKT GLYPH_TAB+256, 2, 1
     MKT GLYPH_TAB+256, 3, 3
 mk_next:
-    inx
-    inx
-    inx
-    inx
+    txa
+    clc
+    adc #5
+    tax
     lda TXR_UQN
     sec
-    sbc #4
+    sbc #5
     sta TXR_UQN
     beq @out
     lda TXR_UQ,x

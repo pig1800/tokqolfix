@@ -418,15 +418,15 @@ TXR_MARK          = TXR_UQ  ; GC: 16-byte bitmap of the tiles shown (the staging
 ; Battery RAM (the canvas code's old space, after the RAM image), from the
 ; top down to TXR_TABLES:
 TXR_NG            = 28      ; kanji groups per part: tiles $0C-$7B
-TXR_UQSZ          = 55      ; staging bytes: records kana R0, tile, code (3); kanji R0 | $80, tile t, glyph code lo, hi (4)
+TXR_UQSZ          = 55      ; staging bytes: 5-byte records, kana R0, PPU hi, lo, font offset, font page; kanji R0 | $80, PPU hi, lo, glyph column, R6 | $80 (+256 half)
 TXR_UQ            = $7F65   ; 55: the staged records (TXR_SN bytes; the NMI: TXR_UQN left from TXR_UQR)
 ; The NMI uploader's budget (TEXT_RENDERER.md "Upload speed", B + D), in
 ; units of 16 cycles: the uploads start about line 250 and end by line
 ; 259.5 (the force and the arm follow; PPU access before the pre-render
 ; line), one unit fewer per byte the game flushed in that NMI.
 UP_UNITS          = 67
-UP_KANA           = 11      ; a kana record (txr.asm up_kana; ~161 cycles measured)
-UP_KANJI          = 31      ; a kanji record, 4 tiles (hack.asm mk_run; page crossings and a bank switch included)
+UP_KANA           = 10      ; a kana record (txr.asm up_kana; ~157 cycles measured)
+UP_KANJI          = 27      ; a kanji record, 4 tiles (hack.asm mk_run; ~420 cycles measured with a bank switch)
 UP_KRUN           = 3       ; a run of kanji records: mk_run's call and exit
 UP_CELLS          = 14      ; text_render_cell's released cells, flushed by the NMI (rel_flush)
 HACK_MKUP         = $B900   ; hack.asm mk_run (every hack bank, the upper half: R7)
