@@ -122,6 +122,31 @@ tests; see CHANGELOG for what each revision fixed.
   `KANJI_WIN_COL` bits 6-7 (armed, checked), `KANJI_PAGES_LEFT` bit 6
   (pool message).
 
+## ROM space (2026-11-13)
+
+The 256 KiB added by the 512 KiB build (banks 16-31), measured on
+`e330f85d`:
+
+| Content | KiB | Where |
+|---|---|---|
+| Message text (751 unique messages) | 31.1 | text banks 18-22, 30, 29 |
+| Message metadata (band-page tile plans: 17-byte header, keep / clean lists, 6 bytes a kanji) | 52.5 | after each message |
+| Overlay copies (2 KiB in each text bank) | 14 | `$B800` of 7 banks |
+| Free in the text banks | 14.4 | 13.7 of it in bank 29 |
+| Font, hack layout (982 glyphs, byte b of every glyph in table b) | 33.7 | banks 23-25 |
+| Hack code, palette tables (3 copies) | 11.6 | banks 23-25 |
+| Font, NMI copy (256 glyphs per 8 KiB, rows page-aligned) | 32 | bank 16, 17 upper, 27 lower |
+| Officer-name font | 8 | bank 17 lower |
+| Map renderer | 11.7 (+4.3 free) | bank 26 |
+| RAM image | 0.7 (+7.4 free) | bank 27 upper |
+| UI bank (code, 147 UI glyphs 4.6) | 12.5 (+3.5 free) | bank 28 |
+| Fixed bank (bank 15 keeps the original at its place) | 16 | bank 31 |
+
+Glyphs are 1 bpp (32 bytes a glyph) in every copy; the source
+`kanji_font.bin` and the UI bank store them as 32 consecutive bytes, the
+two upload copies sliced (one absolute-indexed load per byte, no pointer
+setup in the NMI).
+
 ## Gates on the final build
 
 | Gate | Result |
