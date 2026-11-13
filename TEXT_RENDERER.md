@@ -130,6 +130,28 @@ Three chained stages give the R0 writes in the hblank of lines 71, 119
 and 167.  Each IRQ waits about 90 cycles for hblank, so about 300 cycles
 per frame, only while text is on screen below row 9.
 
+**Why the line before (2026-11-14, the user's question).**  The game
+fetches BG from `$1000` and sprites from `$0000`.  So A12 rises once a
+line at the next line's first BG fetch, about dot 325, not at dot 260
+(`mmc3_clock_trace.lua`; MAP_CANVAS.md "IRQ landing").  An IRQ for the
+boundary line itself would run inside that line's visible part.  Each
+stage therefore takes the clock at the end of the line two before the part
+(line 70 for part 2, which starts at line 72).  The handler's own path
+plus the `TXR_D` loop then runs through line 71 and writes R0 in its
+hblank.  The write is not cycle-exact.  The IRQ waits for the instruction
+it interrupts (0-6 cycles), which gives an 18-dot spread inside the 64-dot
+hblank: 9 dots spare before dot 257, 35 after.
+
+Re-measured on the kanji-store build (`1191ee64`): standard path from
+power-on, 6,000 frames, and the menu cycle (`u3b_c`), 4,230 frames.
+- `tools/lua/map_parts_timing.lua`: 7,883 sequences, all ok.  Every write
+  is in line 71, 119 or 167 at dots 266-285.  No skips (`nmi_busy` /
+  `KANJI_MAINCHR`), and no line-72 writes; the earlier run had heavy
+  frames landing late.
+- `tools/lua/map_parts_audit.lua`: every R0 write is logged and each map
+  frame is checked line by line.  Across 7,882 frames, every visible line
+  was fetched from its part's page, with 0 torn lines.
+
 ### Space
 
 - **PRG.**  Bank 26 is empty (16 KiB).  Bank 27 holds only the 1.7 KiB RAM
