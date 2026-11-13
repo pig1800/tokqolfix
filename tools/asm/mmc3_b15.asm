@@ -311,15 +311,17 @@ txr_tp:
 ; below $80 and whose line ends are the text codes $FA-$FF.  The battle
 ; messages' kanji tiles (the pool $A4-$DF since revision 18; $80-$A3 after
 ; a win and groups 15-20 $E0-$F7 since 2026-11-13, ui_pchoose) are drawn
-; like any tile: $80-$F7 are tiles, $F8-$FF end the line.
+; like any tile: $80-$F7 are tiles.  $F8-$FF: a kanji's top tile when the
+; cell's bottom tile is the next one (8x16 order: t over t+1, t+2 over
+; t+3; the slots at $F8-$FF), else a line end (its bottom cell is blank).
 render_ctl:
     cmp #$F8
-    bcs @ctl
-    jmp $DBEF                   ; queue the cell (top tile in A)
-@ctl:
+    bcc @tile
+    cmp $0318,y                 ; the cell's bottom tile
+    bcc @tile                   ; top < bottom: a kanji (bottom = top + 1)
     jmp $DC7C                   ; end of line, as the original
-    .db $EA, $EA, $EA, $EA      ; (irq_tail keeps its address: the RAM code
-                                ; of old save states jumps there)
+@tile:
+    jmp $DBEF                   ; queue the cell (top tile in A)
 
 ; IRQ tail: $8000 back to the main thread's select.
 irq_tail:

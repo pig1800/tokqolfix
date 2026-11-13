@@ -308,8 +308,9 @@ UI_RAM2           = $7F9E   ; battery RAM after the canvas RAM code (below UI_RA
 ; (UI_BATTLE bit 7: the portrait tiles, no portrait after the win), 25-30
 ; the battle screen's groups 15-20 ($E0 + 4(s - 25), the last resort when
 ; the rest is full); 15 and 31 never.  Bit per slot: byte s >> 3, bit
-; $80 >> (s & 7).  Groups 21-22 stay out: their top tiles $F8-$FE are the
-; text engine's line ends (render_ctl).
+; $80 >> (s & 7).  Groups 21-22 ($F8-$FF) are not used yet; render_ctl can
+; draw them (a top tile $F8-$FF with the next tile below it is a kanji,
+; else a line end; 2026-11-13).
 KANJI_PMASK       = UI_RAM2+0 ; 4: the current pool page's blocked slots: entry
                             ; k takes the k-th slot whose bit is clear
                             ; (UIF_PCHOOSE, UIF_PTILES)

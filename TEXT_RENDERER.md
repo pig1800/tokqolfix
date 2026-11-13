@@ -1908,3 +1908,23 @@ line); preload 金兵糧経験値 at the win and lock them; move old on-screen
 - Left: the compiler still splits a page above 16 kanji
   (`MAX_PAGE_ENTRIES`), because every message still carries band-page
   tile plans; no battle page comes near it (the largest needs 15).
+
+### Done (2026-11-13): the line ends and tiles `$F8-$FF`
+
+The text engine ends a line at a top-row byte with bit 7 set (`render_ctl`
+draws `$80-$F7`); the line ends it stores are `$FA-$FF`, which a kanji's
+top tiles in `$F8-$FF` would match.  `render_ctl` now compares the top
+tile with the cell's bottom tile: a kanji's bottom tile is the next one
+(8x16 order: t over t+1, t+2 over t+3), a line end's bottom cell is the
+cleared blank.  15 bytes in the block that had 16 (`irq_tail` moved one
+byte; only fixed-bank jumps reach it).  No fixed-bank bytes had to be
+freed.
+
+- Checked with a test build that put pool slot 14 at tiles `$F8-$FB`
+  (UI_PRES poked so that slot 14 is used): 劉 of 「劉備軍は韓忠との」
+  showed correctly and every line ended where it should.  (The test build
+  also showed the reward window's 糧 overwritten: its group 21 was the
+  test's slot 14; the real slot table will know both.)  The regression set
+  and the capture victory are identical to the previous build.
+- So all 32 groups can hold kanji after the win: 6 for the reward window,
+  26 for messages (the slot table, next step).
