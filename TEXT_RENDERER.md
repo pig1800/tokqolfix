@@ -1846,3 +1846,46 @@ code moved out of the overlay into the UI bank (bank 28, through
   the band page.  At `text_line` 0 all four lines still count as shown,
   including leftovers of other windows in them.
 - **Space:** the overlay is 1790 of 2048 bytes; the UI bank 12839 of 16384.
+
+### Assessment (2026-11-13): the user's by-code tracking for the battle box
+
+The user's scheme: a 4-line ring buffer of the box's text (36 bytes a
+line); preload 金兵糧経験値 at the win and lock them; move old on-screen
+金/兵 to the locked copies; all 32 groups `$80-$FF`; no band page and no
+12-kanji limit in battle.
+
+- **What the current code tracks:** the engine already keeps the box's
+  4 lines as tiles (`$0300-$03BF`, top and bottom tile of every cell,
+  scrolled with the box): `ui_pchoose` reads them (20 window cells a row).
+  It knows which slots are on screen, not which kanji a slot holds, so
+  every page uploads all its kanji again.
+- **Measured** (`poolprobe2.lua`, k28): the r4/s2 battle, 20 messages:
+  85 kanji uploads, 20 distinct; 65 were glyphs uploaded earlier in the
+  same battle.  Each upload waits about 2 frames (half a glyph per light
+  frame), so about 130 frames of waiting.  The capture victory (r5/s2): 23
+  uploads, 2 repeats.
+- **A text ring buffer** (144 bytes) would duplicate the engine's lines;
+  a slot -> code table (32 entries, 64 bytes) gives the same answer from
+  the tiles.  Free RAM in battle: the map renderer's staging buffers
+  `TXR_UQ` (55) and `TXR_EB` (48) are used by the map renderer only.  The
+  engine's lines also serve as row buffers when battle windows draw, so a
+  fresh window starts with leftovers; the code table lets those be
+  ignored (a slot counts only if it holds a message kanji).
+- **Preload at the win:** the end animation (`b14_battle_end_anim`, 120
+  frames) comes before the rewards: time for the 6 uploads with the
+  existing NMI path.  Six kanji need `$80-$97` (24 tiles).  The extra 8
+  black lines at the top would need rendering off until line 8, timed by
+  counting cycles from the NMI (the MMC3 counter does not run while
+  rendering is off), next to the battle's IRQ arm: not needed.  Moving
+  old 金/兵 copies to the locked ones frees at most 2 slots until they
+  scroll off.
+- **32 groups:** before the win `$80-$A3` is the portrait (23 groups);
+  groups 8-22 are the command kanji, borrowed between rounds and put back
+  when the command window opens.  Groups 21-22 (`$F8-$FF`): their top
+  tiles are the line-end codes; telling them apart by the bottom tile
+  needs about 8 more fixed-bank bytes (the bank is full).  Plane 1 to keep
+  in `$E0-$FF`: `$E0-$E6` and `$F6-$F7` (groups at `$E0`, `$E4`, `$F4`);
+  the upload already skips plane 1 for all of `$E0-$F7`.
+- **Band page / limit:** the largest battle page needs 13 slots
+  (`b10_msg_463`); `KANJI_UPLOADED` holds 16.  Outside battle and map
+  mode (boot screens, name entry) the band page is the only kanji path.
