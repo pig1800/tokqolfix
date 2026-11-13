@@ -1873,8 +1873,7 @@ ui_pchoose:
     jsr pc_base
 @fb:
     jsr pc_set
-    bit pc_v40                  ; V set: fallback
-    rts
+    jmp pc_fallback
 @t1:                            ; no battle screen state: the pool alone
     jsr pc_base                 ; (Y = 0)
     jsr pc_or_lines
@@ -1883,11 +1882,19 @@ ui_pchoose:
     ldy #0
     jsr pc_base
     jsr pc_set
-    bit pc_v40
-    rts
+    jmp pc_fallback
 @fits:
     jsr pc_set
     clv
+    rts
+pc_fallback:
+    ldx #3                      ; the window is cleared: none of its lines
+    lda #0                      ; is shown (and every slot placed from now
+@clr:                           ; on is new, ui_ptiles)
+    sta UI_PML,x
+    dex
+    bpl @clr
+    bit pc_v40                  ; V set: fallback
     rts
 pc_v40:
     .db $40
@@ -2094,7 +2101,9 @@ pc_scan_rows:                   ; text_line 0: a new window, whose rows
 ; KANJI_PMASK leaves free, tiles t..t+3 in 8x16 order (t TL, t+1 BL, t+2
 ; TR, t+3 BR; KANJI_TILES is in the glyph's order: t, t+2, t+1, t+3).  A
 ; pool group or group 15-20 is marked a message kanji, maybe shown
-; (UI_SLOT $FE); a pool slot also notes a reward kanji (UI_MC).
+; (UI_SLOT $FE); a pool slot also notes a reward kanji (UI_MC).  V set:
+; this page placed the entry already (its slot is in UI_PML: no upload);
+; clear: upload it.  Entries have no limit (pool_choose has made room).
 ; ----------------------------------------------------------------------
 ui_ptiles:
     lda KANJI_M2
@@ -2120,7 +2129,13 @@ ui_ptiles:
 @slot0:
     ldx #0
 @found:
-    ldy pt_byte,x               ; the message shows it now (grp_shown)
+    ldy pt_byte,x               ; the message shows it now (grp_shown); V
+    lda pt_bit,x                ; on return: it did already (this page
+    and UI_PML,y                ; placed it: no upload)
+    beq @new
+    lda #$40
+@new:
+    sta UI_PS2
     lda pt_bit,x
     ora UI_PML,y
     sta UI_PML,y
@@ -2160,6 +2175,7 @@ ui_ptiles:
     sta KANJI_TILES+1           ; TR t+2
     adc #1
     sta KANJI_TILES+3           ; BR t+3
+    bit UI_PS2                  ; V: placed on this page already
     rts
 
 ; KANJI_CODE_LO/HI -> A = $F0 + its index in ui_reward_g's kanji, else

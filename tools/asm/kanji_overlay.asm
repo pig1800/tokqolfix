@@ -335,10 +335,12 @@ clean_kana:
 
 ; ----------------------------------------------------------------------
 ; Battle pool or band page for this message: C set for the pool.  Pool
-; when the battle graphics set is loaded, the pool tiles were read back
-; blank (checked here if pal_copy could not post the check), and no page
-; of the message has more than POOL_PAGE_MAX kanji.  KANJI_PAGE_PTR = the
-; message's metadata.
+; on the battle screen (UI_BATTLE: always, any page size, 2026-11-13), and
+; elsewhere when the battle graphics set is loaded and the pool tiles were
+; read back blank (checked here if pal_copy could not post the check).
+; Pool pages track nothing per entry: pool_tiles tells whether an entry is
+; on this page's slots already, and KANJI_UPLOADED counts the names'
+; kanji (kn_put, TXF_NAME).
 ; ----------------------------------------------------------------------
 pool_decide:
     lda text_graphics_index
@@ -347,6 +349,8 @@ pool_decide:
     clc
     rts
 @set8:
+    lda UI_BATTLE               ; the battle screen: always the pool (no band
+    bne @pool                   ; page there, 2026-11-13)
     lda KANJI_WIN_COL
     bmi @checked
     ldy #120                    ; let a pending request (pal_copy's check) end
@@ -377,63 +381,9 @@ pool_decide:
     lda KANJI_WIN_COL
     and #WINCOL_POOL_OK
     beq @no
-    lda $10                     ; the game's $10/$11 (math temps)
-    pha
-    lda $11
-    pha
-    lda KANJI_PAGE_PTR
-    sta $10
-    lda KANJI_PAGE_PTR+1
-    sta $11
-    ldy #0
-    lda ($10),y                 ; page count
-    and #META_WIN-1             ; (bit 5: a victory message)
-    sta KANJI_M0
-    lda $10
-    clc
-    adc #META_PAGES
-    sta $10
-    bcc @page
-    inc $11
-@page:
-    lda KANJI_M0
-    beq @fits
-    jsr entries_offset          ; Y = offset of the entry count
-    lda ($10),y
-    pha
-    jsr pool_need               ; the page's entries and reserved names
-    cmp #POOL_PAGE_MAX+1
-    pla
-    bcs @band
-    and #$1F
-    sty KANJI_M2                ; next record = $10 + Y + 1 + 6 * entries
-    asl a
-    sta KANJI_M1
-    asl a
-    clc
-    adc KANJI_M1
-    sec
-    adc KANJI_M2
-    clc
-    adc $10
-    sta $10
-    bcc @nohi
-    inc $11
-@nohi:
-    dec KANJI_M0
-    jmp @page
-@fits:
-    pla                         ; give the game its $10/$11 back
-    sta $11
-    pla
-    sta $10
+@pool:
     sec
     rts
-@band:
-    pla                         ; give the game its $10/$11 back
-    sta $11
-    pla
-    sta $10
 @no:
     clc
     rts
@@ -569,11 +519,6 @@ page_start:
     lda ($10),y                 ; still on screen (after a clear: from 0)
     jsr pool_need
     jsr pool_choose
-    sta KANJI_M0
-    lda KANJI_UPLOADED+1
-    and #$F0
-    ora KANJI_M0
-    sta KANJI_UPLOADED+1
     jmp @done
 
 ; ----------------------------------------------------------------------
@@ -782,8 +727,15 @@ KANJI_EC:
 @notxr:
     bit KANJI_PAGES_LEFT
     bvc @record
-    jsr pool_tiles              ; pool: entry k -> the k-th free slot
-    jmp @tiles_done
+    jsr pool_tiles              ; pool: entry k -> the k-th free slot; V set:
+    pla                         ; placed on this page already
+    sta $11                     ; (give the game its $10/$11 back; pla and
+    pla                         ; sta keep V)
+    sta $10
+    bvs @write_tiles
+    lda #REQ_UPLOAD
+    jsr post_wait
+    jmp put_tiles
 @record:
     iny
     iny
@@ -955,9 +907,7 @@ kn_put:
     sta KANJI_CODE_HI
     lda TXR_NE
     sta KANJI_M2
-    jsr entry_bit
-    ora KANJI_UPLOADED,x
-    sta KANJI_UPLOADED,x
+    inc KANJI_UPLOADED          ; (pool pages: the names' kanji placed)
     jsr pool_tiles
     lda #REQ_UPLOAD
     jsr post_wait
@@ -1075,14 +1025,13 @@ ctrl_store:
     pha                         ; lines on screen, set it up here and let
     lda #0                      ; the engine scroll on (no page flip)
     jsr record_n
-    jsr pool_choose
+    jsr pool_choose             ; (A = 0)
     tay
     pla
     tax
     bcs @flag
-    lda #0
-    sta KANJI_UPLOADED
-    sty KANJI_UPLOADED+1        ; the page's first slot
+    sty KANJI_UPLOADED
+    sty KANJI_UPLOADED+1
     rts
 @flag:
     lda KANJI_PAGES_LEFT

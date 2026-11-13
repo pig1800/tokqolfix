@@ -1842,9 +1842,9 @@ code moved out of the overlay into the UI bank (bank 28, through
   - Greeting, menu cycle, the officer-switch battle, the title and the
     standard path: identical to the previous build.
 - **Limits:** before the win 15 slots, plus up to 6 from the collection;
-  after it 24, plus up to 6.  A page over `POOL_PAGE_MAX` (12) still uses
-  the band page.  At `text_line` 0 all four lines still count as shown,
-  including leftovers of other windows in them.
+  after it 24, plus up to 6.  At `text_line` 0 all four lines still count
+  as shown, including leftovers of other windows in them.  (A page over
+  12 slots used the band page until the next change.)
 - **Space:** the overlay is 1790 of 2048 bytes; the UI bank 12839 of 16384.
 
 ### Assessment (2026-11-13): the user's by-code tracking for the battle box
@@ -1889,3 +1889,22 @@ line); preload 金兵糧経験値 at the win and lock them; move old on-screen
 - **Band page / limit:** the largest battle page needs 13 slots
   (`b10_msg_463`); `KANJI_UPLOADED` holds 16.  Outside battle and map
   mode (boot screens, name entry) the band page is the only kanji path.
+
+### Done (2026-11-13): no band page and no page limit in battle
+
+- `pool_decide`: on the battle screen (`UI_BATTLE`) every message uses the
+  pool; the per-page walk against `POOL_PAGE_MAX` (12) is gone.
+- Pool pages track nothing per entry any more: `ui_ptiles` returns V set
+  when this page placed the entry already (its slot is in `UI_PML`), and
+  `KANJI_EC` uploads only on V clear.  The names' reserved entries are
+  counted (`KANJI_UPLOADED` byte 0, `kn_put`; `TXF_NAME` adds the count)
+  instead of a 16-bit bitmap.  A fallback clears `UI_PML` (the window is
+  cleared: every slot placed after it is new).
+- Checked: `b10_msg_349` (15 kanji on one page) injected in place of the
+  win message: the previous build put it on the band page, this one in
+  pool slots 0-14 (fits exactly), shown sooner.  The capture victory, the
+  level-up battle, the forced collection and the regression set are
+  identical to the previous build.
+- Left: the compiler still splits a page above 16 kanji
+  (`MAX_PAGE_ENTRIES`), because every message still carries band-page
+  tile plans; no battle page comes near it (the largest needs 15).

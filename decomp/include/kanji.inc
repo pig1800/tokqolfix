@@ -53,6 +53,8 @@ KANJI_PAGES_LEFT  = $0138   ; bit 7: page start pending, bit 6: PAGE_POOL
 KANJI_BUFX        = $0139
 KANJI_TILES       = $013A   ; 4 tile numbers (upload request / current kanji)
 KANJI_UPLOADED    = $013E   ; 2-byte bitmap: page entry glyph is in CHR page 2
+                            ; (band pages); pool pages: byte 0 counts the
+                            ; names' kanji placed (kn_put, TXF_NAME)
 
 KANJI_A           = $0140   ; 16 bytes: active kanji tiles (lower 128)
 KANJI_STALE       = $0150   ; 16 bytes: lower tiles where page 2 != page 1
@@ -141,8 +143,7 @@ WINROW_LOWER      = $40         ; KANJI_WIN_ROW: four-screen lower half (row
 POOL_FIRST        = $A4
 POOL_LAST         = $DF
 POOL_SLOTS        = 15
-POOL_PAGE_MAX     = 12      ; kanji per pool page: KANJI_UPLOADED bits 0-3
-                            ; of byte 1 hold the page's first slot
+                            ; (no page limit since 2026-11-13; it was 12)
 POOL_SET          = 8       ; text_graphics_index of the battle graphics
 WINCOL_POOL_OK    = $40     ; read back blank, no game write into them since
 WINCOL_CHECKED    = $80     ; checked since the last graphics-set load

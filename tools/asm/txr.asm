@@ -2569,7 +2569,7 @@ lk_v40:
 ; 0-4 the page's kanji, bits 5-6 its names: 3 reserved entries each).
 ; TXR_NM = the name's kanji, TXR_NM+1.. their codes' low bytes, TXR_NM+4..
 ; the high bytes; TXR_NE = the first reserved entry not taken
-; (KANJI_UPLOADED).  TXR_NM = 0: kana (no kanji name, or the reserved
+; (KANJI_UPLOADED: the names' kanji the page placed).  TXR_NM = 0: kana (no kanji name, or the reserved
 ; entries left cannot hold it); $FF: no officer (nothing is put).
 txr_name:
     ldy #0
@@ -2662,23 +2662,12 @@ txr_name:
     adc TXR_I                   ; (C clear)
     adc TXR_NE
     sta TXR_J
-@f:
-    lda TXR_NE
+    lda TXR_NE                  ; the first one not taken: after the names'
+    clc                         ; kanji the page placed (KANJI_UPLOADED
+    adc KANJI_UPLOADED          ; counts them, kn_put)
+    sta TXR_NE
     cmp TXR_J
     bcs @none
-    lsr a
-    lsr a
-    lsr a
-    tax
-    lda TXR_NE
-    and #7
-    tay
-    lda bitmask,y
-    and KANJI_UPLOADED,x
-    beq @g
-    inc TXR_NE
-    bne @f
-@g:
     lda TXR_NE
     clc
     adc TXR_NM
