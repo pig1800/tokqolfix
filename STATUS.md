@@ -79,14 +79,16 @@ tests; see CHANGELOG for what each revision fixed.
   `$A4-$DF` of the scene page blank and never shows them.  When graphics
   set 8 (battle) is loaded, the hack reads them back; all blank arms the
   pool, and any game write into them disarms it.  A message printed then,
-  with no page over 15 kanji, puts its kanji there (entry k of a page in
+  with no page over 12 slots (kanji, +3 per runtime name; revision 20,
+  `POOL_PAGE_MAX`), puts its kanji there (entry k of a page in
   `$A4+4k..+3`, plane 0, scene page): no band, no IRQ.  Each slot's
   tiles are in 8x16 order, TL, BL, TR, BR (2026-11-13; before: TL, TR,
   BL, BR), as the battle screen's groups.  Since 2026-11-13 also tiles
   `$80-$A3` after a win and, as a last resort, groups 15-20 (`$E0-$F7`):
   TEXT_RENDERER.md "the battle messages' kanji after a win".
   The engine's row renderer draws `$A4-$DF` as tiles (`render_ctl`).
-  Everywhere else, and for a page over 15 kanji, the band page as below.
+  Everywhere else, and for a message with a page over 12 slots, the band
+  page as below (in battle: only b10_msg_463, 2026-11-13 check).
   Revision 20: the battle window scrolls as in the original.  A page takes
   the lowest run of slots no pool tile in the window's lines shows (the
   first slot in `KANJI_UPLOADED+1` bits 0-3, at most 12 kanji a page); a
