@@ -83,9 +83,10 @@ tests; see CHANGELOG for what each revision fixed.
   its kanji there (entry k of a page in
   `$A4+4k..+3`, plane 0, scene page): no band, no IRQ.  Each slot's
   tiles are in 8x16 order, TL, BL, TR, BR (2026-11-13; before: TL, TR,
-  BL, BR), as the battle screen's groups.  Since 2026-11-13 also tiles
-  `$80-$A3` after a win and, as a last resort, groups 15-20 (`$E0-$F7`):
-  TEXT_RENDERER.md "the battle messages' kanji after a win".
+  BL, BR), as the battle screen's groups.  Since 2026-11-13 the battle's
+  kanji slot table (32 slots `$80-$FF`, a kanji used again from its slot,
+  the reward window fixed in `$80-$97` from the win): TEXT_RENDERER.md
+  "the battle's kanji slot table".
   The engine's row renderer draws `$A4-$DF` as tiles (`render_ctl`).
   Everywhere else the band page as below.
   Revision 20: the battle window scrolls as in the original.  A page takes

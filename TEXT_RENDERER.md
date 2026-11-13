@@ -1928,3 +1928,46 @@ freed.
   and the capture victory are identical to the previous build.
 - So all 32 groups can hold kanji after the win: 6 for the reward window,
   26 for messages (the slot table, next step).
+
+### Done (2026-11-13): the battle's kanji slot table
+
+The user's design (assessment above), replacing the pool slots, the
+collection and the reward window's group search:
+
+- **Slots:** slot s = tiles `$80` + 4s, s = 0-31, 8x16 order (the battle
+  screen's group k is slot k + 9).
+  - Before the win: 9-23; the command kanji's 17-23 (将武却退撃攻総) only
+    when 9-16 have no free slot.  0-8 (the portrait) and 24-31 are never
+    taken.
+  - From the win (`b10_msg_059` / `061` / `062`): 0-5 are the reward
+    window's 金兵糧経験値, loaded at the first victory message (one a
+    frame, 6 frames; `UIF_RWLOAD`), 6-31 the messages'.
+- **Slot table** (`SL_LO` / `SL_HI` / `SL_AGE`, 97 bytes in the map
+  renderer's staging buffers, unused in battle): the text code of the
+  kanji in each slot.  The UI's own uploads note theirs too (`q_glyph`, the
+  fixed command kanji at the battle start: `ui_gcode_lo/hi`), so a message
+  uses 攻撃 from the command window's slots.
+- **A kanji** (`ui_ptiles`): in a slot already -> that slot, no upload;
+  else the free slot used longest ago (pages, `SL_CLK`).  Free = this
+  phase's and not shown: the lines' kanji (bottom rows of the 4 lines),
+  the battle windows on screen (`GF_REF`, the prisoner window), the slots
+  placed on this page.
+- **A page** (`ui_pchoose`): fits when this phase's free slots are at least
+  its kanji plus 3 per runtime name (kanji already in a slot count too);
+  else the window is cleared, as before.
+- **The reward window** draws from slots 0-5; the prisoner window takes
+  free groups as before (never one the message may show).
+- **Save states** made in a battle by an earlier build: `UI_SLV` is not
+  `SL_MAGIC` there, so the table starts empty (those kanji are uploaded
+  again once).  Without that check a state from before this change showed
+  道 for 軍.
+- **Measured:**
+  - Level-up battle (r4/s2, 2400 frames): 37 uploads, 53 kanji used from
+    their slots, no clears (85 uploads before).  One LRU over 9-23 instead
+    of "17-23 last" gave 33 uploads but 5 command-kanji restores: about the
+    same cost, so "last" stays.
+  - Capture victory (r5/s2): 17 uploads + the 6 reward kanji; 経験値 and
+    金 of the reward message came from slots 0-5.
+  - Portrait battle's forced win, the injected 15-kanji page: right.
+  - Greeting, menu cycle, officer-switch battle, title, standard path:
+    identical to the previous build.

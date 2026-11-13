@@ -526,8 +526,8 @@ def build_ui_data() -> int:
     lines.append("ui_fixed_g:")
     lines.append(".db " + ",".join(f"${gid(ch):02X}" for ch in UI_FIXED)
                  + "  ; " + UI_FIXED)
-    # The reward window: each kanji's UI glyph and its text code (a message
-    # kanji with that code marks its pool slot in UI_MC, ui_ptiles).
+    # The reward window: each kanji's UI glyph (it has a text code too: the
+    # battle's slot table, ui_gcode).
     codes = kanji_common.code_map()
     missing = [ch for ch in REWARD_KANJI if ch not in codes]
     if missing:
@@ -538,10 +538,6 @@ def build_ui_data() -> int:
     lines.append("ui_prison_g:")
     lines.append(".db " + ",".join(f"${gid(ch):02X}" for ch in PRISON_KANJI)
                  + "  ; " + PRISON_KANJI)
-    lines.append("ui_reward_clo:")
-    lines.append(".db " + ",".join(f"${codes[ch] & 0xFF:02X}" for ch in REWARD_KANJI))
-    lines.append("ui_reward_chi:")
-    lines.append(".db " + ",".join(f"${codes[ch] >> 8:02X}" for ch in REWARD_KANJI))
     # The army status screen's M S P ($F5-$F7): plane 0 of the original
     # bank-9 UI block (the kanji target's copy has them in plane 1).
     blk = (ROOT / "decomp" / "build" / "assets" / "bank09_ui_b.bin").read_bytes()
@@ -600,6 +596,15 @@ def build_ui_data() -> int:
     # Glyphs in tile order t, t+1, t+2, t+3 = TL, BL, TR, BR (decision 3),
     # 8 rows each.
     lines.append(f"UI_NGLYPHS = {len(glyphs)}")
+    # Each UI glyph's text code ($FF high: none), so that the battle's slot
+    # table knows a UI glyph in a slot (ui_battle.asm q_glyph, ui_ptiles).
+    codes = kanji_common.code_map()
+    lines.append("ui_gcode_lo:")
+    lines += [".db " + ",".join(f"${codes[ch] & 0xFF:02X}" if ch in codes else "$FF"
+                                for ch in glyphs[j:j + 16]) for j in range(0, len(glyphs), 16)]
+    lines.append("ui_gcode_hi:")
+    lines += [".db " + ",".join(f"${codes[ch] >> 8:02X}" if ch in codes else "$FF"
+                                for ch in glyphs[j:j + 16]) for j in range(0, len(glyphs), 16)]
     lines.append("ui_glyphs:")
     for ch in glyphs:
         g = kanji_common.glyph_bytes(ch)

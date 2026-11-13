@@ -138,6 +138,27 @@ message_setup:
     sta $11
     pla
     sta $10
+    lda UI_BATTLE               ; won just now: the reward window's 金兵糧
+    and #UI_WON|UI_RWLOAD       ; 経験値 to slots 0-5, one a frame (the UI
+    cmp #UI_WON                 ; bank queues it, the NMI flushes it while
+    bne @noload                 ; the text task waits)
+    lda UI_BATTLE
+    ora #UI_RWLOAD
+    sta UI_BATTLE
+    ldy #0
+@load:
+    tya
+    pha
+    sta KANJI_M2
+    ldx #UIF_RWLOAD
+    jsr CALL_UI
+    jsr WAIT_TEXT
+    pla
+    tay
+    iny
+    cpy #6
+    bne @load
+@noload:
 
     bit TXR_ON
     bmi @cleaned
@@ -727,8 +748,8 @@ KANJI_EC:
 @notxr:
     bit KANJI_PAGES_LEFT
     bvc @record
-    jsr pool_tiles              ; pool: entry k -> the k-th free slot; V set:
-    pla                         ; placed on this page already
+    jsr pool_tiles              ; pool: its slot (the slot table); V set:
+    pla                         ; in a slot already
     sta $11                     ; (give the game its $10/$11 back; pla and
     pla                         ; sta keep V)
     sta $10
@@ -780,9 +801,9 @@ KANJI_EC:
     inx
     rts
 
-; Pool entry KANJI_M2 -> KANJI_TILES (the UI bank's ui_ptiles, 2026-11-13:
-; the battle-only pool code lives there): the k-th slot this page's
-; KANJI_PMASK leaves free, its tiles t..t+3 in 8x16 order (t TL, t+1 BL,
+; The kanji KANJI_CODE_LO/HI -> KANJI_TILES (the UI bank's ui_ptiles: the
+; battle's slot table): the slot holding it already (V set: no upload),
+; else a free one (V clear).  Tiles t..t+3 in 8x16 order (t TL, t+1 BL,
 ; t+2 TR, t+3 BR; KANJI_TILES gets them in the glyph's order, t, t+2, t+1,
 ; t+3).  KANJI_M2 is kept; A, X, Y clobbered.
 pool_tiles:
@@ -908,9 +929,11 @@ kn_put:
     lda TXR_NE
     sta KANJI_M2
     inc KANJI_UPLOADED          ; (pool pages: the names' kanji placed)
-    jsr pool_tiles
+    jsr pool_tiles              ; V set: in a slot already (no upload)
+    bvs @put
     lda #REQ_UPLOAD
     jsr post_wait
+@put:
     jsr put_tiles
     stx KANJI_BUFX
     inc TXR_NE
