@@ -33,6 +33,17 @@ has issues to patch first.
 - **Needed first:** the list of messages that can show on a band-page screen,
   i.e. outside map mode and battle (the boot screens, the name entry,
   anything else).  Those keep their plans; the rest drop them.
+- **Measured so far** (2026-11-14, `tools/lua/band_use.lua`):
+  - Three battles (r4/s2, r5/s2, `r17_c`) and the menu cycle never turn the
+    band on.
+  - The standard path from power-on turns it on 3 times, all from the
+    overlay's `message_setup`:
+    - the boot screens' record prompts (どの歴史書を登録しますか,
+      どの歴史書を始めますか; `TXR_ON` = `$40`, set 8);
+    - the opening oath scene (生まれし月日は異なれど…; `TXR_ON` = 0,
+      set 10).
+  - That gives 1,249 band switches in total.  Other band screens (endings,
+    events) are not covered by these paths.
 - **Risk:** a message shown on a band screen that the list misses would
   show no kanji, or the wrong ones.
 
