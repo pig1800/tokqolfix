@@ -1,9 +1,10 @@
 ; ======================================================================
-; Hack bank code (revision 11), identical in PRG banks 23 and 24.
+; Hack bank code (revision 11), PRG bank 23.
 ;
-; Assembled for $8000.  The first $C00 bytes are code; glyph data starts
-; at $8C00 as 32 byte tables of 359 glyphs each (table b holds byte b of
-; every glyph in tile order TL, TR, BL, BR, 8 rows each).
+; Assembled for $8000; everything (with the relocated palette tables at
+; KANJI_PAL_DATA) in the bank's lower 8 KiB: the glyph upload maps a bank
+; of the kanji store at R7 (kanji.inc STORE_*; since 2026-11-13 the glyphs
+; are no longer kept here, in three copies of this bank).
 ;
 ; Entry points:
 ;   $8000  call_hack dispatcher (KANJI_FN), main thread or NMI flush
@@ -20,8 +21,6 @@
 .include "../../decomp/build/kanji/fixed_hooks.inc"
 .include "../../decomp/build/kanji/canvas_ram.inc"
 
-GLYPH_TAB    = $8C00
-GSTRIDE      = 359
 LIGHT_QUEUE  = 8            ; max queued bytes for a light frame
 ; irq_arm0 forces the PPU address only after flushes of at most this many
 ; bytes.  Measured on five paths (map-canvas step 1), the arm starts by
@@ -1056,55 +1055,29 @@ restore_tile:
     rts
 
 ; ----------------------------------------------------------------------
-; Glyph upload, one tile (Y = 0-3).  KANJI_CODE_LO/HI = glyph 0-717,
-; KANJI_TILES = the four destination tiles, CHR page 2 selected.  Maps bank 24 for glyphs
-; 359-717 (the code is identical there).
+; Glyph upload, one tile (Y = 0-3, the glyph's tile in KANJI_TILES order:
+; TL, TR, BL, BR).  KANJI_CODE_HI/LO = the glyph's store bank and pos,
+; KANJI_TILES = the four destination tiles, the CHR page selected.  The
+; store bank at R7 (map_store): byte b of the glyph at STORE_TAB + 256 b +
+; pos, the store's tiles in 8x16 order (TL, BL, TR, BR).
 ; ----------------------------------------------------------------------
 glyph_upload:
     sty KANJI_T2                ; tile 0-3; KANJI_T1 is the NMI unit count
-    ; Code = bank * 512 + local (local 0-358): high byte bit 0 selects the
-    ; low/high table half, the rest the glyph bank (23 + n).
     lda KANJI_CODE_HI
-    lsr a
-    bcs @hi_half
-    beq @lo_mapped              ; bank 23 is already mapped
-    adc #KANJI_HACK_BANK        ; carry clear
-    jsr map_bank
-@lo_mapped:
+    jsr map_store
     ldx KANJI_CODE_LO
-    jmp @lowx
-@hi_half:
-    beq @hi_mapped
-    clc
-    adc #KANJI_HACK_BANK
-    jsr map_bank
-@hi_mapped:
-    ldx KANJI_CODE_LO
-    jmp @high
-@lowx:
-    lda KANJI_T2
-    beq upload_low_0
+    lda KANJI_T2                ; (the uploads end in unmap_store: no
+    beq @t0                     ; deeper stack than before the store)
     cmp #2
-    beq @low_2
-    bcs @low_3
-    jmp upload_low_1
-@low_2:
-    jmp upload_low_2
-@low_3:
-    jmp upload_low_3
-@high:
-    lda KANJI_T2
-    beq @high_0
-    cmp #2
-    beq @high_2
-    bcs @high_3
-    jmp upload_high_1
-@high_0:
-    jmp upload_high_0
-@high_2:
-    jmp upload_high_2
-@high_3:
-    jmp upload_high_3
+    beq @t2
+    bcs @t3
+    jmp upload_tr               ; KANJI_TILES+1: TR
+@t0:
+    jmp upload_tl
+@t2:
+    jmp upload_bl               ; KANJI_TILES+2: BL
+@t3:
+    jmp upload_br
 
 ; Set the PPU address for tile KANJI_TILES+Y (lower tile).
 tile_addr:
@@ -1123,35 +1096,37 @@ tile_addr:
     sta PPUADDR
     rts
 
-.macro UPLOAD_TILE tab, k
+; Tile KANJI_TILES+k = the store's tile s of the glyph (X = pos).
+.macro UPLOAD_TILE k, s
     ldy #k
     jsr tile_addr
-    lda tab+(k*8+0)*GSTRIDE,x
+    lda STORE_TAB+(s*8+0)*256,x
     sta PPUDATA
-    lda tab+(k*8+1)*GSTRIDE,x
+    lda STORE_TAB+(s*8+1)*256,x
     sta PPUDATA
-    lda tab+(k*8+2)*GSTRIDE,x
+    lda STORE_TAB+(s*8+2)*256,x
     sta PPUDATA
-    lda tab+(k*8+3)*GSTRIDE,x
+    lda STORE_TAB+(s*8+3)*256,x
     sta PPUDATA
-    lda tab+(k*8+4)*GSTRIDE,x
+    lda STORE_TAB+(s*8+4)*256,x
     sta PPUDATA
-    lda tab+(k*8+5)*GSTRIDE,x
+    lda STORE_TAB+(s*8+5)*256,x
     sta PPUDATA
-    lda tab+(k*8+6)*GSTRIDE,x
+    lda STORE_TAB+(s*8+6)*256,x
     sta PPUDATA
-    lda tab+(k*8+7)*GSTRIDE,x
+    lda STORE_TAB+(s*8+7)*256,x
     sta PPUDATA
     jmp plane1_blank            ; (Y = k still)
 .endm
 
 ; Plane 1 of the tile just written (KANJI_TILES+Y) blank, except in the
 ; battle screen's groups 15-20 ($E0-$F7, the battle messages' last resort,
-; ui_pchoose): their plane 1 holds the HP gauges and S P.
+; ui_pchoose): their plane 1 holds the HP gauges and S P.  Then the store
+; bank unmapped (unmap_store).
 plane1_blank:
     lda KANJI_TILES,y
     cmp #$E0
-    bcs @rts
+    bcs unmap_store
     lda #0
     sta PPUDATA
     sta PPUDATA
@@ -1161,25 +1136,30 @@ plane1_blank:
     sta PPUDATA
     sta PPUDATA
     sta PPUDATA
+; The main thread: R7 back to this bank's upper half, PRG_R7X cleared
+; first (an NMI after it restores the same).  The NMI: nothing (its last
+; restore maps the main thread's banks back).  X and Y kept.
+unmap_store:
+    lda KANJI_MAINCHR
+    beq @rts
+    lda #0
+    sta PRG_R7X
+    lda #MMC3_R7
+    sta MMC3_SEL
+    sta MMC3_SELECT
+    lda #KANJI_HACK_BANK*2+1
+    sta MMC3_DATA
 @rts:
     rts
 
-upload_low_0:
-    UPLOAD_TILE GLYPH_TAB, 0
-upload_low_1:
-    UPLOAD_TILE GLYPH_TAB, 1
-upload_low_2:
-    UPLOAD_TILE GLYPH_TAB, 2
-upload_low_3:
-    UPLOAD_TILE GLYPH_TAB, 3
-upload_high_0:
-    UPLOAD_TILE GLYPH_TAB+256, 0
-upload_high_1:
-    UPLOAD_TILE GLYPH_TAB+256, 1
-upload_high_2:
-    UPLOAD_TILE GLYPH_TAB+256, 2
-upload_high_3:
-    UPLOAD_TILE GLYPH_TAB+256, 3
+upload_tl:
+    UPLOAD_TILE 0, 0
+upload_tr:
+    UPLOAD_TILE 1, 2
+upload_bl:
+    UPLOAD_TILE 2, 1
+upload_br:
+    UPLOAD_TILE 3, 3
 
 ; ======================================================================
 ; NMI epilogue, split frames only (ef31_gate): the scene page, no band, no
@@ -1301,6 +1281,7 @@ arm0_off:
 ; ----------------------------------------------------------------------
 hack_init:
     lda #0
+    sta PRG_R7X                 ; (battery RAM: any value at power-on)
     ldx #$7C
 @c1:
     sta KANJI_MAINCHR,x
@@ -1396,28 +1377,26 @@ wr_reg1_main:
     sta MMC3_DATA
     rts
 
-; A = glyph bank 24-30, using the context's protocol.  The NMI writes R6
-; and R7 directly (the hack code is the same in every hack bank; the
-; NMI's last restore_bank_after_nmi gives $8000 back).  Clobbers X and Y
-; in the NMI (glyph_upload reloads them).
-map_bank:
-    pha
-    lda KANJI_MAINCHR
-    bne @main_pla
-    pla
-    asl a
-    tax
-    lda #MMC3_R6
-    sta MMC3_SELECT
-    stx MMC3_DATA
-    inx
-    lda #MMC3_R7
-    sta MMC3_SELECT
-    stx MMC3_DATA
+; A = a kanji store bank (0-3) at R7 (this code is all in $8000-$9FFF).
+; The NMI writes R7 directly (its last restore_bank_after_nmi maps the
+; main thread's banks back); the main thread (KANJI_MAINCHR) under the
+; bank-select shadow, with PRG_R7X set so that an NMI's restore keeps it
+; (unmap_store gives R7 back).  Y lost, X kept.
+map_store:
+    ora #STORE_8K
+    ldy KANJI_MAINCHR
+    bne @main
+    ldy #MMC3_R7
+    sty MMC3_SELECT
+    sta MMC3_DATA
     rts
-@main_pla:
-    pla
-    jmp SET_BANK_LOCK
+@main:
+    sta PRG_R7X
+    ldy #MMC3_R7
+    sty MMC3_SEL
+    sty MMC3_SELECT
+    sta MMC3_DATA
+    rts
 
 ; ----------------------------------------------------------------------
 ; Block writer, before the original body (main thread only: the fixed-bank
@@ -1542,14 +1521,7 @@ fn_service:
 bitmask:
     .db $80, $40, $20, $10, $08, $04, $02, $01
 
-; The glyph tables start here; kanji_build.py pads the code to 3 KiB.
-.org $8C00
-; ======================================================================
-; Second code segment, after the glyph tables ($B8E0) and before the
-; relocated palette tables ($BF00); kanji_build.py copies it into every
-; hack bank like the first.
-; ======================================================================
-.org $B900
+; (The second code segment, $B900 before the kanji store, follows.)
 
 ; load_text_graphics' table copy (revision 16c; was inline in the fixed
 ; bank, whose space went to chr1_scene when $E6B3-$E6C3 turned out to be a
@@ -2078,3 +2050,6 @@ pool_check_go:
     clc
     rts
 
+.if $ > KANJI_PAL_DATA
+    .error "the hack code runs into the relocated palette tables (KANJI_PAL_DATA)"
+.endif

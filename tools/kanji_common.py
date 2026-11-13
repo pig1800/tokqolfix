@@ -73,10 +73,10 @@ def _count_literal(text: str, counts: Counter[str]) -> None:
 
 
 def inventory() -> list[tuple[str, int]]:
-    """Return (character, count) in stable code order.
-
-    Codes 0-255 are the most frequent so most text uses the shortest escape
-    ($EC nn).  Ties are broken by first appearance.
+    """Return (character, count) in stable code order: entry i is glyph
+    code i in the kanji store (bank i >> 8, pos i & $FF).  Every code is
+    two bytes in the text ($EC + bank, pos), so the order no longer matters
+    for the text's size; it stays frequency first, then first appearance.
     """
     counts: Counter[str] = Counter()
     first: dict[str, int] = {}
@@ -343,16 +343,16 @@ def ui_kanji() -> list[str]:
     return out
 
 
-GLYPHS_PER_BANK = 359          # glyphs per hack bank (32 tables x 359)
-GLYPH_BANKS_MAX = 8            # banks 23-30
+GLYPHS_PER_BANK = 256          # the kanji store: 256 glyphs an 8 KiB bank
+GLYPH_BANKS_MAX = 4            # 8 KiB banks 32-35 (kanji.inc STORE_8K)
 MAX_GLYPHS = GLYPHS_PER_BANK * GLYPH_BANKS_MAX
 
 
 def code_of(index: int) -> int:
-    """Text code of inventory entry `index`: bank n holds codes n*512 + 0..358,
-    so the NMI reads the bank from the code's high byte directly.  Codes
-    0-511 use the 2-byte escape $EC/$ED lo, the rest $EE hi lo."""
-    return (index // GLYPHS_PER_BANK) * 512 + index % GLYPHS_PER_BANK
+    """Glyph code of inventory entry `index`: the index itself (the user's
+    layout, 2026-11-13): store bank index >> 8, pos index & $FF; in the
+    text $EC + bank, pos, two bytes for every kanji."""
+    return index
 
 
 def code_map() -> dict[str, int]:

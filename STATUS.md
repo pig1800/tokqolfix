@@ -14,13 +14,17 @@ tests; see CHANGELOG for what each revision fixed.
   (`$F004-$F039`), the dead MMC1 routines (`$C460-$C47D`, `$C489-$C49D`,
   `$C4AD-$C4B9`) and the IRQ vector.  The largest region is `$C5A6-$C6D1`: the game's
   `load_text_graphics` rewritten in place, its palette tables moved to hack
-  banks 23/24 at `$BF00`.  Hack code `$8000-$8BFF` plus a second segment at
-  `$B900` (after the glyph tables), identical in every hack bank 23-25;
-  overlay at `$B800` in the text banks.
+  bank 23 at `$9F00`.  Hack code from `$8000` in bank 23's lower 8 KiB
+  (since the kanji store, 2026-11-13; before: three copies beside glyph
+  tables in banks 23-25); overlay at `$B800` in the text banks.
 - Text: revision-14 Opus re-conversion (`decomp/text/kanji_r14/`), laid out by
   `tools/kanji_layout.py` into `decomp/text/kanji_plan/bank1X_messages_kanji_r14.dtx`
-  (the compiler's source when present); 830 glyphs including 々 (glyph banks 23-25),
-  text in banks 18-22, 29, 30; 11 forced page splits, no relaxed messages.
+  (the compiler's source when present); text in banks 18-22, 30 (29 holds
+  an overlay copy, reserved for growth); no relaxed messages.
+- Kanji store (2026-11-13): every glyph once, 256 a bank in the 8 KiB banks
+  32-35 (16 KiB banks 16-17), code = bank << 8 | pos, in the text `$EC +
+  bank, pos`; 982 glyphs (833 message kanji, the rest UI and officer
+  names), 42 free.  TEXT_RENDERER.md "The kanji store".
 - Kanji tiles: per page, the free kana tiles least exposed to game windows
   (unused by menus/names, then name-entry grid, submenu, officer/item
   names).  A message printed by menu code, or jumping into it, never
@@ -122,30 +126,49 @@ tests; see CHANGELOG for what each revision fixed.
   `KANJI_WIN_COL` bits 6-7 (armed, checked), `KANJI_PAGES_LEFT` bit 6
   (pool message).
 
-## ROM space (2026-11-13)
+## ROM space (2026-11-13, after the kanji store)
 
-The 256 KiB added by the 512 KiB build (banks 16-31), measured on
-`e330f85d`:
+The 256 KiB added by the 512 KiB build (banks 16-31), measured on the
+kanji-store build:
 
 | Content | KiB | Where |
 |---|---|---|
-| Message text (751 unique messages) | 31.1 | text banks 18-22, 30, 29 |
-| Message metadata (band-page tile plans: 17-byte header, keep / clean lists, 6 bytes a kanji) | 52.5 | after each message |
-| Overlay copies (2 KiB in each text bank) | 14 | `$B800` of 7 banks |
-| Free in the text banks | 14.4 | 13.7 of it in bank 29 |
-| Font, hack layout (982 glyphs, byte b of every glyph in table b) | 33.7 | banks 23-25 |
-| Hack code, palette tables (3 copies) | 11.6 | banks 23-25 |
-| Font, NMI copy (256 glyphs per 8 KiB, rows page-aligned) | 32 | bank 16, 17 upper, 27 lower |
-| Officer-name font | 8 | bank 17 lower |
-| Map renderer | 11.7 (+4.3 free) | bank 26 |
-| RAM image | 0.7 (+7.4 free) | bank 27 upper |
-| UI bank (code, 147 UI glyphs 4.6) | 12.5 (+3.5 free) | bank 28 |
+| Kanji store (982 glyphs, room for 42 more) | 32 | banks 16-17 (8 KiB banks 32-35) |
+| Message text (751 unique messages) | 30.2 | text banks 18-22, 30 |
+| Message metadata (17-byte header, keep / clean lists, 6 bytes a kanji) | 52.5 | after each message |
+| Overlay copies (2 KiB in each text bank) | 14 | `$B800` of 18-22, 29, 30 |
+| Hack code, palette tables | 3.7 | bank 23 lower half |
+| Map renderer | 11.7 | bank 26 |
+| RAM image | 0.7 | bank 27 upper half |
+| UI bank (code, tables, the officer names' codes 1.3) | 9.5 | bank 28 |
 | Fixed bank (bank 15 keeps the original at its place) | 16 | bank 31 |
+| **Free** | **85.6** | banks 24, 25 (32); bank 23 (12.3); bank 29 (14, the text's reserve); bank 27 (8 + 7.3); bank 28 (6.5); bank 26 (4.3); the text banks' ends (1.3) |
 
-Glyphs are 1 bpp (32 bytes a glyph) in every copy; the source
-`kanji_font.bin` and the UI bank store them as 32 consecutive bytes, the
-two upload copies sliced (one absolute-indexed load per byte, no pointer
-setup in the NMI).
+Before the store (`ec05dfa`): 29 KiB free.  The store replaced the band
+page / battle copy (33.7 KiB, banks 23-25, with three copies of the hack
+code, 11.6), the map renderer's copy (32, banks 16, 17b, 27a), the
+officer-name font (8, bank 17a) and the UI bank's 147 glyphs (4.6); the
+text is 0.9 KiB smaller (no 3-byte codes).
+
+Candidates for more (measured, not done):
+- **The band page's parts of the metadata: 38.9 KiB** (the 16-byte kana
+  bitmap a message, the keep / clean lists, 4 tile bytes a kanji).  Map mode
+  and battle use only the page count, the kanji codes and the names count
+  (13.6 KiB).  Messages that can show on a band-page screen (the boot
+  screens, anything outside map mode and battle) need theirs: that list is
+  not derived yet.
+- **The rest of the metadata, 13.6 KiB:** the codes are in the text itself;
+  map mode and battle could count a page's kanji from it at the page start.
+- **The original message text in banks 10 / 11: 20.7 KiB** (bank 10
+  `$9243-$BDD2`, bank 11 `$8CC6-$B3EF`), behind the stubs: no byte read on
+  five test paths (`out/test/opt/romprobe.lua`: menu cycle, level-up and
+  capture battles, officer-switch battle, standard path).  Usable only
+  while those banks are mapped (message starts).
+- **Bank 15, 16 KiB:** the fixed bank's original copy; MMC3 shows bank 31
+  at `$C000`.  No byte of it read on the same five paths.
+- **The overlay copies, 12 KiB of 14:** one copy would need its own 8 KiB
+  bank at R7 across the text task's waits; `PRG_R7X` is one global, so
+  that needs a per-task R7.
 
 ## Gates on the final build
 

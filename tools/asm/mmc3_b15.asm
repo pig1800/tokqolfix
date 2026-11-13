@@ -96,23 +96,8 @@ main_prg:
     lda #0
     rts
 
-; restore_bank_after_nmi body (jumped to from $C4AA; A = bank).  NMI only:
-; MMC3_SEL stays the main thread's, and $8000 gets it back last.  Clobbers
-; X (every caller reloads it).
-nmi_prg:
-    asl a
-    tax
-    lda #MMC3_R6
-    sta MMC3_SELECT
-    stx MMC3_DATA
-    inx
-    lda #MMC3_R7
-    sta MMC3_SELECT
-    stx MMC3_DATA
-    lda MMC3_SEL
-    ora #MMC3_CHR_MODE
-    sta MMC3_SELECT
-    rts
+; (restore_bank_after_nmi's body, nmi_prg, is at $D4C9 since the kanji
+; store: it keeps the main thread's 8 KiB bank at R7.)
 
 ; NMI epilogue gate (jumped to from $EF31 in place of "pla / tay / pla").
 ; The hack's epilogue work is the split-mode reset (the band switch is the
@@ -386,11 +371,11 @@ chr1_scene:
 ; bank switches nest no deeper than the original's.
 ef08_hook:
     lda #KANJI_HACK_BANK
-    jsr RESTORE_BANK_AFTER_NMI
+    jsr nmi_prg_pair
     jsr $8003
 ef08_tail:
-    lda #$08
-    jsr RESTORE_BANK_AFTER_NMI
+    lda #$08                    ; the sound bank: both halves (never the
+    jsr nmi_prg_pair            ; main thread's 8 KiB bank at R7)
     jmp $EF10
 
 ; ----------------------------------------------------------------------
@@ -1155,3 +1140,84 @@ cell_wrap:
     and #$1F
     sta ptr_lo_
 cell_wrap_end:
+
+; ----------------------------------------------------------------------
+.base $D4C9
+; ----------------------------------------------------------------------
+; put_officer_name's kanji path ($AA set; Y = the officer record, X = the
+; line-buffer index), rewritten for the kanji store (2026-11-13): each
+; kanji of the record's name (the UI bank's name table: UIF_NAMEG puts it
+; in plane 1 of tiles $A9..$A9+3 through the VRAM queue), one a frame as
+; the original (whose NMI CHR-animation step read the original's name
+; font), and its four cells into the line buffers (top t, t+2; bottom t+1,
+; t+3).  The record bytes $10-$13 (the original's glyph banks and numbers)
+; are no longer read: bank 12 is the original's.
+pon_kanji:
+    sty NG_REC
+    lda #0
+    sta NG_K
+@g:
+    stx NG_X
+    ldx #UIF_NAMEG
+    jsr call_ui                 ; V set: no kanji NG_K (V survives the
+    bvs @end                    ; bank switch back)
+    jsr WAIT_VBLANK             ; the NMI flushes it (busy: flushed now)
+    ldx NG_X
+    lda $A9
+    clc
+    sta $0300,x                 ; top row
+    adc #1
+    sta $0318,x                 ; bottom row
+    inx
+    adc #1
+    sta $0300,x
+    adc #1
+    sta $0318,x
+    adc #1
+    inx
+    sta $A9
+    inc NG_K
+    bne @g                      ; (always)
+@end:
+    ldx NG_X
+    jmp SET_BANK_CURRENT
+
+; restore_bank_after_nmi's body (jumped to from $C4AA; A = the bank, the
+; main thread's at the NMI's last restore).  NMI only: MMC3_SEL stays the
+; main thread's, and $8000 gets it back last.  Clobbers X (every caller
+; reloads it).  R7 = PRG_R7X when the main thread has an 8 KiB bank there
+; (a kanji store bank: kanji.inc), else the bank's upper half.
+nmi_prg:
+    ldx PRG_R7X
+    bne nmi_r7x
+; The NMI's own maps (the hack bank, the sound bank): both halves of A.
+nmi_prg_pair:
+    asl a
+    tax
+    lda #MMC3_R6
+    sta MMC3_SELECT
+    stx MMC3_DATA
+    inx
+nmi_r7:
+    lda #MMC3_R7
+    sta MMC3_SELECT
+    stx MMC3_DATA
+    lda MMC3_SEL
+    ora #MMC3_CHR_MODE
+    sta MMC3_SELECT
+    rts
+nmi_r7x:
+    cpx #STORE_8K               ; a kanji store bank, else a stale byte
+    bcc nmi_prg_pair            ; (a state saved by an earlier build, whose
+    cpx #STORE_8K+4             ; battery RAM had other data there): both
+    bcs nmi_prg_pair            ; halves
+    asl a                       ; C clear (banks below 128)
+    pha
+    lda #MMC3_R6
+    sta MMC3_SELECT
+    pla
+    sta MMC3_DATA
+    bcc nmi_r7                  ; (always; X = PRG_R7X)
+.if $ > $D549
+    .error "pon_kanji and nmi_prg outgrew put_officer_name's kanji path ($D4C9-$D548)"
+.endif

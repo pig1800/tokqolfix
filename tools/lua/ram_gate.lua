@@ -29,15 +29,15 @@ end
 local function rd(a) return emu.read(a, emu.memType.nesMemory) end
 local A_MAIN_PRG = 0xC5BA  -- @main_prg@
 local fixed_ranges = {{A_MAIN_PRG,0xC6D1},{0xC460,0xC47D},{0xC4AD,0xC4CA},{0xD291,0xD2B6},{0xF004,0xF039},{0xFFE0,0xFFEF}}
-local A_BATTLE_SHAKE = 0xC6B1  -- @battle_shake@
-local A_BATTLE_SHAKE_END = 0xC6C5  -- @battle_shake_end@
-local A_LTG_MASK = 0xB94B  -- @ltg_mask@
+local A_BATTLE_SHAKE = 0xC697  -- @battle_shake@
+local A_BATTLE_SHAKE_END = 0xC6AB  -- @battle_shake_end@
+local A_LTG_MASK = 0x8A8C  -- @ltg_mask@
 local A_REDRAW_START = 0xDB67  -- @redraw_start@
-local A_LTG_MASK_END = 0xB976  -- @ltg_mask_end@
-local A_CV_FILL = 0x7BB3  -- @cv_fill@
-local A_CV_FILL_END = 0x7C14  -- @cv_fill_end@
-local A_CV_STREAM = 0x7995  -- @cv_stream@
-local A_CV_SCOPY_END = 0x7A34  -- @cv_scopy_end@
+local A_LTG_MASK_END = 0x8AB7  -- @ltg_mask_end@
+local A_CV_FILL = 0x7A7B  -- @cv_fill@
+local A_CV_FILL_END = 0x7A8D  -- @cv_fill_end@
+local A_CV_STREAM = 0x7975  -- @cv_stream@
+local A_CV_SCOPY_END = 0x7A14  -- @cv_scopy_end@
 local function hack_pc(pc)
   -- load_text_graphics' palette mask, moved to the hack bank (map-canvas
   -- step 1): the original routine's writes ($3D, $A5), game code

@@ -47,8 +47,8 @@ CHR_BAND_LO       = 14      ;   page 2 tiles $00-$7F: CHR $3800 since the map re
 KANJI_TEXT_BANK   = $0131
 KANJI_TEXT_ADDR   = $0132   ; 2 bytes (consumed at overlay entry)
 KANJI_PAGE_PTR    = $0134   ; 2 bytes: current page record in the text bank
-KANJI_CODE_LO     = $0136   ; upload request: glyph index 0-717
-KANJI_CODE_HI     = $0137
+KANJI_CODE_LO     = $0136   ; upload request: glyph code (pos in its store bank)
+KANJI_CODE_HI     = $0137   ;   (its store bank 0-3: STORE_8K below)
 KANJI_PAGES_LEFT  = $0138   ; bit 7: page start pending, bit 6: PAGE_POOL
 KANJI_BUFX        = $0139
 KANJI_TILES       = $013A   ; 4 tile numbers (upload request / current kanji)
@@ -154,18 +154,35 @@ POOL_CHECK_CODE   = $FF     ; KANJI_CODE_HI of the check request (REQ_UPLOAD
 WINDOW_CORNER     = $6D     ; top-left frame tile of every text window
 
 ; The game's palette tables (data_C5EF / data_C6B2 / data_C6C2, read only by
-; load_text_graphics) live in hack banks 23/24 at $BF00, relocated by
+; load_text_graphics) live in hack bank 23 at $9F00, relocated by
 ; kanji_build.py; their fixed-bank space holds the hook code.
-KANJI_PAL_DATA    = $BF00   ; copy of $C5EF-$C6D1
+KANJI_PAL_DATA    = $9F00   ; copy of $C5EF-$C6D1
 KANJI_PAL_LO      = KANJI_PAL_DATA + $C3   ; data_C6B2 (pointer low bytes)
 KANJI_PAL_HI      = KANJI_PAL_DATA + $D3   ; data_C6C2 (pointer high bytes)
 HACK_PAL_COPY     = $8009   ; hack-bank table copy for load_text_graphics
 
 KANA_FONT_BANK    = 9
 KANJI_TEXT_BANKS  = 18      ; banks 18-22 are generated text/metadata banks
-KANJI_HACK_BANK   = 23      ; banks 23-24 hold identical code + glyph data
-KANJI_GLYPH_BASE  = $8C00   ; per-bank glyph tables (after 3 KiB of code)
-KANJI_GLYPHS_PER_BANK = 359
+KANJI_HACK_BANK   = 23      ; the hack code, all in $8000-$9FFF (its upper
+                            ; half is free)
+
+; ----------------------------------------------------------------------
+; The kanji store (2026-11-13, the user's layout): every kanji glyph once,
+; in four consecutive 8 KiB banks STORE_8K .. STORE_8K+3 (the 16 KiB banks
+; STORE_16K and STORE_16K+1), 256 glyphs a bank; the last bank's unused
+; columns are blank, room to grow.  A glyph's code is its number: bank =
+; code >> 8, pos = code & $FF (message text: $EC + bank, pos).  Byte b of
+; glyph pos is at STORE_TAB + 256 b + pos with its bank at R7 (one indexed
+; load a byte, rows on pages); b = 8 k + row, tile k in 8x16 order (TL,
+; BL, TR, BR, as the battle screen's groups and the original name font).
+; Main-thread code maps a store bank at R7 with PRG_R7X set (the NMI's
+; last restore keeps it; mmc3_b15.asm nmi_prg) and clears it before
+; anything that may switch banks or yield.
+; ----------------------------------------------------------------------
+STORE_8K          = 32
+STORE_16K         = 16
+STORE_TAB         = $A000
+STORE_GLYPHS      = 1024
 
 ; Fixed-bank entry points (bank 15/31).
 TEXT_RETURN       = $D285
@@ -294,6 +311,10 @@ UIF_PCHOOSE       = 16      ; kanji_overlay pool_choose: a pool page's slots
 UIF_PTILES        = 17      ; kanji_overlay pool_tiles: entry KANJI_M2's tiles
 UIF_RWLOAD        = 18      ; the first victory message: queue reward kanji
                             ; KANJI_M2 into slot KANJI_M2 (the overlay waits)
+UIF_NAMEG         = 19      ; put_officer_name's kanji path (mmc3_b15
+                            ; pon_kanji): kanji NG_K of record NG_REC to
+                            ; plane 1 of $A9-$A9+3 through the VRAM queue;
+                            ; V set: none
 ; The fixed-bank trampolines of UIF_WIPE_ROWS and UIF_ROWEV (sub_CE2D's
 ; and sub_CE7A's space; mmc3_b15.asm checks these): bank 14 mapped while
 ; the game's routines run and while they yield, the UI bank again on return.
@@ -329,7 +350,13 @@ UI_SLV            = UI_RAM2+15 ; SL_MAGIC: the slot table is this build's (a
                             ; state saved in a battle by an earlier build has
                             ; other bytes there; ui_battle sl_check)
 SL_MAGIC          = $5A
-                            ; (UI_RAM2+16 to +31: free)
+PRG_R7X           = UI_RAM2+16 ; main thread: the 8 KiB bank at R7 that the
+                            ; NMI's last restore keeps (0: none, R7 =
+                            ; 2 * current_prg_bank + 1); hack_init clears it
+NG_REC            = UI_RAM2+17 ; put_officer_name's kanji (mmc3_b15 pon_kanji,
+NG_K              = UI_RAM2+18 ;   UIF_NAMEG): the record, its kanji 0-2,
+NG_X              = UI_RAM2+19 ;   the line-buffer index
+                            ; (UI_RAM2+20 to +31: free)
 UI_SHOWCHK        = UI_RAM2+32 ; 1: the window being drawn opens beside the
                             ; message window ($21 / $22: grp_shown applies)
                             ; (UI_RAM2+33: free)
@@ -387,8 +414,6 @@ UI_RAM_END        = UI_RAM+64
 ; from R0 = 4 / 8 / 10 / 12 (CHR $1000 / $2000 / $2800 / $3000).
 ; ----------------------------------------------------------------------
 TXR_BANK          = 26
-NAME_FONT_BANK    = 17      ; officer names: the original name engine's glyphs (kanji_build build_name_font)
-NAME_FONT_LABELS  = $9F40   ; in it: 大 将 劉 備 軍 師 (the army screen's $C0-$D7, the original's bank 1 $8000)
 TXF_MAPINIT       = 0       ; the map's font load: page 1 lower = the fixed set
 TXF_RESTORE       = 1       ; clear_screen: the font back into page 1 lower
 TXF_DL            = 2       ; text_draw_line's entries: translate before the commit
@@ -468,7 +493,7 @@ TXR_MARK          = TXR_UQ  ; GC: 16-byte bitmap of the tiles shown (the staging
 ; Battery RAM (the canvas code's old space, after the RAM image), from the
 ; top down to TXR_TABLES:
 TXR_NG            = 28      ; kanji groups per part: tiles $0C-$7B
-TXR_UQSZ          = 55      ; staging bytes: 5-byte records, kana R0, PPU hi, lo, font offset, font page; kanji R0 | $80, PPU hi, lo, column and R7 value in the glyph copy
+TXR_UQSZ          = 55      ; staging bytes: 5-byte records, kana R0, PPU hi, lo, font offset, font page; kanji R0 | $80, PPU hi, lo, the glyph's pos and its store bank's R7 value
 TXR_UQ            = $7F65   ; 55: the staged records (TXR_SN bytes; the NMI: TXR_UQN left from TXR_UQR)
 ; The NMI uploader's budget (TEXT_RENDERER.md "Upload speed", B + D and
 ; round 3), in units of 16 cycles from nmi_up's entry (about line 247.3):
@@ -477,17 +502,9 @@ TXR_UQ            = $7F65   ; 55: the staged records (TXR_SN bytes; the NMI: TXR
 ; charges are each record's worst case.
 UP_UNITS          = 85
 UP_KANA           = 11      ; a kana record (txr.asm up_kana; ~157 cycles, ~171 with an R0 switch)
-UP_KANJI          = 27      ; a kanji record, 4 tiles (txr.asm up_kanji; 426 cycles with a copy-bank and an R0 switch)
+UP_KANJI          = 27      ; a kanji record, 4 tiles (txr.asm up_kanji; 426 cycles with a store-bank and an R0 switch)
 UP_CELLS          = 14      ; text_render_cell's released cells, flushed by the NMI (rel_flush)
-; The NMI uploader's glyph copy (round 3): glyph i (kanji_common's
-; inventory order) is column i & $FF of copy bank i >> 8, an 8 KiB bank
-; mapped with R7; its byte b (tile b >> 3: TL, TR, BL, BR; row b & 7) at
-; GCOPY_TAB + 256 b + column.  Rows start on pages: no page crossing.
-GCOPY_TAB         = $A000
-GCOPY_8K0         = 32      ; bank 16, both halves (unused before)
-GCOPY_8K1         = 33
-GCOPY_8K2         = 35      ; bank 17's upper half (the name font fills the lower)
-GCOPY_8K3         = 54      ; bank 27's lower half (the RAM image is in the upper)
+; (The NMI uploader reads the kanji store above: R7 = STORE_8K + bank.)
 TXR_EB            = $7F35   ; 48: text_draw_line's entries, out of the queue
 TXR_GBUF          = $7F15   ; 32: glyph bytes read by txr_rr
 ; The battle's kanji slot table (2026-11-13): the map renderer's staging

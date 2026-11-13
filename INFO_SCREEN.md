@@ -407,7 +407,8 @@ attribute layout is `INFO_ATTR_CELLS` in `kanji_build.py`.
 
 How it works:
 - **UI bank 28** (`tools/asm/ui.asm`) holds the renderer, its own copy of
-  the 100 UI glyphs, and the item and tactic kanji tables.  The tables and
+  the 100 UI glyphs (since 2026-11-13 the UI reads them from the kanji
+  store: TEXT_RENDERER.md "The kanji store"), and the item and tactic kanji tables.  The tables and
   glyphs come from `ui_data.inc`, which `kanji_build.build_ui_data`
   generates from `kanjiwordlist.csv`, the game's bank-12 names, the
   こうげき table (bank 14 `$8602`) and `INFO_ATTR_CELLS`.

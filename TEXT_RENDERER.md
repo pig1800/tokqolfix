@@ -1971,3 +1971,87 @@ collection and the reward window's group search:
   - Portrait battle's forced win, the injected 15-kanji page: right.
   - Greeting, menu cycle, officer-switch battle, title, standard path:
     identical to the previous build.
+
+## The kanji store (2026-11-13): one copy, bank + pos
+
+The user's order: every kanji once, in four consecutive 8 KiB banks of
+256 glyphs, located by bank + pos; the text's kanji code carries the bank
+and pos directly (high bits mark a kanji, 10 bits bank + pos, no
+conversion); every kanji path (messages, the battle's officer names, the
+info screen, the army screen) reads it; the band page's font copy goes.
+
+**Layout** (`kanji.inc` `STORE_*`, `kanji_build.py` `build_store`):
+- 8 KiB banks 32-35 = the 16 KiB banks 16 and 17.  Glyph code c = its
+  number in `kanji_common.inventory()`: bank `c >> 8`, pos `c & $FF`.
+  982 glyphs: banks 0-2 full, bank 3 holds 214, its last 42 pos blank.
+- Inside a bank, byte b of glyph pos is at `$A000 + 256 b + pos` (with the
+  bank at R7): `ldx pos` / `lda $A000+256*b,x`, one indexed load a byte, no
+  pointer arithmetic and no page crossing.  That is the layout the map
+  renderer's NMI copy already had (it is what lets the NMI upload 3 kanji a
+  frame); 32 consecutive bytes a glyph would cost 3 more cycles a byte
+  there, ~300 cycles a frame at 3 kanji.
+- b = 8 k + row, tile k in 8x16 order (TL, BL, TR, BR), the battle
+  screen's groups and the original game's name font; read in order, a
+  glyph comes out as the 4 tiles t..t+3 of a battle group.
+
+**Text encoding:** a kanji is `$EC + bank, pos` (`%111011bb pppppppp`:
+the top 6 bits mark it, the low 10 are bank and pos), two bytes for every
+kanji; the overlay's `text_dispatch` already puts `byte - $EC` in
+`KANJI_CODE_HI`.  The 3-byte `$EE hi lo` is gone (text 31,849 -> 30,973
+bytes).  The kanji controls moved from `$EE $FB-$FF` to `$F0 $FB-$FF`.
+`$EF` (a place name) and `$F0` (a word) were the original's insertions:
+0 uses in the compiled text, none in the window templates; the compiler
+now refuses `<PLACE:>` / `<WORD:>`.
+
+**8 KiB switching for our main-thread code.**  Every NMI restored both
+PRG halves from `current_prg_bank`, so main-thread code could not keep an
+8 KiB bank at R7 across an NMI.  `nmi_prg` (the restore's body, moved to
+`$D4C9`) now keeps R7 = `PRG_R7X` when that holds a store bank (32-35);
+the NMI's own maps (the hack bank, the sound bank) use `nmi_prg_pair`.
+Main-thread code: set `PRG_R7X`, map R7, read, clear `PRG_R7X`, map R7
+back; nothing that may switch banks or yield in between.  `PRG_R7X` is in
+battery RAM (`UI_RAM2+16`): `hack_init` clears it at reset, and the NMI
+ignores any value outside 32-35, so a save state from an earlier build
+(whose battery RAM had `$40`, `$02`, `$01` there in the user's states)
+runs.  Cost: 6 cycles a restore when clear.
+
+**The readers:**
+- Battle pool and band page (`hack.asm` `glyph_upload`): R7 = the store
+  bank, 8 unrolled loads a tile (`UPLOAD_TILE k, s`: KANJI_TILES keeps its
+  TL, TR, BL, BR order; s is the store's tile).  The hack code is in bank
+  23's lower 8 KiB now (the palette tables at `$9F00`); it was copied into
+  banks 23-25 beside 359-glyph tables, and a code meant a divide by 359.
+  Costliest NMI unit 702 cycles from entry (733 before).
+- Map renderer: the NMI uploader's R7 value is `STORE_8K | bank`, its
+  column the pos (the code as it is); `read_kanji` (rendering off) reads 32
+  bytes through the RAM reader from the 16 KiB bank `STORE_16K + bank >> 1`.
+- UI bank (`M_STMAP` / `M_STUNMAP`, routines kept in `$8000-$9FFF`, checked
+  by the assembler): `q_tiles` (battle windows, the reward window),
+  `put_code` / `put_glyph` (info screen, army screen), the battle start's
+  fixed command kanji.  A UI glyph number indexes `ui_gcode_lo/hi`, its
+  store code.  The UI's own 147 glyphs (4.6 KiB) are gone.
+- Officer names in the original name engine (`put_officer_name` with `$AA`
+  set: the battle screen, the info screen): its kanji path (`$D4C9-$D548`,
+  the address arithmetic for the original's name font) is `pon_kanji` now.
+  Per kanji it calls `UIF_NAMEG` (the UI bank's name table by record,
+  `ui_nm_lo0-2` / `ui_nm_hi0-2`), which queues the glyph to plane 1 of
+  `$A9..$A9+3`, then waits a frame as the original did, so the frame count
+  is the same.  The army screen's names (`ar_name`) and 大将 / 軍師 use the
+  same table and the store.  Bank 12 is the original's again (its records'
+  glyph bytes are no longer read), and the 8 KiB name font is gone.
+- Free 21 bytes at `$D534-$D548`, 22 in the `$C5A6` region.
+
+**Checked** (`out/test/opt`, the previous build k31 against this one, k32):
+- Every glyph of the store equals the old NMI copy's and the old hack
+  copy's (982), the 147 UI glyphs equal the old UI copy, the 445 name kanji
+  equal the old name font, 大将 / 軍師 too.
+- Pixel-identical screens: greeting, menu cycle, officer-switch battle,
+  title, standard path (570 shots), level-up battle (116), capture victory
+  (161), the info screen from the map (29) and from a battle and back
+  (81), the army screen opened twice (50).
+- R7 traffic (`r7probe.lua`): store banks 0-3 by the NMI in map mode and in
+  battle, 0, 1 and 3 by the main thread (UI); `PRG_R7X` 0 at the end, the
+  r5/s2 state's stale `$02` cleared.
+- `vblank_deadline` (standard path): 0 hack PPU accesses after the
+  pre-render line, 0 late scroll restores.
+- The original build is byte-identical.

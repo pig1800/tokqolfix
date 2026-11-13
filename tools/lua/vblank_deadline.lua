@@ -8,10 +8,10 @@
 local A_ENTRY  = 0x800F  -- @nmi_ef08@
 local A_PROBE  = 0x82E3  -- @probe_window@
 local A_UPLOAD = 0x848C  -- @upload_go@
-local A_POOLCHK = 0xBB87  -- @pool_check_go@
+local A_POOLCHK = 0x8CC8  -- @pool_check_go@
 local A_RESTORE= 0x85C6  -- @restore_tile@
-local A_FORCE  = 0x8A0A  -- @arm_force@
-local A_FORCE_END = 0x8A26  -- @arm_force_end@
+local A_FORCE  = 0x886B  -- @arm_force@
+local A_FORCE_END = 0x8887  -- @arm_force_end@
 local A_REPLAY = 0x821C  -- @replay_entry@
 local LAST = tonumber(os.getenv("DL_FRAMES") or "6000")
 -- DL_STATE: run from a save state instead of power-on, with DL_PATH steps

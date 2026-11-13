@@ -62,6 +62,40 @@ LABEL_TILE  = $1C
 TACT_TILE   = $50
 POOL_GROUPS = 15
 
+; The kanji store (kanji.inc STORE_*; the UI kept its own copy of its 147
+; glyphs before, 2026-11-13).  M_STMAP: A = a store bank (0-3) at R7, with
+; PRG_R7X set (an NMI's restore keeps it), ZP_PTR = STORE_TAB: byte b of
+; glyph pos is (ZP_PTR),y with Y = pos after b "inc ZP_PTR+1" (the tiles in
+; 8x16 order: ZP_PTR+1 & 7 = 0 at each tile's start, >STORE_TAB+32 at the
+; end).  X lost, Y kept, no stack (the battle start's stack is deep).
+; M_STUNMAP: R7 back to this bank's upper half, PRG_R7X cleared first.
+; Code between the two stays in $8000-$9FFF and calls nothing that may
+; switch banks or yield (checked: STORE_CODE_END).
+.macro M_STMAP
+    ora #STORE_8K
+    sta PRG_R7X
+    tax
+    lda #MMC3_R7
+    sta MMC3_SEL
+    sta MMC3_SELECT
+    stx MMC3_DATA
+    lda #<STORE_TAB
+    sta ZP_PTR
+    lda #>STORE_TAB
+    sta ZP_PTR+1
+.endm
+.macro M_STUNMAP
+    lda #0
+    sta PRG_R7X
+    lda #MMC3_R7
+    sta MMC3_SEL
+    sta MMC3_SELECT
+    lda #UI_BANK*2+1
+    sta MMC3_DATA
+.endm
+; ZP_PTR+1 after a glyph's last byte
+ST_END      = >STORE_TAB+32
+
 .base $8000
 .org $8000
     jmp ui_dispatch
@@ -80,6 +114,164 @@ ui_fns:
     .dw ui_info_enter-1, ui_bstart-1, ui_wincb-1, ui_sm-1, ui_info_busy-1
     .dw ui_bsetup-1, ui_bsetup_end-1, ui_dec-1, ui_div-1, ui_wipe-1
     .dw ui_wipe_rows-1, ui_rowev-1, ui_pchoose-1, ui_ptiles-1, ui_rwload-1
+    .dw ui_nameg-1
+
+; ======================================================================
+; UIF_NAMEG (the fixed bank's pon_kanji: put_officer_name with $AA set,
+; the battle screen and the info screen): kanji NG_K of officer record
+; NG_REC (the name table, nm_code) to plane 1 of tiles $A9..$A9+3 (8x16
+; order) through the VRAM queue, 44 bytes (the caller's wait flushes them,
+; as the original's NMI CHR-animation step read its name font); V set:
+; the name has no kanji NG_K.  ZP_PTR and ZP_T: the game's $00-$02, which
+; the original's flush used as well.
+; ======================================================================
+ui_nameg:
+    ldy NG_K
+    cpy #3
+    bcs @none
+    ldx NG_REC
+    cpx #UI_NAME_RECORDS
+    bcs @none
+    jsr nm_code                 ; Y = bank, A = pos
+    cpy #$FF
+    beq @none
+    pha
+    lda $A9
+    sta ZP_T
+    tya
+    M_STMAP
+    pla
+    tay                         ; Y = pos
+    ldx vram_queue_write
+@tile:
+    lda ZP_T
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora #$10
+    sta $0400,x
+    inx
+    lda ZP_T
+    asl a
+    asl a
+    asl a
+    asl a
+    ora #8                      ; plane 1
+    sta $0400,x
+    inx
+    lda #8
+    sta $0400,x
+    inx
+@b:
+    lda (ZP_PTR),y
+    sta $0400,x
+    inx
+    inc ZP_PTR+1
+    lda ZP_PTR+1
+    and #7
+    bne @b
+    inc ZP_T
+    lda ZP_PTR+1
+    cmp #ST_END
+    bne @tile
+    lda #0
+    sta $0400,x
+    stx vram_queue_write
+    M_STUNMAP
+    clv
+    rts
+@none:
+    bit nm_v40                  ; V set
+    rts
+nm_v40:
+    .db $40
+
+; Y = kanji 0-2 of officer record X: Y = its store bank ($FF: none), A =
+; its pos (the name table, kanji_build build_ui_data).
+nm_code:
+    cpy #1
+    beq @k1
+    bcs @k2
+    lda ui_nm_hi0,x
+    tay
+    lda ui_nm_lo0,x
+    rts
+@k1:
+    lda ui_nm_hi1,x
+    tay
+    lda ui_nm_lo1,x
+    rts
+@k2:
+    lda ui_nm_hi2,x
+    tay
+    lda ui_nm_lo2,x
+    rts
+
+; ======================================================================
+; UI glyph number A to tiles X..X+3.  C set: plane 1 only (plane 0, the
+; kana, is kept).  C clear: plane 0, and plane 1 cleared.  Direct PPU
+; access (rendering off).  ZP_C, ZP_T, ZP_PTR; X and Y lost.
+; ======================================================================
+put_glyph:
+    tay
+    lda ui_gcode_lo,y
+    pha
+    lda ui_gcode_hi,y
+    tay
+    pla
+; The store's glyph Y:A (bank, pos) to tiles X..X+3, C as put_glyph.
+put_code:
+    ror ZP_C
+    stx ZP_T
+    pha
+    tya
+    M_STMAP
+    pla
+    tay                         ; Y = pos
+@tile:
+    lda ZP_T
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora #$10
+    sta PPUADDR
+    lda ZP_T
+    asl a
+    asl a
+    asl a
+    asl a
+    bit ZP_C
+    bpl @p0
+    ora #8
+@p0:
+    sta PPUADDR
+@b:
+    lda (ZP_PTR),y
+    sta PPUDATA
+    inc ZP_PTR+1
+    lda ZP_PTR+1
+    and #7
+    bne @b
+    bit ZP_C
+    bmi @next
+    lda #0
+    ldx #8
+@z:
+    sta PPUDATA
+    dex
+    bne @z
+@next:
+    inc ZP_T
+    lda ZP_PTR+1
+    cmp #ST_END
+    bne @tile
+    M_STUNMAP
+    rts
+.if $ > STORE_TAB
+    .error "kanji store code past $9FFF (the store bank is mapped at R7)"
+.endif
 
 ; ======================================================================
 ; UIF_WIPE / UIF_WIPE_ROWS: around sub_CE2D's loop (bank 15 $CE2D, bank
@@ -583,7 +775,7 @@ pool_unchecked:
 ;   NMI that shows the screen sends it).  Its CHR: tiles $00-$0F (bank 9
 ;   $BA00, plane-1 glyphs) to plane 0, plane 1 cleared; the UI block's
 ;   $F0-$FE (bank 9 $BF00; $E0-$EF get the labels);
-; - 大将 / 軍師 ($C0-$D7, the name font's NAME_FONT_LABELS) to plane 0, the six label kanji
+; - 大将 / 軍師 ($C0-$C7, $D0-$D7, the kanji store) to plane 0, the six label kanji
 ;   to $D8-$EF, M S P to plane 0 of $F5-$F7 (planes 1 cleared);
 ; - the leader's portrait: text_load_page's six parts and colours, read
 ;   directly; sub_CFA1's string around it (fixed bank);
@@ -650,7 +842,7 @@ ui_army:
     inx
     cpx #rr_end-rr_rom
     bne @rr
-    ; battle_intro_screen's tiles, 大将 / 軍師
+    ; battle_intro_screen's tiles
     lda #0
     sta ZP_I
 @chr:
@@ -675,6 +867,23 @@ ui_army:
     sta ZP_I
     bne @chr
 @labels:
+    ; 大将 / 軍師: plane 0 of $C0-$C7, $D0-$D7 (the kanji store)
+    lda #0
+    sta ZP_N
+@arlab:
+    ldx ZP_N
+    lda ui_arlab_hi,x
+    tay
+    lda ar_lab_t,x
+    pha
+    lda ui_arlab_lo,x
+    tax
+    pla
+    jsr ar_lab_put
+    inc ZP_N
+    lda ZP_N
+    cmp #4
+    bne @arlab
     ; 金 兵 糧 経 験 値: plane 0 of $D8-$EF (8x16 order)
     lda #0
     sta ZP_N
@@ -1052,10 +1261,8 @@ ar_rec:
 
 ; A = actor, ZP_A = the name's top-left cell: its kanji in two rows (upper
 ; t, t+2, lower t+1, t+3 a kanji, as put_officer_name).  The glyphs are
-; uploaded the first time only (record $11-$13, $FF ends; record $10 bit 7
-; down: kanji n in bank NAME_FONT_BANK + 1, else NAME_FONT_BANK, at $8000 +
-; 32 glyph; the kanji target's records all use the name font): plane 0,
-; plane 1 cleared, from $A9 on.
+; uploaded the first time only (the officer record's kanji from the name
+; table, nm_code; the kanji store): plane 0, plane 1 cleared, from $A9 on.
 ar_name:
     sta ZP_X
     tax
@@ -1063,22 +1270,23 @@ ar_name:
     beq @new
     jmp @show
 @new:
-    lda ZP_X
-    cmp AR_RECA
-    beq @have                   ; (the leader's, read for the portrait)
-    jsr ar_rec
-@have:
-    ldy #0
+    lda $60A8,x                 ; the actor's officer record
+    sta ZP_G
+    lda #0                      ; its kanji: ZP_J
+    sta ZP_J
 @count:
-    lda AR_BUF+7,y
-    cmp #$FF
+    ldy ZP_J
+    ldx ZP_G
+    jsr nm_code
+    cpy #$FF
     beq @counted
-    iny
-    cpy #3
+    inc ZP_J
+    lda ZP_J
+    cmp #3
     bne @count
 @counted:
     ldx ZP_X
-    tya
+    lda ZP_J
     sta AR_NK,x
     asl a
     asl a
@@ -1093,8 +1301,6 @@ ar_name:
 @fits:
     lda $A9
     sta AR_NT,x
-    lda AR_BUF+6
-    sta ZP_C                    ; bank bits
     lda AR_NK,x
     sta ZP_K
     lda #0
@@ -1103,39 +1309,11 @@ ar_name:
     ldy ZP_J
     cpy ZP_K
     beq @show
-    lda $A9
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    ora #$10
-    sta PPUADDR
-    lda $A9
-    asl a
-    asl a
-    asl a
-    asl a
-    sta PPUADDR
-    lda AR_BUF+7,y
-    lsr a
-    lsr a
-    lsr a
-    ora #$80
-    sta ZP_PTR+1
-    lda AR_BUF+7,y
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    sta ZP_PTR
-    lda #4
-    sta ZP_N
-    asl ZP_C
-    lda #NAME_FONT_BANK
-    adc #0
-    ldx #0                      ; plane 0, plane 1 cleared
-    jsr RR_CODE
+    ldx ZP_G
+    jsr nm_code                 ; Y:A = the kanji's code
+    ldx $A9
+    clc                         ; plane 0, plane 1 cleared
+    jsr put_code
     lda $A9
     clc
     adc #4
@@ -1389,8 +1567,17 @@ rr_end:
 ar_chr:
     .db $10,$00, 9, $00,$BA, 16, 0      ; $00-$0F: plane-1 glyphs to plane 0
     .db $1F,$00, 9, $00,$BF, 240, 1     ; $F0-$FE: the UI block's rest
-    .db $1C,$00, NAME_FONT_BANK, <NAME_FONT_LABELS, >NAME_FONT_LABELS, 24, 0 ; $C0-$D7: 大将 軍師
     .db 0
+; 大将 軍師's tiles (ui_arlab_lo / _hi: their codes)
+ar_lab_t:
+    .db $C0, $C4, $D0, $D4
+; A = the first tile, Y:X = the code (bank, pos): plane 0, plane 1 cleared.
+ar_lab_put:
+    sta ZP_T
+    txa
+    ldx ZP_T
+    clc
+    jmp put_code
 
 ; gold $6076, food $6079, experience $6070: rows 6, 8, 10, columns 23-29
 ar_gfe_var:
@@ -1476,71 +1663,6 @@ ppu_end:
     sta PPUCTRL
     lda UI_BUSY
     sta nmi_busy
-    rts
-
-; ======================================================================
-; Glyph A to tiles X..X+3.  C set: plane 1 only (plane 0, the kana, is
-; kept).  C clear: plane 0, and plane 1 cleared.
-; ======================================================================
-put_glyph:
-    ror ZP_C
-    stx ZP_T
-    ldx #0
-    stx ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    clc
-    adc #<ui_glyphs
-    sta ZP_PTR
-    lda ZP_PTR+1
-    adc #>ui_glyphs
-    sta ZP_PTR+1
-    ldy #0
-@tile:
-    lda ZP_T
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    ora #$10
-    sta PPUADDR
-    lda ZP_T
-    asl a
-    asl a
-    asl a
-    asl a
-    bit ZP_C
-    bpl @p0
-    ora #8
-@p0:
-    sta PPUADDR
-    ldx #8
-@b:
-    lda (ZP_PTR),y
-    sta PPUDATA
-    iny
-    dex
-    bne @b
-    bit ZP_C
-    bmi @next
-    lda #0
-    ldx #8
-@z:
-    sta PPUDATA
-    dex
-    bne @z
-@next:
-    inc ZP_T
-    cpy #32
-    bne @tile
     rts
 
 ; ======================================================================

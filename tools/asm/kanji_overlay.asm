@@ -582,37 +582,34 @@ text_dispatch:
 @normal:
     jmp TEXT_NORMAL_CHAR
 
+; $EC-$EF pos: a kanji, store bank 0-3 (text_dispatch set KANJI_CODE_HI
+; to it), pos next (KANJI_EC).  $F0: the kanji controls (KANJI_CT).  The
+; original's $EF (a place) and $F0 (a word) are not in the compiled text.
 dispatch_table:
-    .dw KANJI_EC, KANJI_EC, KANJI_EE
-    .dw $D334, $D30A, $D2FE, $D2F3, $D2ED, KNAME, KNAME, KNAME, KNAME
+    .dw KANJI_EC, KANJI_EC, KANJI_EC, KANJI_EC
+    .dw KANJI_CT, $D2FE, $D2F3, $D2ED, KNAME, KNAME, KNAME, KNAME
 
 ; ----------------------------------------------------------------------
-; Three-byte kanji escape $EE hi lo (codes 512 and up): the high byte
-; follows the escape; then as KANJI_EC.
+; $F0 ctl: the control byte follows (kanji_ctl).
 ; ----------------------------------------------------------------------
-KANJI_EE:
+KANJI_CT:
     ldy text_col
     lda ($51),y
     inc text_col
-    cmp #$FB
-    bcs kanji_ctl
-    sta KANJI_CODE_HI
-    jmp KANJI_EC
 
 ; ----------------------------------------------------------------------
-; Kanji-pick controls (revision 15; code high bytes are 0-15, so $FC-$FF
-; are free):
-;   $EE $FF id lenA   the bank-13 name helpers $A1D0/$A1D4 as text: if
+; Kanji-pick controls (revision 15; $F0 since the kanji store, $EE before):
+;   $F0 $FF id lenA   the bank-13 name helpers $A1D0/$A1D4 as text: if
 ;                     the talked-to actor ($0580,[$72]) is officer id, the
 ;                     lenA bytes that follow are shown (they end with the
 ;                     skip below), else the variant after them
-;   $EE $FD lenA      troop pick (revision 19): the tail of $D549 as
+;   $F0 $FD lenA      troop pick (revision 19): the tail of $D549 as
 ;                     text.  The message calls the name helper $D49A,
 ;                     then this: if the target unit ($60A8,[$4B]) is 8 or
 ;                     up, the lenA bytes that follow are shown (they end
 ;                     with the skip below), else they are skipped
-;   $EE $FE n         skip n bytes
-;   $EE $FC n         back n cells (revision 19): follows a call whose
+;   $F0 $FE n         skip n bytes
+;   $F0 $FC n         back n cells (revision 19): follows a call whose
 ;                     fixed kana tail ($D565: のけい) has a kanji form of
 ;                     the same width; the kanji after it overwrite the
 ;                     tail's last n cells
@@ -676,7 +673,7 @@ kanji_ctl:
     iny
     sty text_col
     rts
-; $EE $FB lenA (2026-11-12): $D565's tactic name.  In a pool message
+; $F0 $FB lenA (2026-11-12): $D565's tactic name.  In a pool message
 ; outside map mode its kanji (KNAME's way, reserved entries), then variant
 ; A (の計); else variant B (the call and its kanji tail, as before).
 @tact:

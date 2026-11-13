@@ -32,8 +32,6 @@ SOUND_QUEUE_ADD = $C4D5
 CELL_ROWS       = $DC8F         ; text_render_cell's row-buffer offsets by text_line
 FONT_BANK       = 9
 FONT_SRC        = $BA00
-GLYPH_TAB       = $8C00
-GSTRIDE         = 359
 BLANK           = $7F
 
 .base $8000
@@ -366,7 +364,7 @@ cvb_cancel:
 
 ; The staged records after the game's flush (TEXT_RENDERER.md "Upload
 ; speed", B + D, round 3): kana from this bank's font copy (up_kana), kanji
-; from the glyph copy at R7 (up_kanji), as many as the budget allows:
+; from the kanji store at R7 (up_kanji), as many as the budget allows:
 ; UP_UNITS less one unit per byte the game flushed (X).  Then the held
 ; cells.  R0 is left at any page (nmi_map sets page 1 after the force).
 ; A, X, Y lost.
@@ -385,7 +383,8 @@ nmi_up:
     sta PPUCTRL                 ; +1 increments
     lda #$FF
     sta KANJI_T1                ; R0 unknown (the IRQ's last part): set for the first record
-    sta KANJI_T0                ; R7 unknown: mapped for the first kanji
+    sta KANJI_T0                ; R7 unknown: mapped for the first kanji (the
+                                ; NMI's last restore maps the main thread's back)
     bit PPUSTATUS
     ldx TXR_UQR
 @rec:
@@ -502,10 +501,10 @@ uk_next:
     clc
     rts
 ; The kanji records of TXR_UQ from X on (R0 | $80, PPU address hi, lo of
-; tile t, the glyph's column and its copy bank's R7 value): each one's
-; four tiles t..t+3 (top-left, bottom-left, top-right, bottom-right =
-; glyph tiles 0, 2, 1, 3) in plane 0 of page R0, from the glyph copy at
-; R7 (rows on pages: 4 cycles a byte), unrolled.  R7 and R0 written only
+; tile t, the glyph's pos and its store bank's R7 value): each one's
+; four tiles t..t+3 (top-left, bottom-left, top-right, bottom-right: the
+; store's tiles 0-3, 8x16 order) in plane 0 of page R0, from the kanji
+; store at R7 (rows on pages: 4 cycles a byte), unrolled.  R7 and R0 written only
 ; when they change (KANJI_T0, KANJI_T1).  Stops at a kana record or the
 ; batch's end (C clear), or when TXR_UB has no UP_KANJI left (C set).
 ; X = the next record; Y lost; PPUCTRL +1 increments set by the caller.
@@ -525,21 +524,21 @@ uk_next:
     UJ8 0
 .endm
 .macro UJ8 k
-    lda GCOPY_TAB+(k*8+0)*256,y
+    lda STORE_TAB+(k*8+0)*256,y
     sta PPUDATA
-    lda GCOPY_TAB+(k*8+1)*256,y
+    lda STORE_TAB+(k*8+1)*256,y
     sta PPUDATA
-    lda GCOPY_TAB+(k*8+2)*256,y
+    lda STORE_TAB+(k*8+2)*256,y
     sta PPUDATA
-    lda GCOPY_TAB+(k*8+3)*256,y
+    lda STORE_TAB+(k*8+3)*256,y
     sta PPUDATA
-    lda GCOPY_TAB+(k*8+4)*256,y
+    lda STORE_TAB+(k*8+4)*256,y
     sta PPUDATA
-    lda GCOPY_TAB+(k*8+5)*256,y
+    lda STORE_TAB+(k*8+5)*256,y
     sta PPUDATA
-    lda GCOPY_TAB+(k*8+6)*256,y
+    lda STORE_TAB+(k*8+6)*256,y
     sta PPUDATA
-    lda GCOPY_TAB+(k*8+7)*256,y
+    lda STORE_TAB+(k*8+7)*256,y
     sta PPUDATA
 .endm
 up_kanji:
@@ -552,7 +551,7 @@ uj_rec:
     rts
 @fits:
     sta TXR_UB
-    lda TXR_UQ+4,x              ; the copy bank
+    lda TXR_UQ+4,x              ; the store bank's R7 value
     cmp KANJI_T0
     beq @mapped
     sta KANJI_T0
@@ -569,10 +568,10 @@ uj_rec:
     sty MMC3_SELECT
     sta MMC3_DATA
 @r0:
-    ldy TXR_UQ+3,x              ; the column
+    ldy TXR_UQ+3,x              ; the pos
     UJT0
-    UJT 1, 2
-    UJT 2, 1
+    UJT 1, 1
+    UJT 2, 2
     UJT 3, 3
     txa
     clc
@@ -676,11 +675,6 @@ part_b:     .db 0, 16, 32, 48
 part_kml:   .db <TXR_KM, <(TXR_KM+$80), <(TXR_KM+$100), <(TXR_KM+$180)
 part_kmh:   .db >TXR_KM, >(TXR_KM+$80), >(TXR_KM+$100), >(TXR_KM+$180)
 bitmask:    .db $80, $40, $20, $10, $08, $04, $02, $01
-; A glyph code's bank index (0-2) -> the glyph index of its first glyph
-; (lo, hi); a copy bank (glyph index >> 8) -> its R7 value.
-gc_lo:      .db <0, <KANJI_GLYPHS_PER_BANK, <(KANJI_GLYPHS_PER_BANK*2)
-gc_hi:      .db >0, >KANJI_GLYPHS_PER_BANK, >(KANJI_GLYPHS_PER_BANK*2)
-gc_r7:      .db GCOPY_8K0, GCOPY_8K1, GCOPY_8K2, GCOPY_8K3
 
 ; New tiles $00-$0B: the old font codes they show.
 fix_src:    .db $6D, $0B, $6E, $6F, $0C, $0D, $7D, $7E, $0E, $0F, $70, $71
@@ -1018,11 +1012,11 @@ txr_menuinit:
     asl a
     adc #FIX_FIRST              ; (C clear)
     sta TXR_T
-    ldy #0                      ; t: top-left
+    ldy #0                      ; t: top-left (TXR_GBUF in 8x16 order,
+    jsr fix_tile                ; as the store)
+    ldy #8                      ; t+1: bottom-left
     jsr fix_tile
-    ldy #16                     ; t+1: bottom-left
-    jsr fix_tile
-    ldy #8                      ; t+2: top-right
+    ldy #16                     ; t+2: top-right
     jsr fix_tile
     ldy #24                     ; t+3: bottom-right
     jsr fix_tile
@@ -1149,28 +1143,34 @@ read_kana:
     bpl @c
     rts
 
-; TXR_GBUF[0-31] = kanji glyph TXR_K (code = bank index * 512 + local:
-; high byte bit 0 = the +256 half, the rest the glyph bank 23 + n).
+; TXR_GBUF[0-31] = kanji glyph TXR_K (store bank TXR_K+1, pos TXR_K), in
+; the store's order (8x16: TL, BL, TR, BR, 8 rows each).  The store's 8 KiB
+; bank TXR_K+1 is half (TXR_K+1) & 1 of the 16 KiB bank STORE_16K +
+; (TXR_K+1) >> 1, which the RAM reader maps (lock protocol): byte b at
+; $8000 + $2000 * half + 256 b + pos.
 read_kanji:
-    lda TXR_K+1
-    and #1
-    clc
-    adc #>GLYPH_TAB
-    sta TXR_RS+1
     lda TXR_K
     sta TXR_RS
-    lda #<GSTRIDE
-    sta TXR_RST
-    lda #>GSTRIDE
-    sta TXR_RST+1
+    lda TXR_K+1
+    and #1
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    ora #$80
+    sta TXR_RS+1                ; $80 or $A0
     lda #0
+    sta TXR_RST
     sta TXR_RO
+    lda #1
+    sta TXR_RST+1               ; stride 256
     lda #32
     sta TXR_RN
     lda TXR_K+1
     lsr a
     clc
-    adc #KANJI_HACK_BANK
+    adc #STORE_16K
     jmp TXR_RR
 
 ; ======================================================================
@@ -1285,29 +1285,19 @@ stage_kana:
     jmp busy_off
 
 ; Kanji TXR_K as group tiles TXR_T .. TXR_T + 3 of part TXR_P: a record
-; (R0 | $80, PPU address hi, lo of tile TXR_T, the glyph's column in the
-; NMI's glyph copy and that copy bank's R7 value), or with rendering off /
-; busy the glyph written now (TXR_T + 4 after).
+; (R0 | $80, PPU address hi, lo of tile TXR_T, the glyph's pos and its
+; store bank's R7 value: the code as it is), or with rendering off / busy
+; the glyph written now (TXR_T + 4 after).
 stage_kanji:
     jsr is_direct
     beq @now
     lda #$80
     jsr rec_head
-    lda TXR_K+1                 ; bank index * 2 + the half
-    lsr a
-    tay                         ; the bank index
-    lda #0
-    rol a
-    sta TXR_UQ+4,x              ; (the half, for the carry below)
-    lda TXR_K                   ; glyph i = bank * KANJI_GLYPHS_PER_BANK
-    clc                         ;   + half * 256 + TXR_K
-    adc gc_lo,y
-    sta TXR_UQ+3,x              ; its column in the copy
-    lda TXR_UQ+4,x
-    adc gc_hi,y
-    tay
-    lda gc_r7,y
-    sta TXR_UQ+4,x              ; its copy bank's R7 value
+    lda TXR_K
+    sta TXR_UQ+3,x              ; its pos
+    lda TXR_K+1
+    ora #STORE_8K
+    sta TXR_UQ+4,x              ; its store bank's R7 value
     txa
     clc
     adc #5
@@ -1319,11 +1309,11 @@ stage_kanji:
     ldy TXR_P
     lda part_r0,y
     jsr set_r0
-    ldy #0                      ; top-left
+    ldy #0                      ; top-left (8x16 order, as the store)
     jsr fix_tile
-    ldy #16                     ; bottom-left
+    ldy #8                      ; bottom-left
     jsr fix_tile
-    ldy #8                      ; top-right
+    ldy #16                     ; top-right
     jsr fix_tile
     ldy #24                     ; bottom-right
     jsr fix_tile
@@ -2513,21 +2503,21 @@ txr_look:
     cmp #$F3
     bcs @adv                    ; $F3-$F7: a name
     ldx #2
-    cmp #$EF
-    bcs @adv                    ; $EF-$F2: a word, place, item or name
-    cmp #$EE
+    cmp #$F1
+    bcs @adv                    ; $F1-$F2: an item or name
+    cmp #$F0
     bne @lo
-    ldx #3                      ; $EE hi lo, $EE $FB-$FE n
+    ldx #3                      ; $F0 $FB-$FE n (the kanji controls)
     lda TXR_GBUF+1,y
     cmp #$FF
     bne @adv
-    inx                         ; $EE $FF id len
+    inx                         ; $F0 $FF id len
     bne @adv
 @lo:
     ldx #1
     cmp #$EC
     bcc @adv                    ; a kana or a tile
-    inx                         ; $EC / $ED lo: a kanji
+    inx                         ; $EC-$EF pos: a kanji
 @adv:
     iny
     dex

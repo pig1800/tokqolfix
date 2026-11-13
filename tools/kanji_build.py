@@ -23,10 +23,7 @@ ASM6F = ROOT / "tools" / "toolchain" / "asm6f" / "asm6f_64.exe"
 TEXT_BANK_START = 18
 TEXT_BANK_END = 22
 OVERLAY_LIMIT = 0x800
-HACK_CODE_LIMIT = 0xC00
-GLYPH_BASE = 0x8C00
-GLYPHS_PER_BANK = 359
-HACK_BANKS = (23, 24)          # grown by build_hack_banks to fit the font
+HACK_BANK = 23                 # the hack code, $8000-$9FFF (kanji.inc KANJI_HACK_BANK)
 
 # Fixed-bank regions assigned to the hooks (revision 11; $C460-$C47D, the
 # dead MMC1 reset/init, and $F004-$F00B since the MMC3 port, revision 21).
@@ -96,6 +93,11 @@ FOURSCREEN_REGIONS = (
     (0xFFDC, 0xFFDE, "4ef378f055abd7aab3b9e59192722bf57c2c54102b0b6b4feadf944e2718a88e"),
     # the nametable fill set_ppu_scroll: "jmp cv_fill" (the lower twin too)
     (0xC2AB, 0xC2AD, "d6ef7c6f987cda6bf37ed124b7b52c2980e37eb3d0c54d4ce308136289188b49"),
+    # the kanji store (2026-11-13): put_officer_name's kanji path (its
+    # glyph address arithmetic for the original name font, through "jmp
+    # loc_D4D0"): pon_kanji (UIF_NAMEG, the store) and nmi_prg (R7 =
+    # PRG_R7X) in the space
+    (0xD4C9, 0xD548, "c295aed86ffbb0f66ae969ab1578de633eb87f15970ab5b3a18dd472e058ad75"),
 )
 HOOK_RANGES = HOOK_RANGES + tuple((lo, hi) for lo, hi, _ in FOURSCREEN_REGIONS)
 
@@ -106,8 +108,7 @@ PALETTE_REGION = (0xC5A6, 0xC6D2,
                   "5da1189349cd3b7f8bd9ca7c46477a5afb08af1814ac67c97e274da582facafe")
 PALETTE_TABLES = (0xC5EF, 0xC6D2)           # data_C5EF .. end of data_C6C2
 PALETTE_PTRS = (0xC6B2, 0xC6C2, 16)         # low / high pointer tables
-HACK_CODE2 = 0xB900                         # second hack code segment (hack.asm)
-PAL_DATA = 0xBF00                           # KANJI_PAL_DATA in kanji.inc
+PAL_DATA = 0x9F00                           # KANJI_PAL_DATA in kanji.inc
 
 # Map-canvas step 3: the canvas RAM code (canvas_ram.asm, assembled for
 # CV_RAM) is stored in PRG bank CV_BANK at $A000; hack_init copies
@@ -162,19 +163,13 @@ CV_LABELS = ("cv_irq", "cv_sm", "cv_nmi", "cv_w1", "cv_stage",
 # battery RAM from TXR_TABLES up (kanji.inc).
 TXR_BANK = 26
 TXR_TABLES = 0x7BF5
-# Officer names (2026-11-12): the kanji names' glyphs for the original
-# name engine (put_officer_name, $AA set), 32 bytes each (8 each of TL, BL,
-# TR, BR) from $8000, and the officer records' name glyph bytes rewritten
-# to them (bank12_names.bin, bank 12 $A900-$BFFF).  Bank 17 held only a
-# stale glyph table from an old layout.  kanji.inc's NAME_FONT_BANK (the
-# UI bank's army screen reads the glyphs too).
 _KINC = (ROOT / "decomp" / "include" / "kanji.inc").read_text(encoding="utf-8")
-NAME_FONT_BANK = int(re.search(r"^NAME_FONT_BANK\s*=\s*(\d+)", _KINC, re.M).group(1))
-# The army screen's 大将 / 軍師 (the original read bank 1's first six name
-# glyphs, 大 将 劉 備 軍 師, into tiles $C0-$D7): the same six in the name
-# font at kanji.inc's NAME_FONT_LABELS.
-NAME_FONT_LABELS = int(re.search(r"^NAME_FONT_LABELS\s*=\s*\$([0-9A-F]+)", _KINC, re.M).group(1), 16)
-NAME_FONT_LABEL_TEXT = "大将劉備軍師"
+# The kanji store (2026-11-13, kanji.inc STORE_*): every glyph once, 256 a
+# bank in the 8 KiB banks STORE_8K..+3 (the 16 KiB banks STORE_16K, +1).
+STORE_8K = int(re.search(r"^STORE_8K\s*=\s*(\d+)", _KINC, re.M).group(1))
+STORE_16K = int(re.search(r"^STORE_16K\s*=\s*(\d+)", _KINC, re.M).group(1))
+if STORE_8K != 2 * STORE_16K:
+    raise SystemExit("kanji.inc: STORE_8K must be the first half of STORE_16K")
 
 # The reset code's mapper writes and RAM-clear setup ($F004-$F039) are
 # rewritten by the fixed-bank source; these are the original bytes.
@@ -224,7 +219,6 @@ PATCH_SITES = {
     0xCC02: bytes.fromhex("2040d3"),           # text_input: jsr text_put_tile
     0xD5C0: bytes.fromhex("2040d3"),           # draw_string_from_pointer: jsr text_put_tile
     0xD4C0: bytes.fromhex("2040d3"),           # put_officer_name: jsr text_put_tile
-    0xD4D0: bytes((0xA9, 0x01)),               # put_officer_name's kanji: lda #1 (glyph bank 1, or 2)
     0xEB74: bytes((0x02, 0x0A)),               # window $18 (gold, food): column +2, width 10
     0xEBCF: bytes((0x03, 0x08)),               # window $1C (buy / sell): column +3, width 8
     0xED4D: bytes((0x03, 0x06)),               # window $29 (message speed): column +3, width 6
@@ -339,50 +333,31 @@ def build_font() -> bytes:
     return (OUT / "kanji_font.bin").read_bytes()
 
 
-def glyph_tables(font: bytes, first: int) -> bytes:
-    """32 tables of GLYPHS_PER_BANK bytes: table b = byte b of every glyph.
-
-    The source font is 32 bytes per glyph, 16 rows of (left, right).  Byte b
-    of the table layout is tile k = b >> 3 (TL, TR, BL, BR), row r = b & 7.
-    """
-    out = bytearray(32 * GLYPHS_PER_BANK)
-    for b in range(32):
-        k, r = b >> 3, b & 7
-        src = ((k >> 1) * 8 + r) * 2 + (k & 1)
-        for local in range(GLYPHS_PER_BANK):
-            g = first + local
-            if (g + 1) * 32 <= len(font):
-                out[b * GLYPHS_PER_BANK + local] = font[g * 32 + src]
-    return bytes(out)
+# The kanji store (TEXT_RENDERER.md "The kanji store"): glyph i (kanji_common's
+# inventory order; its code is i) in 8 KiB bank STORE_8K + (i >> 8), byte b
+# at 256 b + (i & $FF) (rows on pages: one indexed load a byte); b = 8 k +
+# row, tile k in 8x16 order (TL, BL, TR, BR).  The source font is 32
+# bytes a glyph, 16 rows of (left, right).
+STORE: list[bytes] = []
 
 
-# The NMI uploader's glyph copy (TEXT_RENDERER.md "Upload speed", round 3;
-# kanji.inc GCOPY_*): 256 glyphs per 8 KiB bank, byte b of glyph i at
-# 256 b + (i & $FF) of copy bank i >> 8 (rows on pages).
-GCOPY_8K = tuple(int(re.search(rf"^GCOPY_8K{n}\s*=\s*(\d+)", _KINC, re.M).group(1))
-                 for n in range(4))
-if GCOPY_8K != (32, 33, 35, 54):
-    raise SystemExit(f"GCOPY_8K {GCOPY_8K}: kanji_build places the copy in 8 KiB banks "
-                     "32, 33 (bank 16), 35 (bank 17's upper half), 54 (bank 27's lower half)")
-GCOPY: list[bytes] = []
-
-
-def build_glyph_copy(font: bytes) -> None:
+def build_store(font: bytes) -> None:
     glyphs = len(font) // 32
-    if glyphs > 256 * len(GCOPY_8K):
-        raise SystemExit(f"{glyphs} glyphs: the NMI's glyph copy holds {256 * len(GCOPY_8K)}")
-    GCOPY.clear()
-    for c in range(len(GCOPY_8K)):
+    if glyphs > 4 * 256:
+        raise SystemExit(f"{glyphs} glyphs: the kanji store holds 1024")
+    STORE.clear()
+    for c in range(4):
         out = bytearray(0x2000)
         for b in range(32):
             k, r = b >> 3, b & 7
-            src = ((k >> 1) * 8 + r) * 2 + (k & 1)
+            src = ((k & 1) * 8 + r) * 2 + (k >> 1)     # TL, BL, TR, BR
             for col in range(256):
                 g = c * 256 + col
                 if g < glyphs:
                     out[b * 256 + col] = font[g * 32 + src]
-        GCOPY.append(bytes(out))
-    write_bank("bank16.bin", GCOPY[0] + GCOPY[1])
+        STORE.append(bytes(out))
+    write_bank(f"bank{STORE_16K:02d}.bin", STORE[0] + STORE[1])
+    write_bank(f"bank{STORE_16K + 1:02d}.bin", STORE[2] + STORE[3])
 
 
 def relocated_palettes() -> bytes:
@@ -417,39 +392,20 @@ def relocated_palettes() -> bytes:
     return bytes(block)
 
 
-def build_hack_banks(font: bytes) -> None:
+def build_hack_banks() -> None:
+    """Bank 23: the hack code from $8000, the relocated palette tables at
+    PAL_DATA, all in the lower 8 KiB (the glyph upload maps a store bank at
+    R7); the upper half is free."""
     code = assemble("hack")
-    # The assembler emitted the code and the .org $8800 padding.
-    if len(code) < GLYPH_BASE - 0x8000:
-        code = code + bytes(GLYPH_BASE - 0x8000 - len(code))
-    if any(code[HACK_CODE_LIMIT:HACK_CODE2 - 0x8000]):
-        raise SystemExit(f"hack code is over {HACK_CODE_LIMIT} bytes")
     if len(code) > PAL_DATA - 0x8000:
-        raise SystemExit("second hack code segment runs into the palette tables")
-    global HACK_BANKS
-    glyphs = len(font) // 32
-    nbanks = max(2, -(-glyphs // GLYPHS_PER_BANK))
-    if 23 + nbanks - 1 > 30:
-        raise SystemExit(f"{glyphs} glyphs need {nbanks} hack banks (23-30 available)")
-    HACK_BANKS = tuple(range(23, 23 + nbanks))
+        raise SystemExit(f"hack code ends at ${0x8000 + len(code):04X}, past the palette tables (${PAL_DATA:04X})")
     palettes = relocated_palettes()
-    for slot, bank in enumerate(HACK_BANKS):
-        data = bytearray(0x4000)
-        data[:HACK_CODE_LIMIT] = code[:HACK_CODE_LIMIT]
-        tables = glyph_tables(font, slot * GLYPHS_PER_BANK)
-        start = GLYPH_BASE - 0x8000
-        if start + len(tables) > 0x4000:
-            raise SystemExit("glyph tables overflow the hack bank")
-        data[start:start + len(tables)] = tables
-        if start + len(tables) > PAL_DATA - 0x8000:
-            raise SystemExit("glyph tables overlap the relocated palette tables")
-        data[PAL_DATA - 0x8000:PAL_DATA - 0x8000 + len(palettes)] = palettes
-        # Second code segment ($B900-$BEFF), identical in every hack bank.
-        if start + len(tables) > HACK_CODE2 - 0x8000:
-            raise SystemExit("glyph tables overlap the second hack code segment")
-        seg2 = code[HACK_CODE2 - 0x8000:PAL_DATA - 0x8000]
-        data[HACK_CODE2 - 0x8000:HACK_CODE2 - 0x8000 + len(seg2)] = seg2
-        write_bank(f"bank{bank:02d}.bin", bytes(data))
+    if PAL_DATA + len(palettes) > 0xA000:
+        raise SystemExit("the palette tables leave the hack bank's lower half")
+    data = bytearray(0x4000)
+    data[:len(code)] = code
+    data[PAL_DATA - 0x8000:PAL_DATA - 0x8000 + len(palettes)] = palettes
+    write_bank(f"bank{HACK_BANK:02d}.bin", bytes(data))
 
 
 def build_ui_block() -> None:
@@ -477,9 +433,10 @@ def _game_string(bank: bytes, off: int) -> bytes:
 
 
 def build_ui_data() -> int:
-    """ui_data.inc: the UI glyphs (the labels first, in slot order, then 計),
-    the tactic and item kanji tables and the こうげき table.  Returns the
-    glyph count."""
+    """ui_data.inc: the UI glyph numbers (the labels first, in slot order,
+    then 計) and each one's code in the kanji store, the tactic and item
+    kanji tables, the officer names' codes by record and the こうげき table.
+    Returns the UI glyph count."""
     sys.path.insert(0, str(ROOT / "tools"))
     import kanji_common
     import textdata
@@ -593,27 +550,52 @@ def build_ui_data() -> int:
     lines += [".db " + ",".join(f"${b:02X}" for b in attr[j:j + 16]) for j in range(0, 64, 16)]
     if len(glyphs) > 0xF0:
         raise SystemExit(f"{len(glyphs)} UI glyphs, max 240")
-    # Glyphs in tile order t, t+1, t+2, t+3 = TL, BL, TR, BR (decision 3),
-    # 8 rows each.
     lines.append(f"UI_NGLYPHS = {len(glyphs)}")
-    # Each UI glyph's text code ($FF high: none), so that the battle's slot
-    # table knows a UI glyph in a slot (ui_battle.asm q_glyph, ui_ptiles).
+    # Each UI glyph number's code in the kanji store (kanji.inc STORE_*:
+    # bank = hi, pos = lo); the UI reads the glyph from there, and the
+    # battle's slot table knows a UI glyph in a slot by it (ui_battle.asm
+    # q_glyph, ui_ptiles).  (The UI bank kept its own glyph copy before the
+    # store, 2026-11-13.)
     codes = kanji_common.code_map()
+    missing = [ch for ch in glyphs if ch not in codes]
+    if missing:
+        raise SystemExit(f"UI glyphs not in the kanji store: {''.join(missing)}")
     lines.append("ui_gcode_lo:")
-    lines += [".db " + ",".join(f"${codes[ch] & 0xFF:02X}" if ch in codes else "$FF"
-                                for ch in glyphs[j:j + 16]) for j in range(0, len(glyphs), 16)]
+    lines += [".db " + ",".join(f"${codes[ch] & 0xFF:02X}" for ch in glyphs[j:j + 16])
+              for j in range(0, len(glyphs), 16)]
     lines.append("ui_gcode_hi:")
-    lines += [".db " + ",".join(f"${codes[ch] >> 8:02X}" if ch in codes else "$FF"
-                                for ch in glyphs[j:j + 16]) for j in range(0, len(glyphs), 16)]
-    lines.append("ui_glyphs:")
-    for ch in glyphs:
-        g = kanji_common.glyph_bytes(ch)
-        tl = [g[r * 2] for r in range(8)]
-        tr = [g[r * 2 + 1] for r in range(8)]
-        bl = [g[(8 + r) * 2] for r in range(8)]
-        br = [g[(8 + r) * 2 + 1] for r in range(8)]
-        lines.append(".db " + ",".join(f"${b:02X}" for b in tl + bl + tr + br)
-                     + f"  ; U+{ord(ch):04X}")
+    lines += [".db " + ",".join(f"${codes[ch] >> 8:02X}" for ch in glyphs[j:j + 16])
+              for j in range(0, len(glyphs), 16)]
+    # The officer names by record id (put_officer_name's kanji path,
+    # UIF_NAMEG; the army screen): kanji k's code in ui_nm_lo<k> /
+    # ui_nm_hi<k> ($FF high: none).  Bank 12's records keep the original's
+    # glyph bytes, which nothing reads now.
+    names = kanji_common.officer_names()
+    nrec = kanji_common.NAME_RECORDS
+    for k in range(3):
+        lo, hi = [], []
+        for r in range(nrec):
+            name = names.get(r, "")
+            if r in kanji_common.NAME_NONE or k >= len(name):
+                lo.append(0xFF)
+                hi.append(0xFF)
+                continue
+            if len(name) > 3:
+                raise SystemExit(f"officer ${r:02X} {name}: more than 3 kanji")
+            c = codes.get(name[k])
+            if c is None:
+                raise SystemExit(f"officer ${r:02X} {name}: {name[k]} not in the kanji store")
+            lo.append(c & 0xFF)
+            hi.append(c >> 8)
+        for tab, vals in ((f"ui_nm_lo{k}", lo), (f"ui_nm_hi{k}", hi)):
+            lines.append(f"{tab}:")
+            lines += [".db " + ",".join(f"${v:02X}" for v in vals[j:j + 16]) for j in range(0, nrec, 16)]
+    lines.append(f"UI_NAME_RECORDS = ${nrec:02X}")
+    # The army screen's 大将 / 軍師 (tiles $C0, $C4, $D0, $D4; the original
+    # read bank 1's first name glyphs there).
+    lab = "大将軍師"
+    lines.append("ui_arlab_lo: .db " + ",".join(f"${codes[ch] & 0xFF:02X}" for ch in lab) + "  ; " + lab)
+    lines.append("ui_arlab_hi: .db " + ",".join(f"${codes[ch] >> 8:02X}" for ch in lab))
     (OUT / "ui_data.inc").write_text("".join(x + "\n" for x in lines), encoding="utf-8")
     return len(glyphs)
 
@@ -930,8 +912,6 @@ def build_txr_ui() -> None:
 
 
 def write_ui_bank(image: bytes) -> None:
-    if UI_BANK in HACK_BANKS:
-        raise SystemExit(f"the font's hack banks {HACK_BANKS} reach bank {UI_BANK}")
     if any((OUT / f"bank{UI_BANK:02d}.bin").read_bytes()):
         raise SystemExit(f"bank {UI_BANK} (the UI bank) holds other data")
     if len(image) > 0x4000:
@@ -967,19 +947,14 @@ def build_canvas_ram() -> bytes:
 
 
 def write_canvas_bank(image: bytes) -> None:
-    if CV_BANK in HACK_BANKS:
-        raise SystemExit(f"the font's hack banks {HACK_BANKS} reach bank {CV_BANK}")
     if any((OUT / f"bank{CV_BANK:02d}.bin").read_bytes()):
         raise SystemExit(f"bank {CV_BANK} (the canvas RAM image) holds other data")
-    data = bytearray(0x4000)
-    data[:0x2000] = GCOPY[3]                    # the NMI's glyph copy, 8 KiB bank 54
+    data = bytearray(0x4000)                    # (the lower half: free)
     data[0x2000:0x2000 + len(image)] = image
     write_bank(f"bank{CV_BANK:02d}.bin", bytes(data))
 
 
 def write_txr_bank(image: bytes) -> None:
-    if TXR_BANK in HACK_BANKS:
-        raise SystemExit(f"the font's hack banks {HACK_BANKS} reach bank {TXR_BANK}")
     if any((OUT / f"bank{TXR_BANK:02d}.bin").read_bytes()):
         raise SystemExit(f"bank {TXR_BANK} (the text renderer) holds other data")
     if len(image) > 0x4000:
@@ -1068,9 +1043,8 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
         apply_patch(bank, site, bytes((0x20, labels["txr_tp"] & 0xFF,
                                        labels["txr_tp"] >> 8)))
     # Officer names in kanji (put_officer_name with $AA set: the battle
-    # screen, the info screen, the army screen): the glyphs come from the
-    # name font in bank NAME_FONT_BANK (build_name_font), not banks 1 / 2.
-    apply_patch(bank, 0xD4D0, bytes((0xA9, NAME_FONT_BANK)))
+    # screen, the info screen): its kanji path is mmc3_b15.asm pon_kanji
+    # (the kanji store, the UI bank's name table) since 2026-11-13.
     for win, (col, w) in MAP_UI_TEMPLATES.items():
         ptr = bank[0x2DA1 + win] | (bank[0x2DD1 + win] << 8)
         apply_patch(bank, ptr + 1, bytes((col & 0xFF, w)))
@@ -1198,60 +1172,17 @@ def battle_templates(cb: bytes) -> dict[int, bytes]:
     return out
 
 
-def build_name_font() -> None:
-    """bank17.bin: the officer names' glyphs (kanji_common.officer_names)
-    in the original name font's format; bank12_names.bin: bank 12 $A900-
-    $BFFF with every named record's bytes $10-$13 (bits 7-5 of $10: the
-    kanji's bank bits; then up to three glyph indices) pointing into it."""
-    sys.path.insert(0, str(ROOT / "tools"))
-    import kanji_common
-    names = kanji_common.officer_names()
-    records = kanji_common.officer_records()
-    chars: list[str] = []
-    for i in sorted(names):
-        for ch in names[i]:
-            if ch not in chars:
-                chars.append(ch)
-    first_label = (NAME_FONT_LABELS - 0x8000) // 32
-    if len(chars) > first_label:
-        raise SystemExit(f"name font: {len(chars)} kanji, max {first_label} (the labels follow)")
-    font = bytearray(0x4000)
-    for n, ch in list(enumerate(chars)) + [(first_label + j, ch) for j, ch in
-                                           enumerate(NAME_FONT_LABEL_TEXT)]:
-        g = kanji_common.glyph_bytes(ch)            # 16 rows x (left, right)
-        out = bytes(g[2 * y] for y in range(8)) + bytes(g[2 * y] for y in range(8, 16))
-        out += bytes(g[2 * y + 1] for y in range(8)) + bytes(g[2 * y + 1] for y in range(8, 16))
-        font[n * 32:n * 32 + 32] = out
-    if any(font[0x2000:]):
-        raise SystemExit("the name font reaches bank 17's upper half (the NMI's glyph copy)")
-    font[0x2000:] = GCOPY[2]                    # the NMI's glyph copy, 8 KiB bank 35
-    write_bank(f"bank{NAME_FONT_BANK:02d}.bin", bytes(font))
-    b12 = bytearray(prg()[12 * 0x4000:13 * 0x4000])
-    for i, name in names.items():
-        o = records[i][0] - 0x8000
-        if len(name) > 3:
-            raise SystemExit(f"officer ${i:02X} {name}: more than 3 kanji")
-        b12[o + 0x10] &= 0x1F                       # bits 7-5: every glyph in the one
-                                                    # bank (bits 3-0: the portrait colour)
-        for n in range(3):
-            b12[o + 0x11 + n] = chars.index(name[n]) if n < len(name) else 0xFF
-    for i in kanji_common.NAME_NONE:
-        b12[records[i][0] - 0x8000 + 0x11] = 0xFF   # no kanji name
-    (OUT / "bank12_names.bin").write_bytes(bytes(b12[0x2900:0x4000]))
-
-
 def build_bank31() -> None:
     write_bank("bank31.bin", (OUT / "bank15.bin").read_bytes())
 
 
 def build_skeleton() -> None:
+    """Every extension bank blank but those written before it (the kanji
+    store, the hack bank): the text banks, the renderer, the RAM image and
+    the UI bank are written after it; the rest is free ROM."""
     blank = bytes(0x4000)
     for bank in range(16, 31):
-        path = OUT / f"bank{bank:02d}.bin"
-        if not path.exists():
-            write_bank(f"bank{bank:02d}.bin", blank)
-    for bank in range(25, 31):
-        if bank not in HACK_BANKS:
+        if bank not in (STORE_16K, STORE_16K + 1, HACK_BANK):
             write_bank(f"bank{bank:02d}.bin", blank)
 
 
@@ -1267,8 +1198,8 @@ def main() -> int:
     write_hook_constants(labels)
 
     font = build_font()
-    build_glyph_copy(font)
-    build_hack_banks(font)
+    build_store(font)
+    build_hack_banks()
     build_ui_block()
     nglyphs = build_ui_data()
     ui = assemble("ui")
@@ -1287,7 +1218,6 @@ def main() -> int:
 
     build_bank15(fixed, labels, overlay_labels)
     build_bank31()
-    build_name_font()
     build_skeleton()
 
     sys.path.insert(0, str(ROOT / "tools"))
@@ -1299,6 +1229,7 @@ def main() -> int:
 
     print(f"fixed hooks: {len(fixed)} bytes; overlay: {len(overlay)} bytes; "
           f"hack code: {(OUT / 'hack.bin').stat().st_size} bytes; "
+          f"kanji store: {len(font) // 32} of 1024 glyphs; "
           f"RAM code: {len(canvas)} bytes; UI bank: {len(ui)} bytes "
           f"({nglyphs} glyphs); text renderer: {len(txr)} bytes")
     return 0

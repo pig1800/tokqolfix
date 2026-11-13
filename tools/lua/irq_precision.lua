@@ -5,7 +5,7 @@
 -- queue bytes the game flushed.  Standard path (or IP_STATE + IP_PATH),
 -- IP_FRAMES frames.  Out: IP_OUT (default out/test/canvas/irq_precision.txt)
 local A_ST0 = 0x7900  -- @cv_irq@
-local A_SW  = 0xC6A0  -- @irq_switched@
+local A_SW  = 0xC686  -- @irq_switched@
 local STATE = os.getenv("IP_STATE")
 local PATH = os.getenv("IP_PATH") or ""
 local FRAMES = tonumber(os.getenv("IP_FRAMES") or "6000")

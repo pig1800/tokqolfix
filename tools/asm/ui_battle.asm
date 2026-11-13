@@ -46,27 +46,6 @@ PR_LINE0    = $25B4         ; window $21's line 0: top row 13, column 20
 ZAN_TOP     = $262E         ; row 17, columns 14-15: 残's top half
 ZAN_TILE    = $F4           ; group 20's first tile
 
-; ZP_PTR = ui_glyphs + 32 * A (inline: the battle start's stack is deep).
-.macro M_GPTR
-    ldx #0
-    stx ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    clc
-    adc #<ui_glyphs
-    sta ZP_PTR
-    lda ZP_PTR+1
-    adc #>ui_glyphs
-    sta ZP_PTR+1
-.endm
 
 ; ----------------------------------------------------------------------
 ; UIF_BSTART: b14_battle_start after battle_intro_screen_body (rendering
@@ -91,14 +70,14 @@ battle_state_direct:
     sta ZP_T
     lda ui_fixed_g,x
     sta UI_SLOT+G_FIXED,x
-    tay                         ; the slot table: its text code
+    tay                         ; the slot table: its code (the store)
     lda ui_gcode_lo,y
     sta SL_LO+9+G_FIXED,x
+    sta ZP_N                    ; (its pos)
     lda ui_gcode_hi,y
     sta SL_HI+9+G_FIXED,x
-    lda ui_fixed_g,x
-    M_GPTR                      ; (inline: the battle start's stack is
-    ldy #0                      ; deep, and the NMI comes on top)
+    M_STMAP                     ; (inline: the battle start's stack is
+    ldy ZP_N                    ; deep, and the NMI comes on top)
 @tile:
     lda ZP_T
     lsr a
@@ -113,16 +92,18 @@ battle_state_direct:
     asl a
     asl a
     sta PPUADDR
-    ldx #8
 @b:
     lda (ZP_PTR),y
     sta PPUDATA
-    iny
-    dex
+    inc ZP_PTR+1
+    lda ZP_PTR+1
+    and #7
     bne @b
     inc ZP_T
-    cpy #32
+    lda ZP_PTR+1
+    cmp #ST_END
     bne @tile
+    M_STUNMAP
     ldx ZP_I
     inx
     cpx #15
@@ -165,26 +146,16 @@ battle_state_reset:
     rts
 
 
-; ZP_PTR = ui_glyphs + 32 * A.
-glyph_ptr:
-    ldx #0
-    stx ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    asl a
-    rol ZP_PTR+1
-    clc
-    adc #<ui_glyphs
-    sta ZP_PTR
-    lda ZP_PTR+1
-    adc #>ui_glyphs
-    sta ZP_PTR+1
+; UI glyph number A: its store bank at R7 (M_STMAP; the caller unmaps),
+; Y = its pos.  X lost.
+glyph_map:
+    tay
+    lda ui_gcode_lo,y
+    pha
+    lda ui_gcode_hi,y
+    M_STMAP
+    pla
+    tay
     rts
 
 ; ----------------------------------------------------------------------
@@ -214,10 +185,9 @@ q_glyph:
     jmp q_flush
 
 ; Glyph A to plane 0 of tiles ZP_T..ZP_T+3 through the VRAM queue (44
-; bytes, no flush).
+; bytes, no flush), from the kanji store.
 q_tiles:
-    jsr glyph_ptr
-    ldy #0
+    jsr glyph_map               ; Y = pos
     ldx vram_queue_write
 @tile:
     lda ZP_T
@@ -242,17 +212,22 @@ q_tiles:
     lda (ZP_PTR),y
     sta $0400,x
     inx
-    iny
-    tya
+    inc ZP_PTR+1
+    lda ZP_PTR+1
     and #7
     bne @b
     inc ZP_T
-    cpy #32
+    lda ZP_PTR+1
+    cmp #ST_END
     bne @tile
     lda #0
     sta $0400,x
     stx vram_queue_write
+    M_STUNMAP
     rts
+.if $ > STORE_TAB
+    .error "kanji store code past $9FFF (the store bank is mapped at R7)"
+.endif
 q_flush:
     lda B_Q
     beq @rts
@@ -460,7 +435,9 @@ wg_tactics:
     adc #$A6                    ; the group's third tile (TR)
     sta ZP_T
     lda #UI_G_KEI
-    jsr glyph_ptr
+    jsr glyph_map               ; Y = pos
+    lda #>STORE_TAB+16          ; the TR tile's 8 rows (8x16 order)
+    sta ZP_PTR+1
     ldx vram_queue_write
     lda ZP_T
     lsr a
@@ -481,22 +458,26 @@ wg_tactics:
     lda #8
     sta $0400,x
     inx
-    ldy #16                     ; the TR quarter's 8 rows
 @kb:
     lda (ZP_PTR),y
     sta $0400,x
     inx
-    iny
-    cpy #24
+    inc ZP_PTR+1
+    lda ZP_PTR+1
+    cmp #>STORE_TAB+24
     bne @kb
     lda #0
     sta $0400,x
     stx vram_queue_write
+    M_STUNMAP
     lda #1
     sta B_Q
     jmp q_flush
 @krts:
     rts
+.if $ > STORE_TAB
+    .error "kanji store code past $9FFF (the store bank is mapped at R7)"
+.endif
 
 wg_items:
     lda #0

@@ -5,7 +5,7 @@
 -- MMC3 (revision 21): only tiles $00-$7F come from the band page (R0);
 -- $80-$FF always show the scene page and are not compared.
 -- Standard path + town, 6000 frames.  Output: out/test/r11/band_check.txt
-local A_SWITCHED = 0xC6A0  -- @irq_switched@
+local A_SWITCHED = 0xC686  -- @irq_switched@
 local outdir = "D:/EMU/NES/tokqolfix/out/test/r11"
 local frame = 0
 local log = assert(io.open(outdir .. "/band_check.txt", "w"))

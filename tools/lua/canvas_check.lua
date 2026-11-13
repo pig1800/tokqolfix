@@ -13,12 +13,12 @@
 -- or "U16,w30,A3" holds with CC_HOLD=1), or CC_BOOT (power on with the
 -- run's battery save, buttons "300start,420a,..") + CC_PATH holds from
 -- frame CC_START.  CC_FRAMES, CC_OUT.
-local A_W1 = 0x7952  -- @cv_w1@
+local A_W1 = 0x794D  -- @cv_w1@
 local A_W2 = 0x798F  -- @cv_w2@
 local A_FORCE_END = 0x7ADF  -- @cv_force_end@
 local A_RELOAD = 0x7AEC  -- @cv_reload@
-local A_SFORCE_END = 0x7A61  -- @cv_sforce_end@
-local A_SRELOAD = 0x7A66  -- @cv_sreload@
+local A_SFORCE_END = 0x7A40  -- @cv_sforce_end@
+local A_SRELOAD = 0x7A45  -- @cv_sreload@
 local CV_ROWS = 0x0783
 local OUT = os.getenv("CC_OUT")
 local FRAMES = tonumber(os.getenv("CC_FRAMES") or "3000")

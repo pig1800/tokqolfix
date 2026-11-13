@@ -58,53 +58,23 @@ b12_data_A800:
     .incbin "build/assets/bank12_tables.bin", $2800, $0100
 
 b12_data_A900:
-; The kanji target: the officer records' name glyph bytes point into the
-; name font (tools/kanji_build.py build_name_font).
-.ifdef KANJI_TARGET
-    .incbin "build/kanji/bank12_names.bin", $0000, $0300
-.else
     .incbin "build/assets/bank12_tables.bin", $2900, $0300
-.endif
 
 b12_data_AC00:
-.ifdef KANJI_TARGET
-    .incbin "build/kanji/bank12_names.bin", $0300, $0400
-.else
     .incbin "build/assets/bank12_tables.bin", $2C00, $0400
-.endif
 
 b12_data_B000:
-.ifdef KANJI_TARGET
-    .incbin "build/kanji/bank12_names.bin", $0700, $0400
-.else
     .incbin "build/assets/bank12_tables.bin", $3000, $0400
-.endif
 
 b12_data_B400:
-.ifdef KANJI_TARGET
-    .incbin "build/kanji/bank12_names.bin", $0B00, $0182
-.else
     .incbin "build/assets/bank12_tables.bin", $3400, $0182
-.endif
 
 b12_data_B582:
-.ifdef KANJI_TARGET
-    .incbin "build/kanji/bank12_names.bin", $0C82, $027E
-.else
     .incbin "build/assets/bank12_tables.bin", $3582, $027E
-.endif
 
 b12_data_B800:
-.ifdef KANJI_TARGET
-    .incbin "build/kanji/bank12_names.bin", $0F00, $0400
-.else
     .incbin "build/assets/bank12_tables.bin", $3800, $0400
-.endif
 
 b12_data_BC00:
-.ifdef KANJI_TARGET
-    .incbin "build/kanji/bank12_names.bin", $1300, $0400
-.else
     .incbin "build/assets/bank12_tables.bin", $3C00, $0400
-.endif
 

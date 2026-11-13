@@ -48,8 +48,13 @@ MAX_PAGE_ENTRIES = 16
 # Free tiles a page must leave unassigned.  Revision 16: 0 (was 4, a slack
 # from the shared-CHR design; the runtime never needs a spare tile).
 PAGE_TILE_MARGIN = 0
+# Message text codes (2026-11-13): $EC-$EF pos = a kanji (store bank 0-3),
+# KCTL ctl ... = the kanji controls (kanji_overlay.asm kanji_ctl; $EE before
+# the kanji store).  $EF and $F0 were the original's place and word
+# insertions, which the compiled text does not use.
+KCTL = 0xF0
 TEXT_BANKS = [18, 19, 20, 21, 22]          # grown into 30, 29, ... as needed
-TEXT_BANKS_EXTRA = [30, 29, 26, 25]   # never the glyph banks (23 + n), 27 (the canvas RAM image, kanji_build.CV_BANK) or 28 (the UI bank, kanji_build.UI_BANK)
+TEXT_BANKS_EXTRA = [30, 29, 25, 24]   # free banks (kanji_build: 16-17 the kanji store, 23 the hack code, 26 the renderer, 27 the RAM image, 28 the UI bank)
 TEXT_BANK_LIMIT = 0x3800     # overlay occupies $B800-$BFFF
 OVERLAY_SIZE = 0x800
 SCENE_BORROW = set(range(0x42, 0x5C))  # measured oath-scene overwrite range
@@ -437,46 +442,46 @@ def compile_tokens(tokens: list[str], cmap: dict[str, int]) -> bytes:
 
         if tok.startswith("<"):
             key = tok[1:-1].split("=", 1)[0].strip()
-            if key.startswith("WORD:"):
-                out += bytes((0xF0, int(key[5:], 16)))
-            elif key.startswith("PLACE:"):
-                out += bytes((0xEF, int(key[6:], 16)))
+            if key.startswith("WORD:") or key.startswith("PLACE:"):
+                # $EF is the kanji store's bank 3 and $F0 the kanji controls
+                # since 2026-11-13 (the compiled text had none of these).
+                raise ValueError(f"<{key}>: the word / place insertions $F0 / $EF are kanji codes now")
             elif key.startswith("ITEM:"):
                 out += bytes((0xF1, int(key[5:], 16)))
             elif key.startswith("NAME:"):
                 out += bytes((0xF2, int(key[5:], 16)))
             elif key.startswith("CALL:") and int(key[5:], 16) in KANJI_CALLS:
-                # Kanji pick: $EE $FF id lenA, variant A, $EE $FE lenB,
+                # Kanji pick: $F0 $FF id lenA, variant A, $F0 $FE lenB,
                 # variant B (kanji_overlay.asm kanji_ctl).
                 oid, name_a, name_b = KANJI_CALLS[int(key[5:], 16)]
                 vb = compile_tokens(list(name_b), cmap)
-                va = compile_tokens(list(name_a), cmap) + bytes((0xEE, 0xFE, len(vb)))
-                out += bytes((0xEE, 0xFF, oid, len(va))) + va + vb
+                va = compile_tokens(list(name_a), cmap) + bytes((KCTL, 0xFE, len(vb)))
+                out += bytes((KCTL, 0xFF, oid, len(va))) + va + vb
             elif key.startswith("CALL:") and int(key[5:], 16) in KANJI_TROOP_CALLS:
-                # Troop pick: <CALL:name helper>, $EE $FD lenA, variant A,
-                # $EE $FE lenB, variant B (kanji_overlay.asm kanji_ctl).
+                # Troop pick: <CALL:name helper>, $F0 $FD lenA, variant A,
+                # $F0 $FE lenB, variant B (kanji_overlay.asm kanji_ctl).
                 helper, text_a, text_b = KANJI_TROOP_CALLS[int(key[5:], 16)]
                 vb = compile_tokens(list(text_b), cmap)
-                va = compile_tokens(list(text_a), cmap) + bytes((0xEE, 0xFE, len(vb)))
+                va = compile_tokens(list(text_a), cmap) + bytes((KCTL, 0xFE, len(vb)))
                 # The name helper $D49A is put_officer_name_target, which
                 # the control $F4 runs too: $F4 goes through the overlay,
                 # which puts the name in kanji in the battle's pool.
                 call = bytes((0xF4,)) if helper == 0xD49A else bytes((0xF8, helper & 0xFF, helper >> 8))
-                out += call + bytes((0xEE, 0xFD, len(va))) + va + vb
+                out += call + bytes((KCTL, 0xFD, len(va))) + va + vb
             elif key.startswith("CALL:") and int(key[5:], 16) in KANJI_SUFFIX_CALLS:
-                # Kanji tail: the call, $EE $FC cells (back over the kana
+                # Kanji tail: the call, $F0 $FC cells (back over the kana
                 # tail), the kanji (kanji_overlay.asm kanji_ctl).
                 ptr = int(key[5:], 16)
                 cells, text = KANJI_SUFFIX_CALLS[ptr]
-                tail = bytes((0xF8, ptr & 0xFF, ptr >> 8, 0xEE, 0xFC, cells))
+                tail = bytes((0xF8, ptr & 0xFF, ptr >> 8, KCTL, 0xFC, cells))
                 tail += compile_tokens(list(text), cmap)
                 if ptr == 0xD565:
-                    # The tactic's name: $EE $FB lenA, variant A (の計, after
-                    # the name's kanji from the pool), $EE $FE lenB, variant
+                    # The tactic's name: $F0 $FB lenA, variant A (の計, after
+                    # the name's kanji from the pool), $F0 $FE lenB, variant
                     # B (the call and its kanji tail; kanji_overlay.asm
                     # kanji_ctl).  The name takes a page's reserved entries.
-                    va = compile_tokens(list("の" + text), cmap) + bytes((0xEE, 0xFE, len(tail)))
-                    out += bytes((0xEE, 0xFB, len(va))) + va + tail
+                    va = compile_tokens(list("の" + text), cmap) + bytes((KCTL, 0xFE, len(tail)))
+                    out += bytes((KCTL, 0xFB, len(va))) + va + tail
                 else:
                     out += tail
             elif key.startswith("CALL:"):
@@ -497,11 +502,11 @@ def compile_tokens(tokens: list[str], cmap: dict[str, int]) -> bytes:
             continue
         ch = tok
         if ch in cmap:
+            # A kanji: $EC + its store bank (0-3), its pos (kanji.inc STORE_*).
             code = cmap[ch]
-            if code < 0x200:
-                out += bytes((0xEC + (code >> 8), code & 0xFF))
-            else:
-                out += bytes((0xEE, code >> 8, code & 0xFF))
+            if not 0 <= code < 0x400:
+                raise ValueError(f"kanji {ch}: code {code} outside the store")
+            out += bytes((0xEC + (code >> 8), code & 0xFF))
         else:
             b = char_to_byte(ch)
             if b is not None:
@@ -574,28 +579,25 @@ def page_from_bytes(data: bytes, extra_used: set[int] | None = None) -> tuple[li
 
     while i < len(data):
         b = data[i]
-        if b == 0xEE and i + 1 < len(data) and data[i + 1] >= 0xFB:
+        if b == KCTL and i + 1 < len(data) and data[i + 1] >= 0xFB:
             # Kanji-pick control: both variants' kanji stay in the page.
             # $FB, the tactic's name, takes reserved entries like a name.
             if data[i + 1] == 0xFB:
                 page.names += 1
             i += 4 if data[i + 1] == 0xFF else 3
             continue
-        if 0xEC <= b <= 0xEE:
-            n = 3 if b == 0xEE else 2
-            if i + n - 1 >= len(data):
+        if 0xEC <= b <= 0xEF:
+            if i + 1 >= len(data):
                 break
-            code = (data[i + 1] << 8 | data[i + 2]) if b == 0xEE else ((b - 0xEC) << 8) | data[i + 1]
+            code = ((b - 0xEC) << 8) | data[i + 1]
             if code not in kanji:
                 kanji.append(code)
             lines[-1].append(code)
-            i += n
+            i += 2
             continue
-        if b in (0xEF, 0xF0, 0xF1, 0xF2) and i + 1 < len(data):
+        if b in (0xF1, 0xF2) and i + 1 < len(data):
             idx = data[i + 1]
             table = {
-                0xEF: textdata.place_entries,
-                0xF0: textdata.dictionary_entries,
                 0xF1: textdata.item_entries,
             }.get(b)
             if table is not None:
@@ -1056,9 +1058,9 @@ def line_width_issues(rec: "Record", data: bytes) -> list[str]:
     i = 0
     while i < len(data):
         b = data[i]
-        if b == 0xEE and i + 2 < len(data) and data[i + 1] >= 0xFB:
-            # Pick: count variant A only ($EE $FE n then skips variant B);
-            # $EE $FC n steps back n cells; $FB's name counts 5 (with its
+        if b == KCTL and i + 2 < len(data) and data[i + 1] >= 0xFB:
+            # Pick: count variant A only ($F0 $FE n then skips variant B);
+            # $F0 $FC n steps back n cells; $FB's name counts 5 (with its
             # の計, the 8 of a runtime name).
             if data[i + 1] == 0xFC:
                 width -= data[i + 2]
@@ -1066,11 +1068,11 @@ def line_width_issues(rec: "Record", data: bytes) -> list[str]:
                 width += 5
             i += {0xFF: 4, 0xFD: 3, 0xFC: 3, 0xFB: 3}.get(data[i + 1], 3 + data[i + 2])
             continue
-        if 0xEC <= b <= 0xEE:
+        if 0xEC <= b <= 0xEF:
             width += 2
-            i += 3 if b == 0xEE else 2
+            i += 2
             continue
-        if b in (0xEF, 0xF0, 0xF1, 0xF2):
+        if b in (0xF1, 0xF2):
             width += 8
             i += 2
             continue
@@ -1213,16 +1215,12 @@ def build() -> int:
     overlay = overlay_path.read_bytes()
     if len(overlay) != OVERLAY_SIZE:
         raise SystemExit(f"overlay padding is {len(overlay)} bytes, expected {OVERLAY_SIZE}")
-    from kanji_common import GLYPHS_PER_BANK
-    glyphs = (OUT / "kanji_font.bin").stat().st_size // 32
-    glyph_banks = set(range(23, 23 + max(2, -(-glyphs // GLYPHS_PER_BANK))))
     need = sum(len(rec.data) + len(rec.meta_blob) for rec in unique)
     banks = list(TEXT_BANKS)
     for extra in TEXT_BANKS_EXTRA:
         if need <= len(banks) * TEXT_BANK_LIMIT * 0.97:
             break
-        if extra not in glyph_banks:
-            banks.append(extra)
+        banks.append(extra)
     TEXT_BANKS[:] = banks
     bank_data = {b: bytearray(0x4000) for b in TEXT_BANKS}
     for b in TEXT_BANKS:
