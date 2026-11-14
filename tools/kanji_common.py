@@ -180,14 +180,18 @@ BOOT_MENU = {
 }
 # The boot screens' fixed set (the user's, 2026-11-14), at upper-page tiles
 # $80 + 4k in this order: every kanji the boot screens show, the menu, the
-# windows' words, the name-entry title and the record prompts.  No band.
-BOOT_FIXED = "始歴史書登録消名前入戻進終速普通遅本当宜"
-# The messages the boot screens print (bank 13 $8B43-$8CEF; TXR_ON = $40):
-# their kanji are BOOT_FIXED's tiles.  Not here: b11_msg_145 (残念ですが…,
-# the record check before the menu, on the battle set's pool) and
-# b11_msg_147 (文字の速さを決めてください: nothing in the ROM prints it).
-BOOT_MESSAGES = ("b11_msg_146", "b11_msg_148", "b11_msg_149", "b11_msg_150",
-                 "b11_msg_151", "b11_msg_152")
+# windows' words, the name-entry title and the messages.  No band.  The
+# first 20 are the user's list; 残念 (b11_msg_145) and 文字決 (b11_msg_147)
+# were added at their word, the 25th kanji on the letters A-D ($E0-$E3),
+# which no boot screen shows (only L, $EB).
+BOOT_FIXED = "始歴史書登録消名前入戻進終速普通遅本当宜残念文字決"
+# The messages the boot screens print (TXR_ON = $40): their kanji are
+# BOOT_FIXED's tiles.  b11_msg_145 is the record check's (a damaged record,
+# bank 13 b13_k_check), b11_msg_147 the start screen's before the speed
+# window (b13_k_speed: the original never printed it), the rest bank 13
+# $8B43-$8CEF's.
+BOOT_MESSAGES = ("b11_msg_145", "b11_msg_146", "b11_msg_147", "b11_msg_148",
+                 "b11_msg_149", "b11_msg_150", "b11_msg_151", "b11_msg_152")
 MAP_UI_LABELS = ("金", "兵糧", "その他")
 GLOSSARY = ROOT / "decomp" / "text" / "kanji_r14" / "glossary.tsv"
 

@@ -2226,10 +2226,10 @@ Until now they used the band page (the pool tiles hold the set).  Now:
 - The overlay is 1830 / 2048 bytes.  The fixed bank changes only in
   `ctrl_store`'s address (`$D2C8`).
 
-**Not on the set:**
+**Not on the set (first commit, fixed below):**
 - b11_msg_145 (残念ですが／歴史書Nは／消えています): the record check
   before the menu (`$8A55` loop, `loc_C139`, `TXR_ON` = 0, set 8).  It is
-  shown only for a damaged record, and it still uses the band.  Its 残念
+  shown only for a damaged record, and it used the band.  Its 残念
   are outside the set.
 - b11_msg_147 (文字の速さを決めてください): nothing in the ROM prints it
   (no inline index `$0293` in banks 0-15; the speed window shows no
@@ -2253,3 +2253,56 @@ Until now they used the band page (the pool tiles hold the set).  Now:
 - The regression set (greeting, menu cycle, officer-switch battle, title,
   standard path from frame 2000): pixel-identical.
 - The original build is byte-identical.
+
+### The whole boot menu on the set (2026-11-14, second round)
+
+The user's answer: add 残念 and 文字決 (VRAM is enough; no band anywhere
+in the boot menu).  The speed message is the original's oversight: after
+a history book is chosen, show it first, then the speed window; when the
+speed window is cancelled, show どの歴史書を始めますか again.
+
+**The set: 25 kanji, tiles `$80-$E3`.**  The user's 20, then 残念文字決.
+- `$80-$DF` holds 24.  The 25th (決) takes `$E0-$E3`, the letters A-D.
+  No boot screen shows those: only L (`$EB`, the record list's level).
+  The title's PRESS START, TM, ©, ® and CAPCOM 1989 are drawn before the
+  boot screens.
+- `FIX_LIMIT` is `$E4`.
+- The game gets A-D back before it shows them: CHR RAM is byte-identical
+  to the previous build in the map (from a record) and during the oath
+  scene and the town (a new game).
+- The set upload (`txr_menuinit`, each boot screen, rendering off) takes
+  68,583 CPU cycles (2.3 frames), 54,888 for 20 kanji: +0.46 frame a
+  screen.
+
+**The record check** (bank 13 `b13_k_check`, the damaged-record path
+only): `ppu_init`, then `TXR_MENU` (the set, `TXR_ON` = `$40`), then
+b11_msg_145 as before.  A boot with sound records does not pay for it.
+
+**The speed message** (`b13_k_speed`, in place of `ldx #$29` / `jsr
+text_init` at `$8B71`): `input_buttons` = `$84`, window `$1E`,
+b11_msg_147, then the speed window `$29`.  This is the same sequence as
+the delete flow's b11_msg_150 before its yes/no window.  Cancel still
+goes to `$8B43`: the start screen is rebuilt with どの歴史書を始めますか
+and the book list, as the original did.  Both routines are reached by
+`jmp` and return by `jmp`, so the stack depth is the original's.  They sit
+in bank 13's filler after `b13_k_restore`.
+- **Layout:** the speed window (rows 12-19, columns 22-28) covers the
+  message window's top-right corner: its top border and the first text
+  line's top row at those columns.  The message's cells there (さい) are
+  plain kana with blank top rows, so the text is whole.  The original
+  never showed the two together.
+
+**Checked** (`out/test/opt/boot`, against the first commit's build):
+- Start flow from `rom_kanji.sav`: book, message and speed window,
+  cancel, どの歴史書を始めますか and the list again, book, speed, the map
+  (the same frame as before).
+- Damaged record: b11_msg_145 on the set, pixel-identical once printed,
+  8 frames sooner.  No band (2 IRQ enables; 178 before).
+- Delete, register and copy: no band; 60-70 of 61-71 shots identical at
+  the same frame.  The rest: a cursor blink, and a window caught mid-draw
+  (the longer upload).
+- Standard path from power-on: the band turns on once (the oath scene).
+  The screens differ only where the message now shows before the speed
+  window.  The oath starts at the same frame.
+- The regression set: pixel-identical.  The original build is
+  byte-identical.

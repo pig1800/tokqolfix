@@ -628,9 +628,10 @@ def build_ui_data() -> int:
 # menu's speed window $29 (columns 22-27) becomes 7 wide for 普通.
 MAP_UI_TEMPLATES = {0x18: (1, 12), 0x1C: (2, 10), 0x29: (3, 7)}
 # The boot screens' fixed set: upper-page tiles FIX_FIRST.. (the battle set
-# there is never shown on them; the UI block's L at $EB is kept).
+# there is never shown on them; of the letters from $E0 they show only L,
+# $EB, so the set may take A-D, $E0-$E3: the user, 2026-11-14).
 FIX_FIRST = 0x80
-FIX_LIMIT = 0xE0
+FIX_LIMIT = 0xE4
 # The labels TXF_LABEL writes (kanji_common.MAP_UI_LABELS order): the first
 # cell's offset from the row-buffer index passed in, and the index after.
 MAP_UI_LABEL_POS = ((-1, 3), (-1, 3), (0, 4))

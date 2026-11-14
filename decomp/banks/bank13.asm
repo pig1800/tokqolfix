@@ -274,8 +274,14 @@ b13_loc_8A7F:
     sta ($10),y
     iny
     sta ($10),y
+.ifdef KANJI_TARGET
+    jmp b13_k_check             ; (the boot screens' fixed set first)
+    nop
+b13_k_check_ret:
+.else
     lda #$84
     sta input_buttons
+.endif
     ldx #$1E
     jsr text_init
     jsr text_print_inline       ; inline pointer/data follows the JSR
@@ -404,8 +410,15 @@ b13_loc_8B6A:
     ldx text_menu_index
     lda $60A8,x                 ; Party member class/officer id.
     sta text_palette
+.ifdef KANJI_TARGET
+    jmp b13_k_speed             ; (文字の速さを決めてください first)
+    nop
+    nop
+b13_k_speed_ret:
+.else
     ldx #$29
     jsr text_init
+.endif
     lda #$01
     sta text_menu_index
     jsr loc_CDB6
@@ -609,8 +622,32 @@ b13_k_restore:
     jsr ATT_RESTORE
     jsr return_inline_block
     .dw b13_loc_8A23-1
-K_RESTORE_LEN = 16              ; (the 16 bytes above)
-    .incbin "build/assets/bank13_data.bin", $0D20 + BOOT_TITLE_LEN + K_RESTORE_LEN, $02E0 - BOOT_TITLE_LEN - K_RESTORE_LEN
+; A damaged record (2026-11-14, the user's "no band in the whole boot
+; menu"): the record check's screen gets the boot screens' fixed set before
+; b11_msg_145 (残念ですが…消えています), so its kanji are the set's tiles.
+; Only this path pays for the set: a boot with sound records does not.
+b13_k_check:
+    jsr ppu_init
+    jsr TXR_MENU
+    lda #$84
+    sta input_buttons
+    jmp b13_k_check_ret
+; Starting a history book (2026-11-14, the user's fix of the original's
+; oversight): b11_msg_147 (文字の速さを決めてください), which nothing printed,
+; before the speed window.  Cancelling the speed window goes back to the
+; start screen as before ($8B43: the book list and b11_msg_146 again).
+b13_k_speed:
+    lda #$84
+    sta input_buttons
+    ldx #$1E
+    jsr text_init
+    jsr text_print_inline       ; inline pointer/data follows the JSR
+    .dw b11_msg_index_147    ; text index $0293 -> b11_msg_147
+    ldx #$29
+    jsr text_init
+    jmp b13_k_speed_ret
+b13_k_end:
+    .incbin "build/assets/bank13_data.bin", $0D20 + (b13_k_end - boot_title_block), $02E0 - (b13_k_end - boot_title_block)
 .else
     .incbin "build/assets/bank13_data.bin", $0D1E, $02E2
 .endif
