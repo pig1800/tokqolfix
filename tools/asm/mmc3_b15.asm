@@ -18,6 +18,10 @@
 ;                dispatcher, replaced by the message engine's text_dispatch)
 ;   $F004-$F039  reset mapper/RAM setup, rewritten
 ;   $FFE0-$FFEF  block-writer original entry, the message engine's frame wait
+;   $FAD5-$FBC1  the dead developer debug overlay: free
+;   $FBC3-$FFD7  its dead hex font and tiles: the runtime at $FC00
+;                (fixed_rt.asm: IRQ, NMI stream, renderer stubs; RAM code
+;                until 2026-11-14)
 ;   $D671-$D6C1  copy_pointer_triplet and its divisor table (QoL: the
 ;                digits come from the UI bank; stubs in the space)
 ;   $C1D2-$C216  div24_shift (QoL: the UI bank divides; the block
@@ -40,7 +44,6 @@
 .include "../../decomp/include/hardware.inc"
 .include "../../decomp/include/ram.inc"
 .include "../../decomp/include/kanji.inc"
-.include "../../decomp/build/kanji/canvas_ram.inc"
 
 
 ; ----------------------------------------------------------------------
@@ -123,7 +126,7 @@ ef31_gate:
 ; NMI, not busy, after the game's flush, palette DMA and CHR-stream step:
 ; jumped to from $EED0 in place of "sta PPUSCROLL" ($EECE's "lda scroll_x"
 ; ran: A = scroll_x).  Map mode (TXR_ON bit 7): the renderer bank's
-; nmi_map (through the RAM's cv_nmi and nmi_cvg) uploads first and runs
+; nmi_map (through fixed_rt.asm cv_nmi and nmi_cvg) uploads first and runs
 ; the original's $EED0-$EF0A (the scroll, PPUMASK, ppu_nmi_on, the frame
 ; counter and task timers: no PPU work that must come first) after the
 ; uploads (TEXT_RENDERER.md "Upload speed", round 3).  Elsewhere the
@@ -144,7 +147,7 @@ nmi_gate:
     sta PPUCTRL                 ; 4
     jmp $EEE0                   ; 3  (+ the jump here: 42, as $EED0-$EEDF)
 @map:
-    jmp CV_NMI                  ; (the RAM image unchanged: old save states run)
+    jmp cv_nmi                  ; (fixed_rt.asm at $FC00)
     .db $EA, $EA                ; (the routines below keep their addresses)
 
 ; call_hack: A = function number.  Map hack bank 23, run its $8000
@@ -210,7 +213,7 @@ window_done:
 ; NMI: the only block write there is flush_palette's CHR-animation step,
 ; which already ends near the bottom of vblank; select the scene page with
 ; a few register writes (no bank switching) and let the NMI hook mark the
-; tiles stale afterwards (it sees $39 move).  cv_stream (RAM) runs the
+; tiles stale afterwards (it sees $39 move).  cv_stream (fixed_rt.asm) runs the
 ; step and forces the PPU address for a split right after it (the game's
 ; NMI goes on into the pre-render line before ef08_gate).
 c343_hook:
@@ -219,7 +222,7 @@ c343_hook:
     lda ppu_ctrl_shadow
     bpl @main
     jsr chr1_scene
-    jmp CV_STREAM               ; the step, then a split's address force
+    jmp cv_stream               ; the step, then a split's address force
 @main:
     jmp blk_main                ; (QoL: page 0 and the nametables skip the
                                 ; hack calls; $D671 block below)
@@ -228,15 +231,15 @@ c343_hook:
 ; per frame since map-canvas step 1.  Stage 0 (KANJI_IRQ_ST = 1 or 2)
 ; comes at the pre-render line's clock (irq_arm0 in the hack bank) and
 ; runs in line 0: it reloads the counter for line KANJI_IRQ_N.  It and the
-; dialogue canvas's two stages (KANJI_IRQ_ST bit 7, map-canvas step 3) run
-; from RAM (cv_irq).  Stage KANJI_IRQ_ST = 0: the opening oath's split
+; map's part switches (KANJI_IRQ_ST bit 7) run in fixed_rt.asm (cv_irq,
+; $FC00).  Stage KANJI_IRQ_ST = 0: the opening oath's split
 ; (irq_split); the band page's switch is gone (2026-11-14).  $8000 goes
 ; back to MMC3_SEL, as after every NMI.  A and the stack only.
 irq_handler:
     pha
     lda KANJI_IRQ_ST
     beq irq_split
-    jmp CV_IRQ
+    jmp cv_irq
 irq_off:
     jmp irq_off_tail
 
@@ -264,13 +267,13 @@ battle_shake_end:               ; (game code for the RAM gates)
 ; text_input ($CC02, the window templates), in draw_string_from_pointer
 ; ($D5C0, item, tactic and place names) and in the boot menu's lines (bank
 ; 13).  With TXR_ON bit 6 (map mode, the boot screens) the renderer bank
-; puts the byte, or a known kana word's kanji form (TXF_PUT, through RAM).
+; puts the byte, or a known kana word's kanji form (TXF_PUT, through txr_tpm).
 txr_tp:
     bit TXR_ON
     bvs @m
     jmp TEXT_PUT_TILE
 @m:
-    jmp TXR_TPM
+    jmp txr_tpm
 
 ; The opening oath's fixed split (TXR_ON = TXR_SPLIT; armed for line
 ; SPLIT_LINE by the renderer bank's cvn_split): R1 = CHR $3800, its kanji
@@ -360,8 +363,8 @@ call_ui:
 ; ----------------------------------------------------------------------
 .base $C2AB
 ; ----------------------------------------------------------------------
-; The nametable fill set_ppu_scroll: both vertical twins (cv_fill, RAM).
-    jmp CV_FILL                 ; set_ppu_scroll's "sta $00 / stx $01"
+; The nametable fill set_ppu_scroll: both vertical twins (cv_fill).
+    jmp cv_fill                 ; set_ppu_scroll's "sta $00 / stx $01"
 
 ; ----------------------------------------------------------------------
 .base $C4AD
@@ -445,10 +448,11 @@ reset_mmc3:
     jmp $F03A
 
 ; The reset vector's "jmp reset_init" comes here first (map-canvas step 3):
-; every MMC3 register and hack_init (clear the hack state, install the
-; canvas RAM code) before reset_init's PPU warm-up, whose three vblank waits
-; absorb the copy (after them it cost the game a frame).  NMIs and IRQs are
-; off; the stack is the power-on one until reset_init's txs.
+; every MMC3 register and hack_init (clear the hack state and battery RAM
+; $7900-$7FFF) before reset_init's PPU warm-up, whose three vblank waits
+; absorb the clear (after them the RAM image's copy, until 2026-11-14,
+; cost the game a frame).  NMIs and IRQs are off; the stack is the
+; power-on one until reset_init's txs.
 early_reset:
     ldx #7
 @reg:
@@ -888,7 +892,7 @@ attr_table_hi:
 ; screen below; this starts them 17 rows below the player (an up step
 ; draws 8 rows above its position).  Returns A = 17 rows.
 redraw_start:
-    jsr TXR_RD                  ; the map renderer's window close (TEXT_RENDERER.md)
+    jsr txr_rd                  ; the map renderer's window close (TEXT_RENDERER.md)
     inc text_y
     lda #$02
     jsr $D7A9                   ; cursor_add_x: cursor = text + 2 rows
@@ -1073,11 +1077,11 @@ wipe_rows_end:
 
 ; ----------------------------------------------------------------------
 ; text_init's "jsr scroll_map" ($CB1B, $CB80): step B's battle row hook
-; (RAM, cv_sm).
+; (cv_sm).
 .base $CB1B
-    jsr CV_SM
+    jsr cv_sm
 .base $CB80
-    jsr CV_SM
+    jsr cv_sm
 
 .base $FFDC
     jmp early_reset             ; reset vector: "jmp reset_init"
@@ -1178,4 +1182,41 @@ nmi_r7x:
                                 ; never 0 mod 256; X = PRG_R7X)
 .if $ > $D549
     .error "pon_kanji and nmi_prg outgrew put_officer_name's kanji path ($D4C9-$D548)"
+.endif
+
+
+; ----------------------------------------------------------------------
+; The developer debug overlay ($FAD5-$FBC1: RAM $60-$63 and $47 as hex
+; sprites when $A6 != 0) and its screens' 1bpp hex font and tiles
+; ($FBC3-$FFD7), dead: no caller, pointer or read on any path (the survey
+; of 2026-11-14, TEXT_RENDERER.md "The RAM code in bank 31").  $FAD4
+; (read_input_state's rts) and $FBC2 (nop_return2) stay.  Free but for
+; the runtime at $FC00.
+; ----------------------------------------------------------------------
+.base $FAD5
+.if $ > $FBC2
+    .error "the dead debug overlay's space is $FAD5-$FBC1"
+.endif
+.base $FBC3
+.if $ > $FC00
+    .error "the runtime starts at $FC00"
+.endif
+.base $FC00
+.include "fixed_rt.asm"
+.if $ > $FFD8
+    .error "the runtime outgrew the dead tiles ($FBC3-$FFD7)"
+.endif
+; The RAM image's layout, one page up from $7900 (the branches' pages, the
+; IRQ's dot timing): its labels at their old offsets.
+.if cv_irq != $FC00 || cv_stage != $FC20 || cv_w1 != $FC4D || txr_lat != $FC6D
+    .error "fixed_rt.asm: the IRQ code moved within its page"
+.endif
+.if cv_stream != $FC75 || cvs_copy != $FC9F || cv_sforce != $FD24 || cv_nmi != $FD64
+    .error "fixed_rt.asm: the NMI code moved within its page"
+.endif
+.if cv_fill != $FD7B || cv_sm != $FD8D || cv_wincb != $FDAE || txr_call != $FDB6
+    .error "fixed_rt.asm: the stubs moved"
+.endif
+.if txr_rr_gap != $FDDE || txr_dlx != $FE15 || txr_rcx != $FE41 || txr_menu != $FEE7 || rt_end != $FEEF
+    .error "fixed_rt.asm: the stubs moved"
 .endif

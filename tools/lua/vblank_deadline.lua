@@ -5,10 +5,10 @@
 -- end before dot 257 of the pre-render line.  Standard path + town.
 -- Unit entry addresses come from decomp/build/kanji/hack.lst (@ADDR@ lines
 -- are rewritten by tools/garble_run.py --lua ... or edited by hand).
-local A_ENTRY  = 0x800F  -- @nmi_ef08@
+local A_ENTRY  = 0x8012  -- @nmi_ef08@
 local A_PROBE  = 0x82E3  -- @probe_window@
 local A_UPLOAD = 0x848C  -- @upload_go@
-local A_POOLCHK = 0x8CC8  -- @pool_check_go@
+local A_POOLCHK = 0x8495  -- @pool_check_go@
 local A_RESTORE= 0x85C6  -- @restore_tile@
 local A_FORCE  = 0x886B  -- @arm_force@
 local A_FORCE_END = 0x8887  -- @arm_force_end@

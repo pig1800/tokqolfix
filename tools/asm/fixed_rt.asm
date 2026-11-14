@@ -1,33 +1,25 @@
 ; ======================================================================
-; RAM code (battery RAM at CV_RAM, $7900; the third save record's, which
-; the kanji target no longer offers).  kanji_build.py stores the image in
-; PRG bank CV_BANK at $A000; hack_init copies it at reset.  It must end
-; below TXR_TABLES (the map renderer's tables).
-;
-; Map-canvas step 3's dialogue canvas is gone (TEXT_RENDERER.md,
-; 2026-11-12): map windows draw into the visible nametable again and the
-; map text renderer (txr.asm, bank TXR_BANK) owns every text tile.  What
-; stays here must run with any bank mapped:
+; The fixed bank's runtime at $FC00 (included by mmc3_b15.asm, which sets
+; the .base): code that must run with any bank mapped.  Until 2026-11-14
+; it ran from battery RAM at $7900 (the "RAM image", copied at reset from
+; bank 27); the developer debug screens' dead tiles at $FBC3-$FFD7 hold it
+; now (TEXT_RENDERER.md "The RAM code in bank 31").  The layout is the RAM
+; image's, byte for byte, one page up from $7900: every branch keeps its
+; page relationship, so the IRQ and NMI parts keep their dot timing.
+; txr_rr's 55 bytes (it modified its own code) are a gap; txr.asm
+; read_kanji reads the store through R7 itself.
 ;   cv_irq    IRQ, KANJI_IRQ_ST != 0: stage 0, the map's part switches
 ;   cv_nmi    NMI, $EF0B and the fixed bank's nmi_gate: bank 26's nmi_cvg
 ;   cv_stream NMI, the game's CHR-stream step (c343_hook)
 ;   cv_fill   set_ppu_scroll (clear_screen): both twins; the font back
 ;   cv_sm     text_init's "jsr scroll_map": step B's battle hook
 ;   cv_wincb  the battle templates' line CALL (step B)
-;   txr_*     the renderer's stubs, waits, bank reader and NMI uploader
+;   txr_*     the renderer's stubs and waits
 ; ======================================================================
-.include "../../decomp/include/hardware.inc"
-.include "../../decomp/include/ram.inc"
-.include "../../decomp/include/kanji.inc"
-
 SCROLL_MAP        = $DB87
 LOC_C139          = $C139       ; NMI on, a frame, rendering on (the game's)
-CALL_UI_C         = $C48D       ; call_ui (mmc3_b15.asm; checked by kanji_build.py)
-C343_PLAIN        = $FFE0       ; c343_plain (mmc3_b15.asm; checked by kanji_build.py)
-FLUSH_VRAM_QUEUE  = $D9A1
 UPDATE_FRAME      = $C0D5
 SOUND_QUEUE_ADD   = $C4D5
-SET_BANK_CURRENT  = $C47E
 CELL_ROWS         = $DC8F       ; text_render_cell's row-buffer offsets
 RENDER_CELL_LOOP  = $DBD1       ; text_render_cell after its first three instructions
 TXR_NMI_CV        = $8003       ; txr.asm: nmi_cv, nmi_live (the bank's first
@@ -35,9 +27,6 @@ TXR_NMI_LIVE      = $8006       ; 8 KiB, mapped at $8000 by txr_map6 in the NMI)
 
 ; IRQ delay (calibrated: the R0 data write lands in dots 257-320).
 TXR_D             = 1
-
-.base CV_RAM
-.org CV_RAM
 
 ; ----------------------------------------------------------------------
 ; IRQ (A pushed by irq_handler), KANJI_IRQ_ST != 0.
@@ -128,7 +117,7 @@ cv_irq_end:
 cv_stream:
     lda nmi_mode
     beq cvs_map
-    jmp C343_PLAIN              ; title / scenes: the game's body, as before
+    jmp c343_plain              ; title / scenes: the game's body, as before
 cvs_map:
     lda $04
     and #$0F
@@ -138,7 +127,7 @@ cvs_map:
     cpx #16
     bcc cvs_fast
 cvs_plain:
-    jsr C343_PLAIN              ; the step (write_vram_block's body)
+    jsr c343_plain              ; the step (write_vram_block's body)
     jmp cvs_split
 cvs_fast:
     ; Mode 0 (plain tiles), as the game's body but in one loop: $02 tiles
@@ -309,7 +298,7 @@ cv_sm:
     lda $0101,x
     sta UI_SMRET
     ldx #UIF_SM
-    jsr CALL_UI_C
+    jsr call_ui
     lda vram_queue_write        ; a long queue (the blanking beside a
     sec                         ; command window): flushed now, so the
     sbc vram_queue_read         ; next row pair cannot push the NMI's
@@ -325,7 +314,7 @@ cv_sm:
 cv_wincb:
     stx UI_X
     ldx #UIF_WINCB
-    jmp CALL_UI_C
+    jmp call_ui
 
 ; ======================================================================
 ; Map text renderer stubs (txr.asm in bank TXR_BANK)
@@ -353,31 +342,15 @@ txr_call:
     sta $11
     rts
 
-; TXR_GBUF[TXR_RO..] = TXR_RN bytes of 16 KiB bank A from TXR_RS, every
-; TXR_RST bytes; then the renderer bank again.  Main thread.
-txr_rr:
-    jsr SET_BANK_LOCK
-    lda TXR_RS
-    sta txr_rr_src+1
-    lda TXR_RS+1
-    sta txr_rr_src+2
-    ldx TXR_RO
-    ldy TXR_RN
-txr_rr_src:
-    lda $FFFF
-    sta TXR_GBUF,x
-    inx
-    lda txr_rr_src+1
-    clc
-    adc TXR_RST
-    sta txr_rr_src+1
-    lda txr_rr_src+2
-    adc TXR_RST+1
-    sta txr_rr_src+2
-    dey
-    bne txr_rr_src
-    lda #TXR_BANK
-    jmp SET_BANK_LOCK
+; (55 bytes free: txr_rr's, the glyph reader, which rewrote its own
+; operand and so could only run from RAM; txr.asm read_kanji maps the
+; store at R7 itself now.  The gap keeps the routines below at their RAM
+; image offsets.)
+txr_rr_gap:
+.if $ > $FE15
+    .error "the runtime moved: txr_rr's gap must end at $FE15"
+.endif
+.base $FE15
 
 ; text_draw_line's end ($DD03, X = the queue's end): in map mode the
 ; renderer translates the line's entries first.
@@ -525,4 +498,4 @@ txr_menu:
     jsr txr_call
     jmp LOC_C139
 
-cv_ram_end:
+rt_end:

@@ -174,7 +174,7 @@ def main() -> int:
     olabels = original_labels()
     size = lambda name: (OUT / name).stat().st_size
 
-    HACK, ATT, TXR, CV, UI = K["KANJI_HACK_BANK"], kb.ATT_BANK, K["TXR_BANK"], K["CV_BANK"], K["UI_BANK"]
+    HACK, ATT, TXR, UI = K["KANJI_HACK_BANK"], kb.ATT_BANK, K["TXR_BANK"], K["UI_BANK"]
     STORE = K["STORE_16K"]
     text_banks = report["data_banks"]
     regions: dict[int, list[Region]] = {b: [] for b in range(32)}
@@ -360,15 +360,6 @@ def main() -> int:
         add(TXR, 0x2000, tinc - 1, "code", "renderer code (main thread)")
     add(TXR, tinc, tl - 1, "data", "txr_ui.inc: map UI words, labels, boot / oath fixed sets, names' codes")
     add(TXR, tl, B - 1, "free", "free")
-
-    # ---------------- the RAM image bank
-    kind_of[CV] = "RAM image"
-    cl = size("canvas_ram.bin")
-    copy_end = K["CV_RAM_PAGES"] * 0x100
-    add(CV, 0, 0x1FFF, "free", "free")
-    add(CV, 0x2000, 0x2000 + cl - 1, "code", f"canvas RAM image ({cl} bytes), copied to ${K['CV_RAM']:04X} at reset")
-    add(CV, 0x2000 + cl, 0x2000 + copy_end - 1, "data", "the rest of the reset copy (zero; it clears the RAM behind the image)")
-    add(CV, 0x2000 + copy_end, B - 1, "free", "free")
 
     # ---------------- the UI bank
     kind_of[UI] = "UI bank"

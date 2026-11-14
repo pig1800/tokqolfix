@@ -1,6 +1,6 @@
 ; ======================================================================
 ; Map-mode text renderer (TEXT_RENDERER.md, 2026-11-12).  PRG bank
-; TXR_BANK, assembled for $8000.  txr_call (RAM, canvas_ram.asm) maps it
+; TXR_BANK, assembled for $8000.  txr_call (fixed_rt.asm) maps it
 ; with the game's lock protocol and calls $8000 with X = function; $10/$11
 ; are saved around the call.  Main thread only.
 ;
@@ -23,7 +23,6 @@
 .include "../../decomp/include/hardware.inc"
 .include "../../decomp/include/ram.inc"
 .include "../../decomp/include/kanji.inc"
-.include "../../decomp/build/kanji/canvas_ram.inc"
 .include "../../decomp/build/kanji/fixed_hooks.inc"
 
 PTR             = $10           ; (saved by txr_call)
@@ -1162,34 +1161,56 @@ read_kana:
     rts
 
 ; TXR_GBUF[0-31] = kanji glyph TXR_K (store bank TXR_K+1, pos TXR_K), in
-; the store's order (8x16: TL, BL, TR, BR, 8 rows each).  The store's 8 KiB
-; bank TXR_K+1 is half (TXR_K+1) & 1 of the 16 KiB bank STORE_16K +
-; (TXR_K+1) >> 1, which the RAM reader maps (lock protocol): byte b at
-; $8000 + $2000 * half + 256 b + pos.
+; the store's order (8x16: TL, BL, TR, BR, 8 rows each): byte b at
+; STORE_TAB + 256 b + pos with the store's 8 KiB bank STORE_8K + TXR_K+1
+; at R7, PRG_R7X set (an NMI's restore keeps it; ui.asm M_STMAP), then R7
+; back to this bank's upper half, PRG_R7X cleared first (M_STUNMAP).  The
+; loop runs in this bank's lower half and touches no upper-half data.
+; (Until 2026-11-14 a RAM routine mapped the store as the current bank.)
+; Called only where the main thread writes CHR itself (rendering off or
+; the NMI busy: txr_menuset, txr_oathset, is_direct's glyphs).  Padded to
+; the old reader's cycles.  PTR lost, X = 0, Y = pos.
+RK_PAD          = 168           ; 5 * 168 + 1 = 841 cycles
 read_kanji:
-    lda TXR_K
-    sta TXR_RS
     lda TXR_K+1
-    and #1
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    ora #$80
-    sta TXR_RS+1                ; $80 or $A0
+    ora #STORE_8K
+    sta PRG_R7X
+    tax
+    lda #MMC3_R7
+    sta MMC3_SEL
+    sta MMC3_SELECT
+    stx MMC3_DATA
+    lda #<STORE_TAB
+    sta PTR
+    lda #>STORE_TAB
+    sta PTR+1
+    ldy TXR_K
+    ldx #0
+@b:
+    lda (PTR),y
+    sta TXR_GBUF,x
+    inc PTR+1
+    inx
+    cpx #32
+    bne @b
     lda #0
-    sta TXR_RST
-    sta TXR_RO
-    lda #1
-    sta TXR_RST+1               ; stride 256
-    lda #32
-    sta TXR_RN
-    lda TXR_K+1
-    lsr a
-    clc
-    adc #STORE_16K
-    jmp TXR_RR
+    sta PRG_R7X
+    lda #MMC3_R7
+    sta MMC3_SEL
+    sta MMC3_SELECT
+    lda #TXR_BANK*2+1
+    sta MMC3_DATA
+    ldx #RK_PAD                 ; (the RAM reader's 1,618 cycles, jsr to
+@pad:                           ; return: the boot entry and the oath read
+    dex                         ; 25 and 20 glyphs with rendering off, and
+    bne @pad                    ; 841 cycles less moved the boot menu a
+    rts                         ; frame earlier, and the standard path's RNG)
+.if $ > $A000
+    .error "read_kanji must run in the bank's lower half (R7 holds the store)"
+.endif
+.if >@pad != >$
+    .error "read_kanji's pad loop crosses a page (+1 cycle per pass)"
+.endif
 
 ; ======================================================================
 ; Staging: TXR_SN records built in TXR_UQ, then published (TXR_UQN) for

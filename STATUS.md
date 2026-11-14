@@ -19,6 +19,11 @@ tests; see CHANGELOG for what each revision fixed.
   tables in banks 23-25), with the message engine (`kanji_msg.asm`, the
   old overlay, out of the text banks since 2026-11-14: TEXT_RENDERER.md
   "The message engine out of the text banks").
+- The runtime that must run with any bank mapped (the IRQ's part
+  switches, the NMI's stream step, the renderer's stubs: `fixed_rt.asm`)
+  in bank 31 at `$FC00`, in the dead developer debug screens' space, since
+  2026-11-14 (battery RAM `$7900` before, copied from bank 27 at reset):
+  TEXT_RENDERER.md "The RAM code in bank 31".  No code runs from RAM.
 - Text: revision-14 Opus re-conversion (`decomp/text/kanji_r14/`), laid out by
   `tools/kanji_layout.py` into `decomp/text/kanji_plan/bank1X_messages_kanji_r14.dtx`
   (the compiler's source when present); text in four 8 KiB chunks
@@ -144,11 +149,10 @@ kanji-store build:
 | Message text (758 unique messages; no metadata since 2026-11-14, 13.6 before, 52.5 before the debloat) | 30.2 | four 8 KiB chunks, banks 18-19 (1.8 free in the last) |
 | Hack code, the message engine (1.4, the old overlay: 2 KiB in each of 4 text banks before 2026-11-14), palette tables | 3.1 | bank 23 lower half |
 | Map renderer | 11.7 | bank 26 |
-| RAM image | 0.7 | bank 27 upper half |
 | UI bank (code, tables, the officer names' codes 1.3) | 9.5 | bank 28 |
-| Fixed bank (slot 15 free since the debloat: JAM bytes) | 16 | bank 31 |
+| Fixed bank (slot 15 free since the debloat: JAM bytes; the runtime, the old RAM image, at `$FC00` since 2026-11-14) | 16 | bank 31 |
 | Title screen and attract mode (2026-11-14: code, tile sets, phrases) | 4.2 | bank 24 |
-| **Free** | **186.8 in all** | banks 15 (JAM), 20, 21, 22, 25, 29, 30 (16 each); bank 23 (12.9); bank 27 (14.2); bank 24 (11.6); bank 28 (6.5); bank 26 (4.3); bank 19 (1.8); banks 10/11 (22.2, while mapped).  DEBLOAT_TODO "Done (2026-11-14)"; every region and hole by address: MEMORY_MAP.md |
+| **Free** | **189.1 in all** | banks 15 (JAM), 20, 21, 22, 25, 27, 29, 30 (16 each); bank 23 (12.9); bank 24 (11.6); bank 28 (6.5); bank 26 (4.3); bank 19 (1.8); bank 31 (0.6); banks 10/11 (22.2, while mapped).  Battery RAM `$7900-$7BF4` (757 bytes) since the RAM code went to bank 31.  DEBLOAT_TODO "Done (2026-11-14)"; every region and hole by address: MEMORY_MAP.md |
 
 Before the store (`fd47464`): 29 KiB free.  The store replaced the band
 page / battle copy (33.7 KiB, banks 23-25, with three copies of the hack

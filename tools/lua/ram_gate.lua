@@ -29,26 +29,28 @@ end
 local function rd(a) return emu.read(a, emu.memType.nesMemory) end
 local A_MAIN_PRG = 0xC5BA  -- @main_prg@
 local fixed_ranges = {{A_MAIN_PRG,0xC6D1},{0xC460,0xC47D},{0xC4AD,0xC4CA},{0xD291,0xD2B6},{0xF004,0xF039},{0xFFE0,0xFFEF}}
-local A_BATTLE_SHAKE = 0xC697  -- @battle_shake@
-local A_BATTLE_SHAKE_END = 0xC6AB  -- @battle_shake_end@
-local A_LTG_MASK = 0x8A8C  -- @ltg_mask@
+local A_BATTLE_SHAKE = 0xC676  -- @battle_shake@
+local A_BATTLE_SHAKE_END = 0xC68A  -- @battle_shake_end@
+local A_LTG_MASK = 0x8425  -- @ltg_mask@
 local A_REDRAW_START = 0xDB67  -- @redraw_start@
-local A_LTG_MASK_END = 0x8AB7  -- @ltg_mask_end@
-local A_CV_FILL = 0x7A7B  -- @cv_fill@
-local A_CV_FILL_END = 0x7A8D  -- @cv_fill_end@
-local A_CV_STREAM = 0x7975  -- @cv_stream@
-local A_CV_SCOPY_END = 0x7A14  -- @cv_scopy_end@
+local A_LTG_MASK_END = 0x8450  -- @ltg_mask_end@
+local A_CV_FILL = 0xFD7B  -- @cv_fill@
+local A_CV_FILL_END = 0xFD8D  -- @cv_fill_end@
+local A_CV_STREAM = 0xFC75  -- @cv_stream@
+local A_CV_SCOPY_END = 0xFD14  -- @cv_scopy_end@
+local A_RT = 0xFC00  -- @cv_irq@
+local A_RT_END = 0xFEEF  -- @rt_end@
 local function hack_pc(pc)
   -- load_text_graphics' palette mask, moved to the hack bank (map-canvas
   -- step 1): the original routine's writes ($3D, $A5), game code
   if pc > A_BATTLE_SHAKE and pc <= A_BATTLE_SHAKE_END then return false end  -- bank-14 shake, moved (step 2)
-  if pc > A_CV_FILL and pc <= A_CV_FILL_END then return false end  -- the nametable fill (game code, in RAM)
+  if pc > A_CV_FILL and pc <= A_CV_FILL_END then return false end  -- the nametable fill (game code, in the runtime)
   if pc > A_CV_STREAM and pc <= A_CV_SCOPY_END then return false end  -- the stream step's plain copy (same)
   if pc > A_LTG_MASK and pc <= A_LTG_MASK_END and rd(0x8000) == 0x4C then return false end  -- (write callbacks see the next pc)
   if pc >= 0x8000 and pc < 0x8C00 and rd(0x8000) == 0x4C and rd(0x8003) == 0x4C and rd(0x8006) == 0x4C then return true end
   if pc >= 0xB900 and pc < 0xBF00 and rd(0x8000) == 0x4C and rd(0x8003) == 0x4C and rd(0x8006) == 0x4C then return true end  -- second hack segment
   if pc >= 0xB800 and pc < 0xC000 and rd(0xB800) == 0x8E then return true end
-  if pc >= 0x7900 and pc < 0x8000 then return true end      -- canvas RAM code (map-canvas step 3)
+  if pc >= A_RT and pc < A_RT_END then return true end      -- the runtime (fixed_rt.asm; RAM code at $7900 until 2026-11-14)
   if pc > A_REDRAW_START and pc <= A_REDRAW_START + 3 then return true end  -- its "lsr CV_REDIR" (write callbacks see the next pc)
   if pc >= 0xBF00 and pc < 0xBF30 then return true end      -- far trampoline
   for _, r in ipairs(fixed_ranges) do if pc >= r[1] and pc <= r[2] then return true end end

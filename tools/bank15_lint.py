@@ -50,12 +50,12 @@ PATCHES = [
     (0xE238, 0xE23A),   # same
     (0xE10F, 0xE115),   # slot loop end: cpx #$0A / bne loc_E0A3 / jsr call_ui (UIF_BSETUP_END)
     (0xEED0, 0xEED2),   # jmp nmi_gate (map mode: the uploads first)
-    (0xEF0B, 0xEF0F),   # jmp cv_nmi (RAM: bank 26's nmi_cvg) + nop nop
+    (0xEF0B, 0xEF0F),   # jmp cv_nmi (bank 26's nmi_cvg) + nop nop
     (0xEF31, 0xEF33),   # jmp ef31_gate
     (0xF004, 0xF039),   # reset: MMC3 registers + hack RAM clear (rewritten)
     (0xFFE0, 0xFFEF),   # block-writer entry, the message engine's frame wait (padding)
     (0xFFFE, 0xFFFF),   # IRQ vector: irq_handler (MMC3 scanline IRQ)
-    # the map text renderer (TEXT_RENDERER.md): RAM stubs
+    # the map text renderer (TEXT_RENDERER.md): the runtime's stubs (fixed_rt.asm)
     (0xDD03, 0xDD05),   # text_draw_line's end: jmp txr_dlx
     (0xDBCA, 0xDBCC),   # text_render_cell: jmp txr_rcx
     (0xCD07, 0xCD0A),   # text_draw_cursor's tile store: jsr txr_cur / nop
@@ -70,6 +70,11 @@ PATCHES = [
     (0xC4FD, 0xC509),   # return_inline_block: the return address read before the pops (IRQ-safe)
     (0xF0D8, 0xF0D8),   # enter_party_screen: lda #ATT_BANK (the attract mode in kanji)
     (0xF0DD, 0xF0DE),   # its jmp: bank 24's $8000
+    # the dead developer debug overlay and its screens' font and tiles
+    # (survey 2026-11-14, TEXT_RENDERER.md "The RAM code in bank 31");
+    # $FAD4 and $FBC2 (two rts) stay
+    (0xFAD5, 0xFBC1),   # the debug overlay: free
+    (0xFBC3, 0xFFD7),   # the debug screens' dead hex font and tiles: the runtime (fixed_rt.asm; RAM code until 2026-11-14)
 ]
 
 

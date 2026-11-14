@@ -475,7 +475,8 @@ allocation failure:
 
 States saved by one build hold that build's RAM image.  After every
 change to `canvas_ram.asm`, reinstall it with `tools/mss_canvas.py
-<state> <out> --keep`.
+<state> <out> --keep`.  (Obsolete since 2026-11-14: there is no RAM code;
+"The RAM code in bank 31" below.)
 
 ## Work order (after the answers)
 
@@ -2675,3 +2676,93 @@ bytes (bank 10) and 2,374 -> 1,788 (bank 11).
   「は<CALL:D565=さくりゃく>を覚えた」 page shows 計 as its 言 half and 覚
   blank (frame 1700 of the r4/s2 run): the call's kanji tail and the
   page's kanji meet in the pool's slots.  Not fixed here.
+
+## The RAM code in bank 31 (2026-11-14)
+
+The user asked why 751 bytes of code sat in battery RAM (the "RAM image",
+`$7900-$7BEE`: 37% of the 2 KiB the dropped third save record left) and
+whether bank 31 could hold it.  It could not before: bank 31 had 30 free
+bytes, and the code must run with any bank mapped (IRQ, NMI, hooks called
+by the game's own routines, code that switches banks), so only bank 31
+and RAM qualify.  A survey then found 1,282 dead bytes in bank 31.
+
+**The survey** (scratch tools in `out/`): every read and execute in the
+candidate blocks on 10 paths (the power-on standard path, 6,200 frames;
+attract mode; two boot flows; the menu cycle; shop; record office; three
+battles), and a search of every bank for `jsr` / `jmp`, pointers,
+immediate pairs and inline pointers (`jsr $C33A`, the block writer; `jsr
+$C4FB`, return_inline_block) into them.
+
+| Block | Bytes | What | Verdict |
+|---|---:|---|---|
+| `$E93D-$EE78` | 1,328 | menu scripts, `data_EDA1` / `data_EDD1` | live (every menu): stays |
+| `$FAD4` | 1 | read_input_state's `rts` | live: stays |
+| `$FAD5-$FBC1` | 237 | developer debug overlay (RAM `$60-$63`, `$47` as hex sprites when `$A6` != 0) | dead: no caller, no pointer, never executed |
+| `$FBC2` | 1 | `nop_return2` (`rts`), called by `$F078` | live: stays |
+| `$FBC3-$FBE0` | 30 | `jmp $C09F` and a sprite-position table | dead: no reference |
+| `$FBE1-$FC60` | 128 | 1bpp hex font 0-F | dead: read only by bank 13's developer memory viewer (`$93BB`, `.dw $FBE1` at `$93DC`), which has no caller |
+| `$FC61-$FFD7` | 887 | more 1bpp tiles (the same developer screens) | dead: no reader |
+
+(The reads logged "at" `$FAD4` and `$FBC3` were the CPU's dummy fetch
+after the `rts` at `$FAD3` / `$FBC2`.)
+
+**The layout:**
+- `tools/asm/fixed_rt.asm` (ex `canvas_ram.asm`) is included by
+  `mmc3_b15.asm` at `$FC00`: the image's code in the same order at the
+  same page offsets (`$79xx` -> `$FCxx`).  Every branch keeps its page
+  relation, so the IRQ's part switches and the NMI's stream step keep
+  their dot timing.  The bytes are the image's but for the 15 high bytes
+  of its internal jumps (+`$83`); `.if` checks pin the labels.
+- `txr_rr`, the glyph reader, rewrote its own operand and so could only
+  run from RAM.  Its 55 bytes are a gap (`$FDDE-$FE14`), so the stubs
+  after it keep their offsets.  `txr.asm` `read_kanji` maps the store's
+  8 KiB bank at R7 with `PRG_R7X` set (as the UI bank's `M_STMAP`) and
+  reads the 32 bytes itself.  Then it maps R7 back, clearing `PRG_R7X`
+  first.
+- `read_kanji` is padded to the old reader's 1,618 cycles (jsr to
+  return).  The boot entry reads 25 glyphs and the oath 20, with
+  rendering off.  Unpadded (777 cycles), the boot menu showed a frame
+  earlier, and the standard path's frame-scheduled inputs diverged from
+  frame 2380 on.
+- The patches (`$EF0B`, `$DD03`, `$DBCA`, `$CD07`, `$CF22`, the battle
+  templates) take the addresses from `mmc3_b15.lst`.  `fixed_hooks.inc`
+  exports `CV_WINCB`, `TXR_CALL` and `TXR_MENU` for banks 13/14 and the
+  hack bank.  `canvas_ram.inc` and the bank-27 image are gone.
+- The window templates' `$F8 <addr> n`: the interpreter (`$CBD8`) jumps
+  through `($F3)` with the address as given, so `cv_wincb` at `$FDAE`
+  works as `$7AAE` did.
+- `hack_init` clears `$7900-$7FFF` at reset (unrolled, as the copy was).
+  The copy of 7 pages from bank 27 used to clear the image's tail the
+  same way.
+
+**Freed:**
+- Battery RAM `$7900-$7BF4`: 757 bytes, unused now (the reset still
+  clears it).
+- Bank 27: 16 KiB, blank.
+- RAM `$0788-$078D`: `txr_rr`'s arguments.
+- Bank 31: 586 bytes, registered in `HOOK_RANGES` and `bank15_lint.py`.
+  They are `$FAD5-$FBC1` (237), `$FBC3-$FBFF` (61), the gap (55) and
+  `$FEEF-$FFD7` (233).
+- 186.8 -> 189.1 KiB free (MEMORY_MAP.md).
+
+**Old save states:**
+- A state saved by a build with RAM code keeps that code at `$7900`, in
+  its own battery RAM.  The new ROM never calls it.  A state saved
+  mid-call returns into it once, which is harmless.
+- `tools/mss_canvas.py` only clears the renderer state now.
+- The test harness still installs the previous build's image (`<rom>_ram.bin`)
+  for the state-based tests.
+
+**Checked** (against the build before, the same ROM as `c8d`):
+- Pixel-identical on 13 tests, 3,193 screenshots: greeting, menu cycle,
+  officer-switch, level-up and capture battles, title, the standard path
+  from frame 2000, the oath and the five boot flows.  The exception is
+  the copy flow's frame 800: 2 pixels of the menu window's top border
+  (row 41).  It repeats on a second run of each build and is gone by
+  frame 802.  This build-to-build jitter has shown at this frame before.
+- `read_kanji`: 1,618 cycles on all 25 boot-entry calls, as before, and
+  on the same frames.
+- The `$FC00` block equals the old image but for the 15 relocated high
+  bytes.  The gap and the free blocks hold the original bytes.
+- `bank15_lint.py` OK (75 ranges); the original build is byte-identical;
+  `scroll_scan.py`: 0 of 765.

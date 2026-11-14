@@ -31,7 +31,6 @@
 .include "../../decomp/include/ram.inc"
 .include "../../decomp/include/kanji.inc"
 .include "../../decomp/build/kanji/fixed_hooks.inc"
-.include "../../decomp/build/kanji/canvas_ram.inc"
 
 LIGHT_QUEUE  = 8            ; max queued bytes for a light frame
 ; NMI scratch in the read-back buffer (the main thread uses the buffer only
@@ -404,9 +403,10 @@ nmi_ef31:
 
 ; ----------------------------------------------------------------------
 ; Reset (map-canvas step 3), called by the fixed bank's reset with this
-; bank at R6/R7 and NMIs off: clear the hack state ($0103-$017F) and the
-; canvas state ($0780-$07FF), copy the canvas RAM code from bank CV_BANK
-; ($A000, mapped at R7 for the copy) to CV_RAM.
+; bank at R6/R7 and NMIs off: clear the hack state ($0103-$017F), the
+; renderer state ($0780-$07FF) and battery RAM $7900-$7FFF (the renderer's
+; tables and buffers, the UI bank's state; RAM code until 2026-11-14,
+; fixed_rt.asm now).
 ; ----------------------------------------------------------------------
 hack_init:
     lda #0
@@ -421,30 +421,17 @@ hack_init:
     sta CV_REDIR,x
     dex
     bpl @c2
-    lda #MMC3_R7
-    sta MMC3_SELECT
-    lda #CV_BANK*2+1
-    sta MMC3_DATA
-    ldx #0                      ; (unrolled: the reset must not cost the
-@cp:                            ; game a frame)
-    lda $A000,x
-    sta CV_RAM,x
-    lda $A100,x
-    sta CV_RAM+$100,x
-    lda $A200,x
-    sta CV_RAM+$200,x
-    lda $A300,x
-    sta CV_RAM+$300,x
-    lda $A400,x
-    sta CV_RAM+$400,x
-    lda $A500,x
-    sta CV_RAM+$500,x
-    lda $A600,x
-    sta CV_RAM+$600,x
+    tax                         ; (A = 0; unrolled: the reset must not
+@c3:                            ; cost the game a frame)
+    sta $7900,x
+    sta $7A00,x
+    sta $7B00,x
+    sta $7C00,x
+    sta $7D00,x
+    sta $7E00,x
+    sta $7F00,x
     inx
-    bne @cp
-    lda #KANJI_HACK_BANK*2+1
-    sta MMC3_DATA
+    bne @c3
     rts
 
 ; ======================================================================

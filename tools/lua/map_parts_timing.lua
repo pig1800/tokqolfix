@@ -56,10 +56,10 @@ local function pos(add)
   return sl, dot
 end
 local NMI = 0xEE79               -- the game's NMI entry (vector $FFFA)
-local CV_IRQ = 0x7900  -- @cv_irq@
-local CV_STAGE = 0x7920  -- @cv_stage@
-local CV_W1 = 0x794D  -- @cv_w1@
-local CV_LAST = 0x7953  -- @cv_last@
+local CV_IRQ = 0xFC00  -- @cv_irq@
+local CV_STAGE = 0xFC20  -- @cv_stage@
+local CV_W1 = 0xFC4D  -- @cv_w1@
+local CV_LAST = 0xFC53  -- @cv_last@
 local CV_BNE = CV_STAGE + 10     -- "bne cv_quit" (A = nmi_busy | KANJI_MAINCHR)
 local CV_LASTW = CV_LAST + 7     -- cv_last's "sta MMC3_DATA"
 local seq = nil

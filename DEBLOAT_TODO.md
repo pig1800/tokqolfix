@@ -88,6 +88,24 @@ out of the text banks; no metadata".
   standard path, the oath and the boot flows (the copy flow's frame 800
   border line aside); `main_prg` keeps its 63 cycles and 36 bytes.
 
+## Done (2026-11-14, third round): the RAM code into bank 31
+
+The user asked why 751 bytes of code sat in battery RAM and whether bank
+31 could hold them.  TEXT_RENDERER.md "The RAM code in bank 31".
+
+- **The survey:** 1,282 dead bytes in bank 31: the developer debug
+  overlay (`$FAD5-$FBC1`) and its screens' hex font and tiles
+  (`$FBC3-$FFD7`).  The menu scripts at `$E93D-$EE78` are live, as are
+  the two `rts` at `$FAD4` and `$FBC2`.
+- **Moved:** the RAM image's code to `$FC00-$FEEE` (`fixed_rt.asm`), at
+  the same page offsets.  The self-modifying `txr_rr` is gone: `read_kanji`
+  reads the store at R7, padded to the old cycles.
+- **Free now:** 189.1 KiB (186.8 before).
+  - Bank 27 (16 KiB, the image's bank) is blank.
+  - Battery RAM `$7900-$7BF4`: 757 bytes.
+  - Bank 31: 586 bytes.
+- **Checked:** see TEXT_RENDERER.md.
+
 ## Free before the debloat (banks 16-31, 81.4 KiB since the attract mode, 2026-11-14)
 
 | Where | KiB | Note |

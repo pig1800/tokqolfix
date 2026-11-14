@@ -2,8 +2,12 @@
 ; Kanji-target RAM, font and text-runtime constants (revision 11)
 ; ======================================================================
 ;
-; Battery-backed PRG RAM ($6000-$7FFF) belongs entirely to the game and is
-; never touched by this hack.
+; Battery-backed PRG RAM: $6000-$77FF belongs to the game (its save
+; records).  $7800-$7FFF, the third record's, which the kanji target does
+; not offer: the map's attribute shadow (MAP_ATTR, $7800-$78FF), free
+; $7900-$7BF4 (the RAM code's until 2026-11-14), the text renderer's tables
+; and buffers from TXR_KM ($7BF5) up, the UI bank's state (UI_RAM2,
+; UI_RAM), PRG_R7X.  hack_init clears $7900-$7FFF at reset.
 ;
 ; Persistent hack state lives only in $0131-$017F.  That range sits between
 ; the text task's stack (top $0130) and the engine's saved tile rows
@@ -13,7 +17,8 @@
 ; chest index there across a message; revision 16c moved the message engine's
 ; scratch off them).  Nothing is stored in $0104-$0130 (task stacks and
 ; number scratch) or in $01E0-$01FF (main stack and its overflow margin).
-; There is no RAM code.
+; There is no RAM code: what must run with any bank mapped is in bank 31
+; (mmc3_b15.asm, fixed_rt.asm at $FC00).
 ;
 ; CHR (16 KiB RAM, MMC3 CHR mode 1, revision 21): page 0 sprites (R2-R5),
 ; page 1 scene, page 2 band.  Only BG tiles $00-$7F switch (R0, 2 KiB):
@@ -239,9 +244,8 @@ FN_SERVICE        = 2       ; main thread, rendering off: serve KANJI_REQ
 ; same in-half rows), with the map's tiles and palettes beside it, and a
 ; split IRQ shows it from line 144.  The visible half keeps the map.
 ; State in internal RAM $0780-$07FF (the old attribute shadow), cleared by
-; hack_init at reset; the code runs from battery RAM at CV_RAM (copied from
-; PRG bank CV_BANK at reset: it calls the game's map lookups, which map
-; other banks over $8000-$BFFF).
+; hack_init at reset.  (The canvas is gone; TXR_* reuse the state area.
+; The code that stays, cv_* in fixed_rt.asm, runs in bank 31 at $FC00.)
 CV_REDIR          = $0780   ; bit 7: band-row writes go to the canvas
 CV_MROWS          = $0781   ; band metarows set up in the canvas (flanks written)
 CV_PEND           = $0782   ; canvas tile rows to show (main thread)
@@ -295,10 +299,7 @@ CV_MAP_FORCE_MAX  = 104     ; nmi_map's force (round 3: ~2 lines earlier than th
                             ; then sees a spurious A12 clock (splits early)
 CV_QWAIT          = 32      ; cv_sm: queued bytes that make a new canvas metarow wait for a flush
 CV_TOP            = 18      ; the canvas's first tile row on screen
-CV_BANK           = 27      ; PRG bank with the RAM image at $A000
-CV_RAM            = $7900   ; the RAM code (MAP_ATTR is $7800-$78FF)
-CV_RAM_PAGES      = 7       ; 1792 bytes copied at reset ($7900-$7FFF)
-HACK_INIT         = $800C   ; hack bank entry, reset: clear the hack state, install CV_RAM
+HACK_INIT         = $800C   ; hack bank entry, reset: clear the hack state and $7900-$7FFF
 
 ; ----------------------------------------------------------------------
 ; Bank-switch-free kanji on the info screen (step B, INFO_SCREEN.md).
@@ -348,9 +349,9 @@ WIPE_TICK         = $CE7F   ; wait_frame_tick
 WIPE_WAIT         = $CE8A   ; wait_vblank
 UI_DECY           = $7F9C   ; UIF_DIV: the caller's Y
 UI_DECX           = $7F9D   ; UIF_DEC, UIF_DIV: the caller's X (the bytes before
-                            ; UI_RAM2; the canvas RAM code ends below them)
+                            ; UI_RAM2)
 ; The reward window (victory) and the message pool (step B item 8).
-UI_RAM2           = $7F9E   ; battery RAM after the canvas RAM code (below UI_RAM)
+UI_RAM2           = $7F9E   ; battery RAM below UI_RAM
 ; Battle kanji slots (2026-11-13, the user's design; ui_battle.asm
 ; ui_pchoose / ui_ptiles): slot s = the 4 tiles $80 + 4s (s = 0-31), 8x16
 ; order; the battle screen's group k is slot k + 9.  Before the win: slots
@@ -435,7 +436,8 @@ UI_RAM_END        = UI_RAM+64
 
 ; ----------------------------------------------------------------------
 ; Map-mode text renderer (TEXT_RENDERER.md, 2026-11-12).  PRG bank
-; TXR_BANK (txr.asm); RAM stubs and the NMI uploader in canvas_ram.asm.
+; TXR_BANK (txr.asm); its stubs (txr_*) and NMI entries (cv_nmi) in
+; fixed_rt.asm (bank 31, $FC00).
 ; Screen parts (rows 0-8 / 9-14 / 15-20 / 21-29) show BG tiles $00-$7F
 ; from R0 = 4 / 8 / 10 / 12 (CHR $1000 / $2000 / $2800 / $3000).
 ; ----------------------------------------------------------------------
@@ -471,10 +473,7 @@ TXR_RET           = $0785   ; text_render_cell's return value (the line-end byte
 TXR_HB            = $0786   ; the queue byte held back (0: none): text_draw_line's wait (txr_dlc puts it
                             ; back); bit 7 set: text_render_cell's cells, put back by the NMI with its batch
 TXR_HI            = $0787   ;   and its index
-TXR_RS            = $0788   ; txr_rr: 2, source address
-TXR_RST           = $078A   ; txr_rr: 2, source stride
-TXR_RN            = $078C   ; txr_rr: byte count
-TXR_RO            = $078D   ; txr_rr: offset in TXR_GBUF
+; ($0788-$078D: free, txr_rr's arguments until 2026-11-14)
 TXR_SN            = $078E   ; main thread: records staged in this batch
 TXR_FULL          = $078F   ; cells drawn blank because a page was full (count)
 TXR_P             = $0790   ; main thread: the entry's part 0-3
@@ -523,8 +522,7 @@ TXR_UR            = $07FD   ; map UI: REG entry 16-31 taken last (round robin)
 TXR_PX            = $07FE   ; map UI: put_str's row-buffer index
 TXR_LA            = $07FF   ; map UI: the label's row-buffer index after it
 TXR_MARK          = TXR_UQ  ; GC: 16-byte bitmap of the tiles shown (the staging area is idle)
-; Battery RAM (the canvas code's old space, after the RAM image), from the
-; top down to TXR_TABLES:
+; Battery RAM, from the top down to TXR_KM ($7900-$7BF4 below it free):
 TXR_NG            = 28      ; kanji groups per part: tiles $0C-$7B
 TXR_UQSZ          = 55      ; staging bytes: 5-byte records, kana R0, PPU hi, lo, font offset, font page; kanji R0 | $80, PPU hi, lo, the glyph's pos and its store bank's R7 value
 TXR_UQ            = $7F65   ; 55: the staged records (TXR_SN bytes; the NMI: TXR_UQN left from TXR_UQR)
@@ -539,7 +537,7 @@ UP_KANJI          = 27      ; a kanji record, 4 tiles (txr.asm up_kanji; 426 cyc
 UP_CELLS          = 14      ; text_render_cell's released cells, flushed by the NMI (rel_flush)
 ; (The NMI uploader reads the kanji store above: R7 = STORE_8K + bank.)
 TXR_EB            = $7F35   ; 48: text_draw_line's entries, out of the queue
-TXR_GBUF          = $7F15   ; 32: glyph bytes read by txr_rr
+TXR_GBUF          = $7F15   ; 32: glyph bytes (read_kanji, the old font's reader)
 ; The battle's kanji slot table (2026-11-13): the map renderer's staging
 ; buffers (TXR_EB, TXR_UQ: map mode only) hold it in battle.
 SL_LO             = TXR_EB     ; 32: text code (low) of the kanji in slot s
@@ -553,4 +551,3 @@ TXR_TBM           = $7ED5   ; 4 x 16: tiles in use in part p (bit set)
 TXR_GHI           = $7E65   ; 4 x 28: glyph code of group g in part p (high; $FF = free)
 TXR_GLO           = $7DF5   ; 4 x 28: (low)
 TXR_KM            = $7BF5   ; 4 x 128: kana code -> tile in part p (0 = none)
-TXR_TABLES        = $7BF5   ; the RAM image must end at or below this

@@ -27,7 +27,12 @@ HACK_BANK = 23                 # the hack code and the message engine, $8000-$9F
 # dead MMC1 reset/init, and $F004-$F00B since the MMC3 port, revision 21).
 HOOK_RANGES = ((0xC5A6, 0xC6D1), (0xC460, 0xC47D), (0xC489, 0xC49D),
                (0xC4AD, 0xC4B9), (0xC4BA, 0xC4CA), (0xD291, 0xD2B6),
-               (0xF004, 0xF039), (0xFFE0, 0xFFEF))
+               (0xF004, 0xF039), (0xFFE0, 0xFFEF),
+               # the developer debug overlay ($FAD5-$FBC1) and its screens'
+               # hex font and tiles ($FBC3-$FFD7), dead (survey 2026-11-14,
+               # TEXT_RENDERER.md): free, and the runtime at $FC00
+               # (fixed_rt.asm); $FAD4 and $FBC2 (two rts) stay
+               (0xFAD5, 0xFBC1), (0xFBC3, 0xFFD7))
 
 # QoL: copy_pointer_triplet and its divisor table (the decimal digits),
 # replaced by a stub to the UI bank (UIF_DEC); the space holds bs_wait and
@@ -74,9 +79,9 @@ FOURSCREEN_REGIONS = (
     # starts 8 above; compacted, the wipe's trampolines after it)
     (0xCE2D, 0xCE79, "067ee3dbc8f9b5ff0e7528a7fb6834e605dadf30c2b6e72529db933ff83a9b94"),
     (0xCE7A, 0xCED1, "b99a7a1e5d1244a75f6763b9fb27ce3de00389a16e855715e3cd53b0e4e4b255"),
-    # map-canvas step 3 (the dialogue canvas): text_init's window rows call
-    # the canvas RAM code ("jsr cursor_to_ppu / jsr tile_address", both
-    # "jsr scroll_map")
+    # map-canvas step 3 (the dialogue canvas, gone): text_init's window
+    # rows ("jsr cursor_to_ppu / jsr tile_address"; both "jsr scroll_map"
+    # call fixed_rt.asm cv_sm, step B's battle row hook)
     (0xCA59, 0xCA5E, "3bd9cdb34f6789f854dca9d6e5fcdc4989ad14f7708167bd2464018882606c2b"),
     (0xCB1B, 0xCB1D, "74dd75f2c35246dd03d1cadfc82249f80c94c339b89e416da509441ba48ea980"),
     (0xCB80, 0xCB82, "74dd75f2c35246dd03d1cadfc82249f80c94c339b89e416da509441ba48ea980"),
@@ -101,13 +106,6 @@ PALETTE_TABLES = (0xC5EF, 0xC6D2)           # data_C5EF .. end of data_C6C2
 PALETTE_PTRS = (0xC6B2, 0xC6C2, 16)         # low / high pointer tables
 PAL_DATA = 0x9F00                           # KANJI_PAL_DATA in kanji.inc
 
-# Map-canvas step 3: the canvas RAM code (canvas_ram.asm, assembled for
-# CV_RAM) is stored in PRG bank CV_BANK at $A000; hack_init copies
-# CV_RAM_PAGES pages of it at reset.  Its entry labels go to canvas_ram.inc
-# for the fixed bank and the hack bank.
-CV_BANK = 27
-CV_RAM = 0x7900
-CV_RAM_PAGES = 7
 # Step B (INFO_SCREEN.md): the UI bank (ui.asm) with the info-screen
 # renderer, its own copy of the UI kanji glyphs and the item / tactic kanji
 # tables (ui_data.inc, generated here).
@@ -145,15 +143,8 @@ INFO_ATTR_CELLS = (
     (1, 18, 19, 6, 11),     # 装備 (the equipment window's title, columns 7-10)
 )
 
-CV_LABELS = ("cv_irq", "cv_sm", "cv_nmi", "cv_w1", "cv_stage",
-             "cv_irq_end", "cv_ram_end",
-             "cv_stream", "cv_sforce", "cv_sreload", "cv_fill", "cv_wincb",
-             "txr_call", "txr_rr",
-             "txr_dlx", "txr_rcx", "txr_cur", "txr_mi", "txr_rd", "txr_tpm", "txr_menu")
-# The map text renderer (TEXT_RENDERER.md): bank 26, its tables in
-# battery RAM from TXR_TABLES up (kanji.inc).
+# The map text renderer (TEXT_RENDERER.md): bank 26.
 TXR_BANK = 26
-TXR_TABLES = 0x7BF5
 # The title screen and the attract mode in kanji (attract.asm, attract_build.py,
 # 2026-11-14): bank 24; $8000 the attract mode (the fixed bank's
 # enter_party_screen maps it), $8003 the title's tile set (bank 13).
@@ -312,12 +303,12 @@ def write_hook_constants(labels: dict[str, int], att: dict) -> None:
         m = re.match(r"^(UIF_[A-Z_]+|UI_RAM|UI_NOMIR)\s*=\s*(\S+)", line)
         if m:
             lines.append(f"{m.group(1)} = {m.group(2)}")
-    # The canvas RAM code's battle window CALL (bank 14's reward template).
-    cv = read_labels(OUT / "canvas_ram.lst")
-    lines.append(f"CV_WINCB = ${cv['cv_wincb']:04X}")
-    # The map UI's labels (bank 14's gold window and その他: TXF_LABEL).
-    lines.append(f"TXR_CALL = ${cv['txr_call']:04X}")
-    lines.append(f"TXR_MENU = ${cv['txr_menu']:04X}")
+    # The runtime's (fixed_rt.asm): the battle window CALL (bank 14's
+    # reward template), the renderer stub (bank 13's boot screens, bank
+    # 14's gold window and その他: TXF_LABEL; the message engine's names).
+    lines.append(f"CV_WINCB = ${labels['cv_wincb']:04X}")
+    lines.append(f"TXR_CALL = ${labels['txr_call']:04X}")
+    lines.append(f"TXR_MENU = ${labels['txr_menu']:04X}")
     lines.append(f"TXR_TP = ${labels['txr_tp']:04X}")
     for line in inc.read_text(encoding="utf-8").splitlines():
         m = re.match(r"^(TXR_ON|TXR_TA|TXR_TX|TXR_RX|TXF_LABEL|TXF_MENU|TXF_MENUSET|TXF_OATH|TXF_OATHEND)\s*=\s*(\S+)", line)
@@ -969,41 +960,6 @@ def write_ui_bank(image: bytes) -> None:
     write_bank(f"bank{UI_BANK:02d}.bin", image + bytes(0x4000 - len(image)))
 
 
-def build_canvas_ram() -> bytes:
-    image = assemble("canvas_ram")
-    labels = read_labels(OUT / "canvas_ram.lst")
-    if len(image) > CV_RAM_PAGES * 0x100:
-        raise SystemExit(f"canvas RAM code is {len(image)} bytes, "
-                         f"max {CV_RAM_PAGES * 0x100}")
-    if CV_RAM + len(image) > TXR_TABLES:
-        raise SystemExit(f"RAM code ends at ${CV_RAM + len(image):04X}, "
-                         f"past the text renderer's tables at ${TXR_TABLES:04X}")
-    # canvas_ram.inc's names (upper case) must not shadow kanji.inc's: a
-    # stub label once took the address of a renderer flag (TXR_RD, then
-    # TXR_BOOT), and the renderer wrote its flag into the stub's code.
-    inc = (ROOT / "decomp" / "include" / "kanji.inc").read_text(encoding="utf-8")
-    defined = set(re.findall(r"^([A-Z_][A-Z0-9_]*)\s*=", inc, re.M))
-    clash = sorted(lab.upper() for lab in CV_LABELS if lab.upper() in defined)
-    if clash:
-        raise SystemExit(f"canvas RAM labels clash with kanji.inc: {', '.join(clash)}")
-    lines = ["; generated by tools/kanji_build.py from canvas_ram.lst"]
-    for label in CV_LABELS:
-        if label not in labels:
-            raise SystemExit(f"missing canvas label {label}")
-        lines.append(f"{label.upper()} = ${labels[label]:04X}")
-    (OUT / "canvas_ram.inc").write_text("".join(x + "\n" for x in lines),
-                                       encoding="utf-8")
-    return image
-
-
-def write_canvas_bank(image: bytes) -> None:
-    if any((OUT / f"bank{CV_BANK:02d}.bin").read_bytes()):
-        raise SystemExit(f"bank {CV_BANK} (the canvas RAM image) holds other data")
-    data = bytearray(0x4000)                    # (the lower half: free)
-    data[0x2000:0x2000 + len(image)] = image
-    write_bank(f"bank{CV_BANK:02d}.bin", bytes(data))
-
-
 def write_att_bank(image: bytes) -> None:
     if any((OUT / f"bank{ATT_BANK:02d}.bin").read_bytes()):
         raise SystemExit(f"bank {ATT_BANK} (the attract mode) holds other data")
@@ -1108,14 +1064,13 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
 
     # NMI: after the nmi_mode branch (normal frames) and the epilogue.  No
     # byte before the game's split-screen loops changes.
-    cvl = read_labels(OUT / "canvas_ram.lst")   # the RAM's cv_nmi: bank 26's nmi_cvg
-    apply_patch(bank, 0xEF0B, bytes((0x4C, cvl["cv_nmi"] & 0xFF,
-                                     cvl["cv_nmi"] >> 8, 0xEA, 0xEA)))
+    apply_patch(bank, 0xEF0B, bytes((0x4C, labels["cv_nmi"] & 0xFF,   # bank 26's nmi_cvg
+                                     labels["cv_nmi"] >> 8, 0xEA, 0xEA)))
     # Map mode: the renderer's uploads before the original's scroll,
     # PPUMASK, ppu_nmi_on and task timers (nmi_gate, txr.asm nmi_map).
     # The prisoner window $21 in kanji (ui_battle.asm wg_prison): two
     # columns wider, two cv_wincb lines.
-    wcb = cvl["cv_wincb"]
+    wcb = labels["cv_wincb"]
     tpl = bytes((0xFF, 0x01, 0x0C, 0xFA, 0xF8, wcb & 0xFF, wcb >> 8, 0x40,
                  0xFA, 0xF8, wcb & 0xFF, wcb >> 8, 0x41, 0xFF))
     if len(tpl) > len(PRISON_TPL[1]):
@@ -1130,11 +1085,11 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     apply_patch(bank, 0xD1C8, bytes((0x20, labels["page_flip"] & 0xFF,
                                      labels["page_flip"] >> 8)))
 
-    # Block-writer hook.  The canvas RAM code's cv_stream calls its plain
-    # body at a fixed address (canvas_ram.asm C343_PLAIN).
+    # Block-writer hook.  The runtime's cv_stream calls its plain body
+    # (c343_plain); the RAM code of old save states calls it at $FFE0.
     if labels["c343_plain"] != 0xFFE0:
         raise SystemExit(f"c343_plain moved to ${labels['c343_plain']:04X}: "
-                         "update C343_PLAIN in canvas_ram.asm")
+                         "old save states' RAM code calls $FFE0")
     apply_patch(bank, 0xC343, bytes((0x4C, labels["c343_hook"] & 0xFF,
                                      labels["c343_hook"] >> 8)))
 
@@ -1163,9 +1118,8 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     # is written in row 17 by UIF_SM).
     if labels["call_ui"] != 0xC48D:
         raise SystemExit(f"call_ui moved to ${labels['call_ui']:04X}: "
-                         "update CALL_UI_C in canvas_ram.asm")
-    cv = read_labels(OUT / "canvas_ram.lst")
-    cb = bytes((0xF8, cv["cv_wincb"] & 0xFF, cv["cv_wincb"] >> 8))
+                         "old save states' RAM code calls $C48D")
+    cb = bytes((0xF8, labels["cv_wincb"] & 0xFF, labels["cv_wincb"] >> 8))
     for addr, data in battle_templates(cb).items():
         apply_patch(bank, addr, data)
     # The reward window $22 (victory) has four lines now, one byte more
@@ -1195,9 +1149,9 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     apply_patch(bank, 0xE10F, bytes((0xE0, 0x0A, 0xD0, 0x90, 0x20,
                                      labels["call_ui"] & 0xFF, labels["call_ui"] >> 8)))
 
-    # The map text renderer (TEXT_RENDERER.md): the RAM stubs.
+    # The map text renderer (TEXT_RENDERER.md): the runtime's stubs.
     def jmp(op, label):
-        return bytes((op, cv[label] & 0xFF, cv[label] >> 8))
+        return bytes((op, labels[label] & 0xFF, labels[label] >> 8))
     apply_patch(bank, 0xDD03, jmp(0x4C, "txr_dlx"))
     apply_patch(bank, 0xDBCA, jmp(0x4C, "txr_rcx"))
     apply_patch(bank, 0xCD07, bytes((0x68,)) + jmp(0x20, "txr_cur"))  # pla / jsr txr_cur
@@ -1240,8 +1194,8 @@ def build_bank31() -> None:
 
 def build_skeleton() -> None:
     """Every extension bank blank but those written before it (the kanji
-    store, the hack bank): the text banks, the renderer, the RAM image and
-    the UI bank are written after it; the rest is free ROM."""
+    store, the hack bank): the text chunks, the renderer, the attract mode
+    and the UI bank are written after it; the rest is free ROM."""
     blank = bytes(0x4000)
     for bank in range(16, 31):
         if bank not in (STORE_16K, STORE_16K + 1, HACK_BANK):
@@ -1254,7 +1208,6 @@ def main() -> int:
     ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
 
-    canvas = build_canvas_ram()
     fixed = assemble("mmc3_b15")
     labels = read_labels(OUT / "mmc3_b15.lst")
     sys.path.insert(0, str(ROOT / "tools"))
@@ -1286,7 +1239,6 @@ def main() -> int:
     sys.path.insert(0, str(ROOT / "tools"))
     import kanji_text
     kanji_text.build()
-    write_canvas_bank(canvas)
     write_ui_bank(ui)
     write_txr_bank(txr)
     write_att_bank(attract)
@@ -1296,7 +1248,7 @@ def main() -> int:
           f"hack code: {(OUT / 'hack.bin').stat().st_size} bytes "
           f"(the message engine {msg}); "
           f"kanji store: {len(font) // 32} of 1024 glyphs; "
-          f"RAM code: {len(canvas)} bytes; UI bank: {len(ui)} bytes "
+          f"UI bank: {len(ui)} bytes "
           f"({nglyphs} glyphs); text renderer: {len(txr)} bytes; "
           f"attract bank: {len(attract)} bytes")
     return 0
