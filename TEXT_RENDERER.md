@@ -1801,6 +1801,21 @@ switched off.**
   - The greeting, the menu cycle, a battle, the title and the new-game path
     are identical to the previous build.
 
+**The scan (2026-11-14): `tools/scroll_scan.py`.**  The user wants the
+scrolls fixed in the text itself, so this run-time code can go.
+- It lists every message whose text puts a 4th line in the window.  It
+  uses the compiler's own layout (`kanji_text.fit_tokens`, now a module
+  function: the build is byte-identical), then the engine's line rule.
+- It shows the four lines, where the break goes, and the edit (usually a
+  `<WAIT>` made a `<PAGE>`).  It marks the breaks the compiler added
+  (auto).
+- After an inner scroll it goes on as if that break were made, so each
+  entry is a cause of its own.
+- First run: 20 causes in 19 of 765 messages, the same 19 as the
+  2026-11-13 scan.
+- When it lists none, `TXF_LOOK`, `map_lines` and `map_end4` have nothing
+  left to do and can be removed.
+
 ### Done (2026-11-13): the battle messages' kanji after a win, and a last-resort collection
 
 The user's order: once the battle is won, tiles `$80-$A3` are free for

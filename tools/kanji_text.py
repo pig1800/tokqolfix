@@ -280,6 +280,7 @@ class Record:
     data_bank: int = 0
     data_addr: int = 0
     relaxed: bool = False
+    tokens: list[str] = field(default_factory=list)   # as compiled (fit_tokens)
 
 
 @dataclass
@@ -1103,6 +1104,40 @@ def line_width_issues(rec: "Record", data: bytes) -> list[str]:
     return issues
 
 
+def fit_tokens(rec: "Record", tokens: list[str], extra: set[int], relaxed: bool,
+               cmap: dict[str, int]):
+    """Compile tokens, page-splitting until every page has enough free kana
+    tiles (the band-era assignment; it still decides the pages, so the text
+    and its page breaks stay as they were).  Returns (data, pages,
+    assignments, tokens): the tokens as compiled (tools/scroll_scan.py walks
+    them).  RuntimeError when 60 splits do not fit; build() retries relaxed
+    (carrying only the kanji tiles, listed as relaxed_labels)."""
+    for _ in range(60):
+        data = compile_tokens(tokens, cmap)
+        if not data:
+            # An empty message record must still be a valid END stream;
+            # a zero-length data area would make its stub point at the
+            # next record.
+            data = bytes((0xFF,))
+        pages = page_from_bytes(data, extra)[0]
+        assignments = assign_pages(pages, extra, relaxed)
+        if len(assignments) == len(pages) and all(t is not None for t in assignments):
+            return data, pages, assignments, tokens
+        failed = None
+        for i, tiles in enumerate(assignments):
+            if tiles is None:
+                failed = i
+                break
+        if failed is None:
+            failed = min(len(pages) - 1, len(assignments))
+        token_pages = split_pages(tokens)
+        if failed >= len(token_pages):
+            failed = len(token_pages) - 1
+        tokens = split_failing_page(tokens, failed)
+        SPLIT_COUNT[0] += 1
+    raise RuntimeError(f"{rec.labels[:1]}: could not fit after 60 splits")
+
+
 def build() -> int:
     cmap = code_map()
     from kanji_common import MAX_GLYPHS
@@ -1124,46 +1159,16 @@ def build() -> int:
                         raise ValueError(f"{label}: bad index")
                     index_rec[(bank, idx)] = rec
 
-    # Reflow and page-split until every page has enough free kana tiles.
-    # A message whose visible earlier lines leave too few tiles even after
-    # splitting falls back to carrying only the kanji tiles (listed in the
-    # report as relaxed_labels).
-    def fit(rec: Record, tokens: list[str], extra: set[int], relaxed: bool):
-        for _ in range(60):
-            data = compile_tokens(tokens, cmap)
-            if not data:
-                # An empty message record must still be a valid END stream;
-                # a zero-length data area would make its stub point at the
-                # next record.
-                data = bytes((0xFF,))
-            pages = page_from_bytes(data, extra)[0]
-            assignments = assign_pages(pages, extra, relaxed)
-            if len(assignments) == len(pages) and all(t is not None for t in assignments):
-                return data, pages, assignments
-            failed = None
-            for i, tiles in enumerate(assignments):
-                if tiles is None:
-                    failed = i
-                    break
-            if failed is None:
-                failed = min(len(pages) - 1, len(assignments))
-            token_pages = split_pages(tokens)
-            if failed >= len(token_pages):
-                failed = len(token_pages) - 1
-            tokens = split_failing_page(tokens, failed)
-            SPLIT_COUNT[0] += 1
-        raise RuntimeError(f"{rec.labels[:1]}: could not fit after 60 splits")
-
     for rec in records:
         extra = extra_for(rec)
         tokens = reflow(tokenize(rec.text))
         rec.relaxed = False
         try:
-            rec.data, rec.pages, page_tiles = fit(rec, tokens, extra, False)
+            rec.data, rec.pages, page_tiles, rec.tokens = fit_tokens(rec, tokens, extra, False, cmap)
         except RuntimeError:
             rec.relaxed = True
             RELAXED_LABELS.update(rec.labels[:1])
-            rec.data, rec.pages, page_tiles = fit(rec, tokens, extra, True)
+            rec.data, rec.pages, page_tiles, rec.tokens = fit_tokens(rec, tokens, extra, True, cmap)
 
         WIDTH_ISSUES.extend(line_width_issues(rec, rec.data))
         # Page records (since the band page's removal, 2026-11-14: no kana
