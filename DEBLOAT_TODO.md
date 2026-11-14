@@ -1,6 +1,6 @@
 # To-do: debloat (ROM space), 2026-11-13
 
-State after the kanji store (`025dc84`, TEXT_RENDERER.md "The kanji store").
+State after the kanji store (`69f99c7`, TEXT_RENDERER.md "The kanji store").
 Nothing below is done.  Each item waits for the user's go-ahead; the user
 has issues to patch first.
 

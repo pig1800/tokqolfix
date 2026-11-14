@@ -149,7 +149,7 @@ kanji-store build:
 | Title screen and attract mode (2026-11-14: code, tile sets, phrases) | 4.2 | bank 24 |
 | **Free** | **81.4** | bank 25 (16); bank 24 (11.8); bank 23 (12.3); bank 29 (14, the text's reserve); bank 27 (8 + 7.3); bank 28 (6.5); bank 26 (4.3); the text banks' ends (1.3) |
 
-Before the store (`ec05dfa`): 29 KiB free.  The store replaced the band
+Before the store (`fd47464`): 29 KiB free.  The store replaced the band
 page / battle copy (33.7 KiB, banks 23-25, with three copies of the hack
 code, 11.6), the map renderer's copy (32, banks 16, 17b, 27a), the
 officer-name font (8, bank 17a) and the UI bank's 147 glyphs (4.6); the

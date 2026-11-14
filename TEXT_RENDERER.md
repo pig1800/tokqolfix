@@ -6,7 +6,7 @@ and the compile-time kana borrowing.  This document is the assessment
 before any build source changes: measured facts, how the scheme maps onto
 the game, open questions.  Probes: `tools/lua/txr_rows.lua`,
 `txr_vblank.lua` and `txr_producers.lua`.  Runs: `out/test/txr/`, kanji ROM
-`e1dadf97` (a1cf5e6), states `out/user/m7`.
+`e1dadf97` (7dfd2ad), states `out/user/m7`.
 
 ## The scheme as given
 
@@ -341,7 +341,7 @@ About 1,600 bytes become free.
 
 ## Progress (2026-11-12, first working build)
 
-Commits `a2c501a` and the follow-up.  The original build is still
+Commits `64da4ae` and the follow-up.  The original build is still
 byte-identical, and `bank15_lint` passes.
 
 **In place:**
@@ -376,7 +376,7 @@ byte-identical, and `bank15_lint` passes.
 | Check | Result |
 |---|---|
 | IRQ page switches | 2,436, every one in line 71, 119 or 167 at dots 266-282 (hblank).  An IRQ armed before `clear_screen` once switched 14 lines early on the title; fixed (leaving map mode and rendering-off map frames turn the IRQ off). |
-| Command window | the finished window pixel-identical to the previous build (`a1cf5e6`); complete at frame 922 against 919, drawn over 8 frames (row by row, each row waiting for its new glyphs) where the previous build showed it at once |
+| Command window | the finished window pixel-identical to the previous build (`7dfd2ad`); complete at frame 922 against 919, drawn over 8 frames (row by row, each row waiting for its new glyphs) where the previous build showed it at once |
 | Kanji message 「早くお行きなさい 玄徳」 | every kanji whole on its first frame (no half kanji) |
 | Officer list, item window and sub-window, info screen round trip | the same pictures as the previous build once drawn; the info screen (font restored by `clear_screen`) pixel-identical |
 
@@ -427,7 +427,7 @@ Checks (battery-save boot, `out/test/txr`):
 
 | Check | Result |
 |---|---|
-| Boot, logo, title menu, history window (frames 11-650) | pixel-identical to `a1cf5e6` |
+| Boot, logo, title menu, history window (frames 11-650) | pixel-identical to `7dfd2ad` |
 | Town fade-in | 1 frame earlier (the map setup writes less than the font copy) |
 | Army screen round trip | identical |
 | Map page switches | 5,169, all in lines 71, 119, 167 |
@@ -442,7 +442,7 @@ image installed with `tools/mss_canvas.py --keep` into `k1`-`k4`).
 | s1 random battle, s2 boss battle (saved on the black screen before them) | battle text drawn by the battle's own code (the font back in page 1); after the victory the map setup runs again and the map menu and messages are right |
 | s3 shop: buying, back to the previous menu, buying again | right (武器屋 何 他 入用; the gold window straddles parts 2 and 3) |
 | s4 record office, saving | right; ▼ at the page wait (fixed: `$71` was not translated) |
-| New game, story scenes (frames 20-2340) | pixel-identical to `a1cf5e6` |
+| New game, story scenes (frames 20-2340) | pixel-identical to `7dfd2ad` |
 | New game, the first town's long speech | **bug**: some kanji blank in parts 3 and 4 |
 
 The bug: a dialogue that flips through many pages in one window keeps
@@ -469,7 +469,7 @@ allocation failure:
 |---|---|
 | New game, the first town's speech | every kanji drawn (武器 用意 立 虐 救 were blank before) |
 | Shop, record office (`k3`, `k4`, RAM image reinstalled) | pixel-identical to the build before the GC (the GC never ran there); `TXR_FULL` 0 |
-| Boot, logo, title, history (frames 11-650) | pixel-identical to `a1cf5e6` |
+| Boot, logo, title, history (frames 11-650) | pixel-identical to `7dfd2ad` |
 | Stack | lowest push `$0116` |
 | Map page switches, new-game path | 10,965.  28 one line late (72, 120, 168): four frames at each page flip, whose window redraw floods the queue past the force limit, as with the band before. |
 
@@ -1219,7 +1219,7 @@ clock.  The game's own long-flush frames end the force near line 261.8.
 
 **Results** (`out/test/opt`, each build with its own RAM image):
 
-| Update | Before (fff6861) | C | C + E | C + E + B + D |
+| Update | Before (9fd2e34) | C | C + E | C + E + B + D |
 |---|---|---|---|---|
 | Shop greeting and item list, from `u3b` (last upload frame) | 100 | 79 | 79 | 74 |
 | Command window, first open (frames from the first publish to complete) | 14 | 14 | 11 | 8 |
@@ -1267,7 +1267,7 @@ clock.  The game's own long-flush frames end the force near line 261.8.
   code turn tile numbers into PPU addresses.
 - So a plane-1 set or a 2bpp copy would hold the same bytes and save
   nothing.
-- Officer names: no original name glyph is used since `1746dc4` (all
+- Officer names: no original name glyph is used since `320050a` (all
   Izumi16).  Bank 17 is our glyphs, laid out for the original name
   routine that the battle, info and army screens still use.
 

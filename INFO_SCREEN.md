@@ -703,7 +703,7 @@ the next showed one frame with the vertical scroll wrong.
   ran into line 3 of the next frame.  The scroll was written after the
   pre-render line's reload, so that frame showed the background about 160
   pixels off.
-- It was there before the upload work (identical on `fff6861`).
+- It was there before the upload work (identical on `9fd2e34`).
 
 **Fix:**
 - `UI_BRIGHT` (battle; the info screen's `UI_TACT` byte) keeps the first
