@@ -2479,7 +2479,7 @@ b10_msg_126-128's text.
   per-entry band tiles and uploads, `entry_bit`, `release_all`, and
   `overlay_entry`'s band test.  Pool pages and the fixed sets are as
   before.  1,907 -> 1,566 bytes.
-- **Hack bank** (`hack.asm`, 2,056 -> 829 lines, 3,530 -> 1,465 bytes):
+- **Hack bank** (`hack.asm`, 2,056 -> 828 lines, 3,530 -> 1,465 bytes):
   - stale tracking (`queue_scan`'s marks, `mark_range`, `mark_stale`,
     `KANJI_STALE`), the restores (`restore_next`, `restore_tile`,
     `pick_restore`, `advance_hi`), the queue replay, the window probe and
