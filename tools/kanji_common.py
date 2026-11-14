@@ -178,6 +178,16 @@ BOOT_MENU = {
     "れきししょをけす": "歴史書を消す",
     "れきししょのこぴー": "歴史書のコピー",
 }
+# The boot screens' fixed set (the user's, 2026-11-14), at upper-page tiles
+# $80 + 4k in this order: every kanji the boot screens show, the menu, the
+# windows' words, the name-entry title and the record prompts.  No band.
+BOOT_FIXED = "始歴史書登録消名前入戻進終速普通遅本当宜"
+# The messages the boot screens print (bank 13 $8B43-$8CEF; TXR_ON = $40):
+# their kanji are BOOT_FIXED's tiles.  Not here: b11_msg_145 (残念ですが…,
+# the record check before the menu, on the battle set's pool) and
+# b11_msg_147 (文字の速さを決めてください: nothing in the ROM prints it).
+BOOT_MESSAGES = ("b11_msg_146", "b11_msg_148", "b11_msg_149", "b11_msg_150",
+                 "b11_msg_151", "b11_msg_152")
 MAP_UI_LABELS = ("金", "兵糧", "その他")
 GLOSSARY = ROOT / "decomp" / "text" / "kanji_r14" / "glossary.tsv"
 

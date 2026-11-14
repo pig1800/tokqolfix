@@ -159,9 +159,9 @@ Candidates for more (measured, not done):
 - **The band page's parts of the metadata: 38.9 KiB** (the 16-byte kana
   bitmap a message, the keep / clean lists, 4 tile bytes a kanji).  Map mode
   and battle use only the page count, the kanji codes and the names count
-  (13.6 KiB).  Messages that can show on a band-page screen (the boot
-  screens, anything outside map mode and battle) need theirs: that list is
-  not derived yet.
+  (13.6 KiB).  Messages that can show on a band-page screen (anything
+  outside map mode, battle and, since 2026-11-14, the boot screens' record
+  prompts) need theirs: that list is not derived yet.
 - **The rest of the metadata, 13.6 KiB:** the codes are in the text itself;
   map mode and battle could count a page's kanji from it at the page start.
 - **The original message text in banks 10 / 11: 20.7 KiB** (bank 10

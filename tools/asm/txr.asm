@@ -993,10 +993,11 @@ cvf_tdone:
 ; off): the menus, starting / registering / deleting / copying a history
 ; book, the name entry.  No arbitrary text there, so no renderer: the
 ; font stays in page 1 and the fixed set (txr_ui.inc: the kanji of the
-; boot menu, the speed window, the name entry) goes to upper-page tiles
-; FIX_FIRST.. (the battle set's tiles there are never shown on these
-; screens).  The UI words are put with those tiles (TXR_ON = $40).  The
-; battle pool's tiles now hold the set: messages use the band page.
+; boot menu, the speed window, the name entry, the record prompts: the
+; user's set, 2026-11-14) goes to upper-page tiles FIX_FIRST.. (the battle
+; set's tiles there are never shown on these screens).  The UI words and
+; the messages' kanji (the overlay's fix_put) are put with those tiles
+; (TXR_ON = $40): no band.  The battle pool's tiles hold the set: no pool.
 txr_menuinit:
     jsr busy_on
     ldx #0

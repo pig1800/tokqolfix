@@ -45,6 +45,12 @@ has issues to patch first.
       set 10).
   - That gives 1,249 band switches in total.  Other band screens (endings,
     events) are not covered by these paths.
+  - **Since 2026-11-14** the boot screens' record prompts use the boot
+    screens' fixed set (TEXT_RENDERER.md "The boot screens' messages on the
+    fixed set"): the standard path turns the band on once, for the oath
+    scene (729 switches).  Still on the band at boot: the record check's
+    b11_msg_145 (残念ですが…消えています, a damaged record only; `TXR_ON` =
+    0, set 8).
 - **Risk:** a message shown on a band screen that the list misses would
   show no kanji, or the wrong ones.
 

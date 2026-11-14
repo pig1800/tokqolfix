@@ -88,9 +88,9 @@ overlay_entry:
 ; this message's kana tiles on the band page.  No request is pending here,
 ; so the overlay owns KANJI_A.
 message_setup:
-    bit TXR_ON                  ; map mode: the text renderer owns the
-    bpl @notxr                  ; tiles (no band, no pool, no requests)
-    lda #0
+    lda TXR_ON                  ; map mode: the text renderer owns the
+    beq @notxr                  ; tiles; the boot screens ($40): the fixed
+    lda #0                      ; set's (no band, no pool, no requests)
     sta KANJI_BAND
     beq @meta
 @notxr:
@@ -160,8 +160,8 @@ message_setup:
     bne @load
 @noload:
 
-    bit TXR_ON
-    bmi @cleaned
+    lda TXR_ON                  ; map mode, the boot screens: nothing to clean
+    bne @cleaned
     lda KANJI_BAND
     bne @clean_band
     lda KANJI_PAGES_LEFT        ; pool: flag the message, no band page to clean
@@ -443,9 +443,9 @@ page_start:
     lda KANJI_PAGES_LEFT
     and #<~PAGE_FLAG
     sta KANJI_PAGES_LEFT
-    bit TXR_ON
-    bpl @band
-    rts                         ; map mode: nothing on any band page
+    lda TXR_ON
+    beq @band
+    rts                         ; map mode, the boot screens: no band page
 @band:
     jsr release_all
     lda $10                     ; the game's $10/$11 (math temps)
@@ -708,6 +708,11 @@ KANJI_EC:
     lda ($51),y
     inc text_col
     sta KANJI_CODE_LO
+    bit TXR_ON                  ; the boot screens ($40): the fixed set
+    bmi @meta
+    bvc @meta
+    jmp fix_put
+@meta:
     lda $10                     ; the game's $10/$11 (math temps)
     pha
     lda $11
@@ -794,6 +799,46 @@ KANJI_EC:
     sta $0318,x
     sta $0301,x
     sta $0319,x
+    inx
+    inx
+    rts
+
+; The boot screens (TXR_ON = $40, 2026-11-14): the kanji KANJI_CODE_LO/HI
+; is entry k of the fixed set (boot_fix.inc, the user's set), which
+; txr_menuinit put at tiles t = OV_FIX_FIRST + 4k (TL, BL, TR, BR) when the
+; screen was built: its tiles into the text buffers at X, X after them.  No
+; upload, no band.  A kanji outside the set (the build allows none) is blank.
+fix_put:
+    ldy #OV_FIX_N-1
+@f:
+    lda ov_fix_lo,y
+    cmp KANJI_CODE_LO
+    bne @n
+    lda ov_fix_hi,y
+    cmp KANJI_CODE_HI
+    beq @got
+@n:
+    dey
+    bpl @f
+    lda #$0A
+    sta $0300,x
+    sta $0318,x
+    sta $0301,x
+    sta $0319,x
+    bne @adv
+@got:
+    tya
+    asl a
+    asl a
+    adc #OV_FIX_FIRST           ; (C clear: k < 64)
+    sta $0300,x                 ; TL
+    adc #1
+    sta $0318,x                 ; BL
+    adc #1
+    sta $0301,x                 ; TR
+    adc #1
+    sta $0319,x                 ; BR
+@adv:
     inx
     inx
     rts
@@ -1127,3 +1172,6 @@ pool_choose:
 
 bitmask:
     .db $80, $40, $20, $10, $08, $04, $02, $01
+
+; the boot screens' fixed set (fix_put)
+.include "../../decomp/build/kanji/boot_fix.inc"

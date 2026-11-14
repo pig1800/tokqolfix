@@ -742,7 +742,8 @@ there too.
 The user's direction: the title menu and the name entry have no
 arbitrary text, so they use a fixed tileset, not the renderer.
 
-**The fixed set.**  17 kanji, from `kanji_build.build_txr_ui`:
+**The fixed set.**  17 kanji (20 since 2026-11-14, the user's set: "The
+boot screens' messages on the fixed set"), from `kanji_build.build_txr_ui`:
 - the boot menu (`BOOT_MENU`): 始 歴 史 書 登 録 消;
 - the name-entry title (`NAME_TITLE`): 名 前 入;
 - the speed window `$29`: 速 普 通 遅;
@@ -2195,3 +2196,60 @@ directly.  The title and the attract never touch page 2 otherwise.
   same screens as the standard path; the sprites are the game's again.
 - Only banks 13a, 15b/31b, the store's last bank and bank 24 differ from
   the previous build.  The original build is byte-identical.
+
+## The boot screens' messages on the fixed set (2026-11-14)
+
+The user's direction: the whole boot menu uses one fixed kanji set,
+始歴史書登録消名前入戻進終速普通遅本当宜, at `$80-$DF`.  That range is
+volatile on the boot screens, so the set has room and leaves the letters
+(`$E0-$FB`, the record list's level) alone.  No band, no tricks.
+
+**The set.**  `kanji_common.BOOT_FIXED`, in the user's order: 20 kanji,
+tiles `$80-$CF` (t, t+1, t+2, t+3 = TL, BL, TR, BR as before).  It adds
+本 当 宜 to the 17 of 2026-11-12, and 戻進終 now come before 速普通遅.
+`build_txr_ui` fails the build if any kanji of the boot menu, the boot
+windows' words, the name-entry title or the boot messages is outside it,
+or if the set passes `$DF`.
+
+**The messages.**  The boot screens (`TXR_ON` = `$40`) print six:
+b11_msg_146 (どの歴史書を始めますか), 148 (登録), 149 (消し), 150
+(本当に宜しいですか), 151 and 152 (コピー) (`kanji_common.BOOT_MESSAGES`;
+bank 13's only `text_print_inline` sites between `$8B43` and `$8CEF`).
+Until now they used the band page (the pool tiles hold the set).  Now:
+- `message_setup`: `TXR_ON` non-zero (map mode or the boot screens):
+  no band, no pool, no `REQ_SYNC`, nothing to clean.  `page_start` is the
+  same.
+- `KANJI_EC`: with `TXR_ON` = `$40`, `fix_put` finds the code in the
+  overlay's copy of the set (`boot_fix.inc`, 20 code pairs) and writes the
+  tiles `$80 + 4k`.  No metadata lookup, no upload.  A kanji outside the
+  set would be blank cells (the build allows none).
+- The overlay is 1830 / 2048 bytes.  The fixed bank changes only in
+  `ctrl_store`'s address (`$D2C8`).
+
+**Not on the set:**
+- b11_msg_145 (残念ですが／歴史書Nは／消えています): the record check
+  before the menu (`$8A55` loop, `loc_C139`, `TXR_ON` = 0, set 8).  It is
+  shown only for a damaged record, and it still uses the band.  Its 残念
+  are outside the set.
+- b11_msg_147 (文字の速さを決めてください): nothing in the ROM prints it
+  (no inline index `$0293` in banks 0-15; the speed window shows no
+  message).
+
+**Checked** (`out/test/opt/boot`, against the previous build):
+- Start, delete (with はい/いいえ), register (to the name entry) and copy
+  flows, from copies of `rom_kanji.sav` (two records, and one after the
+  delete):
+  - no band and 2 IRQ enables on each (the previous build: 284-940);
+  - every prompt is pixel-identical once printed, and prints sooner
+    without the waits: どの歴史書を消しますか 9 frames, 本当に宜しいですか 7;
+  - the only unmatched shots are text still printing.
+- Standard path from power-on (6,200 frames): 568 of 591 shots identical
+  at the same frame; the rest are text printing earlier, including the
+  oath scene's first page (fewer band-page tiles to restore).  The GC
+  starts at the same frames.  `band_use.lua`: the band turns on once (the
+  oath scene, 729 switches; before: 3 times).
+- A damaged record (scratch save): b11_msg_145 on the band as before,
+  41 of 41 shots identical.
+- The regression set (greeting, menu cycle, officer-switch battle, title,
+  standard path from frame 2000): pixel-identical.
+- The original build is byte-identical.
