@@ -8,9 +8,8 @@
 ;       this bank).  The same steps and frame counts as the original; it
 ;       ends in enter_status_screen (the title) as the original.
 ; $8003 att_title_set: called from the title's inline block (bank 13,
-;       rendering and NMI off): the title's tile set and nametable, and the
-;       game's font on the band page (page 2), which the original's title
-;       load put there through the block writer's mirror.
+;       rendering and NMI off): the title's tile set and nametable.  (Until
+;       2026-11-14 also the game's font on the band page, which is gone.)
 ; $8006 att_restore: Start on the title (bank 13's b13_k_restore, NMI off):
 ;       the font and the letters back on the scene page, as the original's
 ;       title load left them for the boot screens.
@@ -95,14 +94,6 @@ att_title_set:
     jsr att_nt_blank
     ldx #0
     jsr att_set
-    ; The band page's lower half = the font (the boot screens' record
-    ; prompts show it through the band; the original's font load mirrored
-    ; itself there).  The title and the attract never touch page 2.
-    lda #CHR_BAND_LO
-    jsr att_r0
-    jsr att_font
-    lda #CHR_SCENE_LO
-    jsr att_r0
     lda #<att_title_nt
     sta ZP_T
     lda #>att_title_nt
@@ -193,16 +184,6 @@ att_font:
     ldx #128
     lda #9
     jmp RR_COPY
-
-; R0 = A (BG tiles $00-$7F), under the bank-select shadow.
-att_r0:
-    pha
-    lda #MMC3_R0
-    sta MMC3_SEL
-    sta MMC3_SELECT
-    pla
-    sta MMC3_DATA
-    rts
 
 ; ======================================================================
 ; Tile set X (attract_lo.inc): kanji count, (store bank, pos) each from

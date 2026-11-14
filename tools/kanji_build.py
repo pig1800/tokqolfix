@@ -329,7 +329,7 @@ def write_hook_constants(labels: dict[str, int], att: dict) -> None:
     lines.append(f"TXR_MENU = ${cv['txr_menu']:04X}")
     lines.append(f"TXR_TP = ${labels['txr_tp']:04X}")
     for line in inc.read_text(encoding="utf-8").splitlines():
-        m = re.match(r"^(TXR_ON|TXR_TA|TXR_TX|TXR_RX|TXF_LABEL|TXF_MENU|TXF_MENUSET|TXF_OATH|TXF_OATHEND|FN_BLOCK_POST)\s*=\s*(\S+)", line)
+        m = re.match(r"^(TXR_ON|TXR_TA|TXR_TX|TXR_RX|TXF_LABEL|TXF_MENU|TXF_MENUSET|TXF_OATH|TXF_OATHEND)\s*=\s*(\S+)", line)
         if m:
             lines.append(f"{m.group(1)} = {m.group(2)}")
     # The title screen in kanji (bank 13's inline block and draw_string).

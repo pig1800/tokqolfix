@@ -53,8 +53,14 @@ has issues to patch first.
     band.
   - **Since the oath's fixed split** (2026-11-14, TEXT_RENDERER.md "The
     opening oath: a fixed split, no band") the standard path never turns
-    the band on.  The band remains for screens outside map mode and battle
-    that these paths do not reach (history, events, endings), if any.
+    the band on.
+  - **The band page is removed** (2026-11-14, TEXT_RENDERER.md "The band
+    page removed"): a message that would use it stops the CPU
+    (`band_trap`).  So nothing reads the band parts of the metadata any
+    more.  The "needed first" list is no longer needed: the bitmap, the
+    keep and clean lists and the tile bytes can all go (the compiler and
+    the overlay's record walk, `entries_offset` / `page_find` /
+    `ctrl_store`, change with them).
 - **Risk:** a message shown on a band screen that the list misses would
   show no kanji, or the wrong ones.
 

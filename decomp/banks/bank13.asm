@@ -664,15 +664,11 @@ b13_k_oath:
     ldx #TXF_OATH
     jsr TXR_CALL
     jmp wait_vblank
-; Its end (the NMI off): rendering off as the original, the split off, then
-; the band page's tiles the kanji took copied back from page 1 (the hack's
-; block-write mirror), so a later band screen finds the font there.
+; Its end (the NMI off): rendering off as the original, then the split off.
 b13_k_oathend:
     jsr ppu_bg_sprites_off
     ldx #TXF_OATHEND
-    jsr TXR_CALL                ; (KANJI_M0-M2: the tiles)
-    lda #FN_BLOCK_POST
-    jmp CALL_HACK
+    jmp TXR_CALL
 b13_k_end:
     .incbin "build/assets/bank13_data.bin", $0D20 + (b13_k_end - boot_title_block), $02E0 - (b13_k_end - boot_title_block)
 .else
@@ -1377,7 +1373,7 @@ b13_data_96DE:
     jsr wait_vblank
     jsr ppu_nmi_off
 .ifdef KANJI_TARGET
-    jmp b13_k_oathend           ; (then the split off, the band page back)
+    jmp b13_k_oathend           ; (then the split off)
 .else
     jmp ppu_bg_sprites_off
 .endif

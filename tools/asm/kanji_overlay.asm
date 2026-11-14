@@ -7,6 +7,12 @@
 ; bank serves directly when rendering is off, and waits frame by frame
 ; through the fixed-bank WAIT_TEXT helper, which maps this bank again.
 ;
+; Since 2026-11-14 there is no band page (the user's order): map mode, the
+; boot screens and the opening oath put their own kanji tiles (TXR_ON), the
+; battle set's pool takes the rest, and any other message stops the CPU in
+; band_trap.  The metadata's band parts (the kana bitmap, keep and clean
+; lists, each entry's four tiles) are read no more.
+;
 ; Message metadata in the text bank:
 ;   page count, 16-byte bitmap of every lower tile the message shows as
 ;   kana/frame, then count * page record:
@@ -54,9 +60,9 @@ overlay_entry:
 
     jsr window_geometry
 
-    ; A message that continues a window (text_line > 0) would share the
-    ; band page with the previous message's lines, whose tiles the compiler
-    ; cannot know.  Clear the window first (as after a page flip); the
+    ; A message that continues a window (text_line > 0) would share its
+    ; tiles with the previous message's lines, which the compiler cannot
+    ; know.  Clear the window first (as after a page flip); the
     ; message then starts on the top line of a clean window.  The line the engine was building is dropped
     ; with its text_clear_line frame (so the scroll runs at the engine's
     ; usual stack depth) and the line loop restarts.
@@ -65,8 +71,6 @@ overlay_entry:
     ; shows, the window scrolls on as in the original.
     lda text_line
     beq @fresh
-    lda KANJI_BAND
-    bne @clear                  ; the lines above are on the band page
     jsr pool_decide
     bcc @clear
     lda #META_PAGES
@@ -84,32 +88,19 @@ overlay_entry:
     ldx KANJI_BUFX
     jmp TEXT_LINE_LOOP
 
-; Release the previous kanji, enable the band, read the metadata and clean
-; this message's kana tiles on the band page.  No request is pending here,
-; so the overlay owns KANJI_A.
+; Read the metadata.  Map mode (the text renderer), the boot screens and the
+; opening oath (their fixed sets): TXR_ON non-zero, the screen's own tiles,
+; no pool, no requests.  Otherwise the battle pool, or the band page, which
+; is gone: band_trap.  (KANJI_BAND stays 0: a save state from an earlier
+; build may hold 1.)
 message_setup:
-    lda TXR_ON                  ; map mode: the text renderer owns the
-    beq @notxr                  ; tiles; the boot screens ($40): the fixed
-    lda #0                      ; set's (no band, no pool, no requests)
+    lda #0
     sta KANJI_BAND
-    beq @meta
-@notxr:
+    lda TXR_ON
+    bne @meta
     jsr pool_decide             ; C set: the battle pool
-    bcc @band
-    jsr release_all
-    lda #0                      ; no band page, no sprite 0
-    sta KANJI_BAND
-    beq @meta
-@band:
-    ; While no band was shown the NMI only recorded stale tiles: bring
-    ; page 2 up to date first.  The previous message's kanji are still
-    ; active here, so they are left for clean_kana and the band's own
-    ; restores, exactly as before.
-    lda #REQ_SYNC
-    jsr post_wait
-    jsr release_all
-    lda #1                      ; (the page count stored below clears PAGE_FLAG)
-    sta KANJI_BAND
+    bcs @meta
+    jmp band_trap
 @meta:
 
     lda $10                     ; the game's $10/$11 (math temps)
@@ -160,16 +151,11 @@ message_setup:
     bne @load
 @noload:
 
-    lda TXR_ON                  ; map mode, the boot screens: nothing to clean
-    bne @cleaned
-    lda KANJI_BAND
-    bne @clean_band
-    lda KANJI_PAGES_LEFT        ; pool: flag the message, no band page to clean
+    lda TXR_ON                  ; map mode, the boot screens, the oath:
+    bne @cleaned                ; their own tiles
+    lda KANJI_PAGES_LEFT        ; the pool: flag the message
     ora #PAGE_POOL
     sta KANJI_PAGES_LEFT
-    bne @cleaned
-@clean_band:
-    jsr clean_kana
 @cleaned:
 
     lda KANJI_PAGE_PTR
@@ -292,70 +278,8 @@ post_wait:
     rts
 
 ; ----------------------------------------------------------------------
-; Restore every band-page tile this message shows as kana/frame and that
-; still holds an old kanji.  The bitmap is at metadata + 1.
-; ----------------------------------------------------------------------
-clean_kana:
-    lda #48                     ; at most 48 restores
-    pha
-@scan:
-    lda $10                     ; the game's $10/$11 (math temps)
-    pha
-    lda $11
-    pha
-    lda KANJI_PAGE_PTR
-    sta $10
-    lda KANJI_PAGE_PTR+1
-    sta $11
-    ldy #META_KANA
-    ldx #0
-@byte:
-    lda KANJI_A,x
-    eor #$FF
-    and KANJI_STALE,x
-    and ($10),y
-    bne @found
-    iny
-    inx
-    cpx #16
-    bne @byte
-    pla                         ; give the game its $10/$11 back
-    sta $11
-    pla
-    sta $10
-    pla
-    rts
-@found:
-    ldy #0
-@bit:
-    asl a
-    bcs @got
-    iny
-    bne @bit
-@got:
-    sty KANJI_M0
-    txa
-    asl a
-    asl a
-    asl a
-    ora KANJI_M0
-    sta KANJI_TILES
-    pla                         ; give the game its $10/$11 back
-    sta $11
-    pla
-    sta $10
-    lda #REQ_RESTORE
-    jsr post_wait
-    pla
-    sec
-    sbc #1
-    pha
-    bne @scan
-    pla
-    rts
-
-; ----------------------------------------------------------------------
-; Battle pool or band page for this message: C set for the pool.  Pool
+; The battle pool for this message: C set for the pool (C clear: the band
+; it once used, band_trap).  Pool
 ; on the battle screen (UI_BATTLE: always, any page size, 2026-11-13), and
 ; elsewhere when the battle graphics set is loaded and the pool tiles were
 ; read back blank (checked here if pal_copy could not post the check).
@@ -385,7 +309,7 @@ pool_decide:
     tay
     dey
     bne @idle
-    clc                         ; still busy: band page
+    clc                         ; still busy: no pool
     rts
 @start:
     lda KANJI_WIN_COL
@@ -409,15 +333,6 @@ pool_decide:
     clc
     rts
 
-release_all:
-    lda #0
-    ldx #15
-@l:
-    sta KANJI_A,x
-    dex
-    bpl @l
-    rts
-
 ; $10/$11 = page record -> Y = offset of its entry count.
 entries_offset:
     ldy #0
@@ -436,18 +351,18 @@ entries_offset:
     rts
 
 ; ----------------------------------------------------------------------
-; First character of a new page: keep only the kanji still on screen,
-; then restore this page's kana tiles that an earlier page used.
+; First character of a new page.  The pool: this page's slots beside the
+; lines still on screen (after a clear: from 0).  Map mode, the boot screens
+; and the oath: nothing (their tiles are fixed or the renderer's).
 ; ----------------------------------------------------------------------
 page_start:
     lda KANJI_PAGES_LEFT
     and #<~PAGE_FLAG
     sta KANJI_PAGES_LEFT
     lda TXR_ON
-    beq @band
-    rts                         ; map mode, the boot screens: no band page
-@band:
-    jsr release_all
+    beq @pool
+    rts
+@pool:
     lda $10                     ; the game's $10/$11 (math temps)
     pha
     lda $11
@@ -456,91 +371,15 @@ page_start:
     sta $10
     lda KANJI_PAGE_PTR+1
     sta $11
-    ldy #0
+    jsr entries_offset
     lda ($10),y
-    beq @clean
-    sta KANJI_M1
-@keep:
-    iny
-    lda ($10),y
-    and #$7F
-    pha
-    lsr a
-    lsr a
-    lsr a
-    tax
-    pla
-    and #7
-    sty KANJI_M2
-    tay
-    lda bitmask,y
-    ldy KANJI_M2
-    ora KANJI_A,x
-    sta KANJI_A,x
-    dec KANJI_M1
-    bne @keep
-@clean:
-    iny                         ; Y = nclean offset
-    bit KANJI_PAGES_LEFT
-    bvs @pool_end               ; pool: nothing on the band page to clean
-    lda ($10),y
-    beq @done
-    sta KANJI_M1
-@next:
-    iny
-    lda ($10),y
-    sty KANJI_M2
-    and #$7F
-    sta KANJI_TILES
-    pha
-    lsr a
-    lsr a
-    lsr a
-    tax
-    pla
-    and #7
-    tay
-    lda bitmask,y
-    and KANJI_STALE,x
-    beq @skip
-    pla                         ; give the game its $10/$11 back
-    sta $11
-    pla
-    sta $10
-    lda KANJI_M1
-    pha
-    lda KANJI_M2
-    pha
-    lda #REQ_RESTORE
-    jsr post_wait
-    pla
-    sta KANJI_M2
-    pla
-    sta KANJI_M1
-    lda $10                     ; the game's $10/$11 (math temps)
-    pha
-    lda $11
-    pha
-    lda KANJI_PAGE_PTR          ; reload: other tasks may have run
-    sta $10
-    lda KANJI_PAGE_PTR+1
-    sta $11
-@skip:
-    ldy KANJI_M2
-    dec KANJI_M1
-    bne @next
-@done:
+    jsr pool_need
+    jsr pool_choose
     pla                         ; give the game its $10/$11 back
     sta $11
     pla
     sta $10
     rts
-@pool_end:
-    jsr entries_offset          ; pool: this page's slots beside the lines
-    lda ($10),y                 ; still on screen (after a clear: from 0)
-    jsr pool_need
-    jsr pool_choose
-    jmp @done
 
 ; ----------------------------------------------------------------------
 ; Extended dispatcher for $EC-$F7 (replaces the original $D28E path).
@@ -758,8 +597,6 @@ KANJI_EC:
     inx
     rts
 @notxr:
-    bit KANJI_PAGES_LEFT
-    bvc @record
     jsr pool_tiles              ; pool: its slot (the slot table); V set:
     pla                         ; in a slot already
     sta $11                     ; (give the game its $10/$11 back; pla and
@@ -769,32 +606,6 @@ KANJI_EC:
     lda #REQ_UPLOAD
     jsr post_wait
     jmp put_tiles
-@record:
-    iny
-    iny
-    ldx #0
-@copy_tiles:
-    lda ($10),y
-    sta KANJI_TILES,x
-    iny
-    inx
-    cpx #4
-    bne @copy_tiles
-@tiles_done:
-    pla                         ; give the game its $10/$11 back
-    sta $11
-    pla
-    sta $10
-
-    jsr entry_bit               ; entry index KANJI_M2
-    sta KANJI_M0
-    and KANJI_UPLOADED,x
-    bne @write_tiles
-    lda KANJI_M0
-    ora KANJI_UPLOADED,x
-    sta KANJI_UPLOADED,x
-    lda #REQ_UPLOAD
-    jsr post_wait
 @write_tiles:
     jmp put_tiles
 
@@ -812,6 +623,17 @@ KANJI_EC:
     inx
     inx
     rts
+
+; The band page is gone (2026-11-14, the user's order): a message that
+; would have shown its kanji there (outside map mode, the battle set's pool,
+; the boot screens and the oath) stops the CPU here, to be found in play
+; and given its own tiles.  A = its text bank, X/Y = its text address
+; (tools/band_trap.py names it).
+band_trap:
+    ldx text_ptr_lo
+    ldy text_ptr_hi
+    lda KANJI_TEXT_BANK
+    .db $02                     ; JAM: the CPU stops
 
 ; The boot screens (TXR_ON = $40) and the opening oath (TXR_SPLIT),
 ; 2026-11-14: the kanji KANJI_CODE_LO/HI is entry k of the screen's fixed
@@ -882,21 +704,6 @@ put_tiles:
     sta $0319,x
     inx
     inx
-    rts
-
-; Entry KANJI_M2 -> A = its bit, X = its byte in KANJI_UPLOADED.
-entry_bit:
-    lda KANJI_M2
-    and #7
-    tax
-    lda bitmask,x
-    pha
-    lda KANJI_M2
-    lsr a
-    lsr a
-    lsr a
-    tax
-    pla
     rts
 
 ; An entry count byte -> A = the pool slots its page needs: the entries

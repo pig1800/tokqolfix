@@ -2415,7 +2415,8 @@ window needs is intact in page `$1000`.  No dynamic allocation.
   - the hack's block-write mirror (`FN_BLOCK_POST`) copies band-page
     tiles `$00-$4F` (the CHR the kanji took) from page 1.  A later band
     screen (history, events, endings: not on the measured paths) finds
-    the font there.
+    the font there.  (Removed with the band page, below: CHR `$3800`
+    keeps the oath's kanji.)
 
 **The line.**  The IRQ for line 128 landed in lines 127-129.  Row 15
 (lines 120-127) still holds the portraits' bottom tiles (codes `$80+`):
@@ -2449,3 +2450,67 @@ inside rows 16-17 (lines 128-143), which show nothing on either page, and
 - The regression set: greeting, menu cycle, the battle and the title
   pixel-identical.  The standard path from frame 2000 differs as above.
   The original build is byte-identical.
+
+## The band page removed (2026-11-14)
+
+The user's order: no font copy into CHR `$3800` any more; the
+message-driven band does not exist.  Its code is replaced by a small trap
+that stops the game where such a band would have been turned on.  The
+user plays the whole game, and each screen found gets its own tiles (as
+the boot screens and the oath did).  On the measured paths no message uses
+the band any more.
+
+**The trap** (`kanji_overlay.asm` `band_trap`).  `message_setup` with
+`TXR_ON` = 0 and no battle pool (`pool_decide`) used to turn the band on.
+It now loads A = the message's text bank and X/Y = its text address, then
+runs a JAM (`$02`): the CPU stops.  In Mesen's debugger, read A, X and Y,
+then:
+
+    python tools/band_trap.py A=12 X=57 Y=9C
+
+That prints the label (`message_map.json`) and the text.  Checked by
+forcing the oath onto the old path (`TXR_ON` cleared before its message):
+the CPU stops at `$BB88` with A = `$12`, X/Y = `$57`/`$9C`, which is
+b10_msg_126-128's text.
+
+**Removed:**
+- **Overlay:** the band branch of `message_setup` (`REQ_SYNC`, the active
+  set), `clean_kana`, the keep / clean lists of `page_start`, `KANJI_EC`'s
+  per-entry band tiles and uploads, `entry_bit`, `release_all`, and
+  `overlay_entry`'s band test.  Pool pages and the fixed sets are as
+  before.  1,907 -> 1,566 bytes.
+- **Hack bank** (`hack.asm`, 2,056 -> 829 lines, 3,530 -> 1,465 bytes):
+  - stale tracking (`queue_scan`'s marks, `mark_range`, `mark_stale`,
+    `KANJI_STALE`), the restores (`restore_next`, `restore_tile`,
+    `pick_restore`, `advance_hi`), the queue replay, the window probe and
+    `nt_check` / `nt_rescan`;
+  - page-2 selection (`wr_reg1`, `set_page`, `scene_page_now`,
+    `FLAG_PAGE2`) and the band IRQ arm (`irq_arm0`);
+  - `mark_upload`, the epilogue's band reset (`nmi_ef31` is an `rts`);
+  - the block writer's mirror: `fn_block_post` only disarms the pool when
+    the game writes its tiles.
+- **What the hack bank still does:** the battle pool's uploads and check
+  (`REQ_UPLOAD`..`REQ_MARK`; light, bulk and main-thread units, as
+  before), and the pool guard on the game's queue CHR entries and CHR
+  animation (`pool_scan`, `anim_check`).  A band request still in a save
+  state from an earlier build is dropped.
+- **Bank 26:** the band's force and arm in `cvn_band_path` (only the
+  oath's split is left there), and the band test in `nmi_cvg`.
+- **Fixed bank:** `irq_band`'s R0 switch: stage 0 of the IRQ is the oath's
+  `irq_split` alone.
+- **Attract bank:** `att_title_set`'s font copy into page 2 (`att_r0`).
+- **The oath's teardown:** the copy back into `$3800`.
+- **Unchanged:** the RAM image (byte-identical: old save states load), and
+  the compiler's metadata (its band parts are just not read:
+  DEBLOAT_TODO 1).
+
+**Checked** (`out/test/opt`, against the previous build):
+- Greeting, menu cycle, officer-switch battle (330 shots), title,
+  level-up battle (158) and capture victory (111): pixel-identical.
+- Boot flows (start with cancel, delete, register through the name entry,
+  copy, a damaged record): every shot but two transition frames also in
+  the previous run; no band.
+- Oath: every shot in the previous run; the split in lines 129-131.
+- The standard path differs after the oath only by timing: the teardown
+  is 2 frames shorter, and screen loads no longer copy to page 2.
+- The original build is byte-identical.

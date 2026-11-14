@@ -224,31 +224,14 @@ c343_hook:
 ; comes at the pre-render line's clock (irq_arm0 in the hack bank) and
 ; runs in line 0: it reloads the counter for line KANJI_IRQ_N.  It and the
 ; dialogue canvas's two stages (KANJI_IRQ_ST bit 7, map-canvas step 3) run
-; from RAM (cv_irq).  The band stage (KANJI_IRQ_ST = 0): BG tiles $00-$7F
-; switch to the band page, the IRQ is acknowledged and stays off until the
-; next arm.  No switch while no band is shown or the main thread owns the
-; PPU.  $8000 goes back to MMC3_SEL, as after every NMI.  A and the stack
-; only.
+; from RAM (cv_irq).  Stage KANJI_IRQ_ST = 0: the opening oath's split
+; (irq_split); the band page's switch is gone (2026-11-14).  $8000 goes
+; back to MMC3_SEL, as after every NMI.  A and the stack only.
 irq_handler:
     pha
     lda KANJI_IRQ_ST
-    beq irq_band
-    jmp CV_IRQ
-irq_band:
-    lda KANJI_BAND
     beq irq_split
-    lda nmi_busy
-    bne irq_off
-    lda #MMC3_R0
-    sta MMC3_SELECT
-    lda #CHR_BAND_LO
-    sta MMC3_DATA
-irq_switched:                   ; (label for the test scripts)
-    sta MMC3_IRQ_OFF            ; acknowledge; off until the next arm
-    lda KANJI_NFLAGS
-    ora #FLAG_HIT|FLAG_PAGE2    ; the next vblank finds page 2 selected
-    sta KANJI_NFLAGS
-    jmp irq_tail
+    jmp CV_IRQ
 irq_off:
     jmp irq_off_tail
 

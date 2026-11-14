@@ -220,11 +220,10 @@ cvn_rts:
 ; NMI, through the RAM's cv_nmi: from the fixed bank's nmi_gate (map mode,
 ; not busy: nmi_map; such NMIs never reach $EF08) or from $EF0B (normal
 ; frames, $EF08's push done: busy NMIs and every mode but the map's).
-; There: the band's force and arm (nmi_cv), then ef08_hook when the hack
-; bank's NMI has work (a band shown, a request, $39 moved or VRAM queue
-; traffic), else ef08_tail (the sound bank only).  (KANJI_BAND = 0 implies
-; FLAG_PAGE2 = 0: the NMI that clears the band also clears the flag; the
-; game keeps OAM slot 0 hidden, so sprite 0 needs no write either.)
+; There: the oath's split arm (nmi_cv), then ef08_hook when the hack bank's
+; NMI has work (a request, $39 moved or VRAM queue traffic: the pool's
+; uploads and guard), else ef08_tail (the sound bank only).  The band page
+; is gone (2026-11-14).
 ; ----------------------------------------------------------------------
 nmi_cvg:
     lda nmi_busy
@@ -236,8 +235,7 @@ nmi_cvg:
     jsr nmi_cv
     bit TXR_ON
     bmi @no                     ; map mode (busy): nothing of the hack's NMI
-    lda KANJI_BAND
-    ora KANJI_REQ
+    lda KANJI_REQ
     bne @yes
     lda $39
     cmp KANJI_LAST39
@@ -252,9 +250,8 @@ nmi_cvg:
 
 ; Busy, or cv_stream ran it in this NMI: nothing.  Map mode: cv_stream's
 ; step only (CV_STRM bit 6: forced there, no uploads after it): R0 = page
-; 1, the bookkeeping, the arm.  Elsewhere the band, as before: forced and
-; armed here in long frames, by irq_arm0 after the hack's own PPU work in
-; light ones.  A, X.
+; 1, the bookkeeping, the arm.  Elsewhere the opening oath's split (the
+; band page and its arm are gone since 2026-11-14).  A, X.
 nmi_cv:
     lda nmi_busy
     ora CV_STRM
@@ -284,90 +281,14 @@ cvn_off:
     sta KANJI_IRQ_ST            ; (A = 0)
 cvn_brts:
     rts
-cvn_band_path:
+cvn_band_path:                  ; (every mode but the map's)
     lda ppu_mask_shadow
     and #$18
-    beq cvn_brts                 ; rendering off
+    beq cvn_brts                ; rendering off
     lda TXR_ON
     cmp #TXR_SPLIT
-    bne cvn_nsplit
+    bne cvn_brts                ; no split (the band page is gone)
     jmp cvn_split               ; the opening oath's fixed split
-cvn_nsplit:
-    lda vram_queue_read
-    sec
-    sbc KANJI_QPOS              ; bytes the game flushed this frame
-    cmp #CV_FORCE_MAX+1
-    bcs cvn_barm                ; the game's NMI ran late: no PPU access
-    bit CV_STRM
-    bvc cvn_nstrm
-    jmp cvn_sarm                ; after the stream step: forced, reloaded
-cvn_nstrm:
-    cmp #REPLAY_MAX+1
-    bcs cvn_need                ; a long frame
-    lda $39
-    cmp KANJI_LAST39
-    beq cvn_brts                 ; a light frame: irq_arm0
-cvn_need:
-    lda KANJI_BAND
-    beq cvn_brts                 ; no split this frame: no PPU access
-    lda PPUSTATUS
-    lda #$10
-    sta PPUADDR
-    lda #$00
-    sta PPUADDR
-    lda ppu_ctrl_shadow
-    sta PPUCTRL
-    lda scroll_x
-    sta PPUSCROLL
-    lda scroll_y
-    sta PPUSCROLL
-cvn_barm:
-    lda KANJI_BAND
-    beq cvn_brts                 ; no split this frame
-    ; The band alone: armed here, right after the force, as irq_arm0
-    ; would after the hack NMI's entry; FLAG_ARMED makes that a no-op.
-    lda #0
-    sta MMC3_IRQ_LATCH
-cv_breload:                     ; (label for the gates)
-    sta MMC3_IRQ_RELOAD
-    sta MMC3_IRQ_OFF
-    sta MMC3_IRQ_ON
-    lda KANJI_NFLAGS
-    ora #FLAG_ARMED
-    sta KANJI_NFLAGS
-    jmp cvn_band
-; After the stream step (cv_stream forced v and reloaded the counter when
-; the band comes): the stage settings; no band: the IRQ off again.
-cvn_sarm:
-    lda KANJI_BAND
-    beq cvb_cancel
-cvn_band:                       ; (the band's stage settings)
-    lda #1
-    sta KANJI_IRQ_ST            ; stage 0, then the band stage
-    lda KANJI_WIN_ROW
-    asl a
-    asl a
-    asl a
-    sec
-    sbc scroll_y
-    bcs cvb_row
-    sbc #15                     ; borrow: wrap modulo 240
-cvb_row:
-    cmp #16
-    bcc cvb_cancel
-    cmp #209
-    bcs cvb_cancel
-    sta KANJI_IRQ_N
-    cmp #ARM_CLI_MIN
-    bcc cvb_rts                 ; near the top: stage 0 waits for the NMI's end
-    cli
-cvb_rts:
-    rts
-cvb_cancel:
-    lda #0
-    sta KANJI_IRQ_ST
-    sta MMC3_IRQ_OFF
-    rts
 
 ; The opening oath (TXR_ON = TXR_SPLIT, the user's fixed split, 2026-11-14):
 ; R1 = the scene page for the frame's top (the portraits' tiles $80-$FF),
@@ -1077,8 +998,9 @@ txr_menuset:
     jmp busy_off
 
 ; TXF_OATH: the opening oath's kanji (txr_ui.inc oath_clo/chi, the user's
-; set) into CHR $3800, tiles 4k..4k+3 there (TL, BL, TR, BR), written with
-; R0 = CHR_BAND_LO; R1 shows them as tiles $80 + 4k below the fixed split.
+; set) into CHR $3800 (the band page until 2026-11-14), tiles 4k..4k+3 there
+; (TL, BL, TR, BR), written with R0 = CHR_BAND_LO; R1 shows them as tiles
+; $80 + 4k below the fixed split.
 ; Then TXR_ON = TXR_SPLIT.  Bank 13 b13_k_oath, after the scene's portraits
 ; and before its fade-in (rendering off).
 txr_oathset:
@@ -1115,30 +1037,18 @@ txr_oathset:
     rts
 
 ; TXF_OATHEND (bank 13 b13_k_oathend, rendering and the NMI off): the split
-; off (TXR_ON first, so a pending IRQ switches nothing), R1 = the scene page,
-; no band kanji active; KANJI_M0-M2 = the band page's tiles the oath's kanji
-; took ($00 - 4 * OATH_N - 1), for the hack's FN_BLOCK_POST (page 1 -> page 2).
+; off (TXR_ON first, so a pending IRQ switches nothing), R1 = the scene page.
+; CHR $3800 keeps the oath's kanji: nothing else uses it outside map mode.
 txr_oathend:
     lda #0
     sta TXR_ON
     sta MMC3_IRQ_OFF
     sta KANJI_IRQ_ST
-    ldx #15
-@a:
-    sta KANJI_A,x
-    dex
-    bpl @a
     lda #MMC3_R1
     sta MMC3_SEL
     sta MMC3_SELECT
     lda #CHR_SCENE_HI
     sta MMC3_DATA
-    lda #$10
-    sta KANJI_M0
-    lda #$00
-    sta KANJI_M1
-    lda #4*OATH_N
-    sta KANJI_M2
     rts
 
 ; Tile TXR_T = TXR_GBUF[Y..Y+7] in plane 0, plane 1 zero; then TXR_T + 1.
