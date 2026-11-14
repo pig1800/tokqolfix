@@ -12,6 +12,11 @@ window after its wait (a <WAIT> does not, nor does a line break).  At 4
 lines it scrolls:
   - "inside": a 4th line ended by <NL> / <NL2> / <WAIT> / <PAGE>;
   - "at the end": the 4th line ended by <END>.
+A <PAGE> waits and indents the next line one cell (bank 15 $D1C3: inc $5F,
+as <NL> does); a <WAIT> waits without the indent.  So a <WAIT> before a
+new speech (「) or narration cannot simply become a <PAGE>: the scan says
+which kind of line follows each break.
+
 In battle the scroll is the original's.  In map mode the kanji build turns
 it into a page break at run time (bank 26's TXF_LOOK with the fixed bank's
 map_lines; map_end4 skips the end's scroll: TEXT_RENDERER.md "in map mode a
@@ -107,14 +112,22 @@ def walk(tokens: list[str], marks: dict[int, str]):
 
 
 def advice(kind: str, window, k: int) -> str:
+    """The break the page needs.  A <PAGE> indents the next line one cell
+    (the engine's $5F, as after <NL>), a <WAIT> does not: a <PAGE> fits
+    only where the next line goes on with an indented speech.  A line that
+    starts a speech (「) or narration needs a break without the indent."""
     text, end = window[k][0], window[k][1]
     tail = text[-8:] if len(text) > 8 else text
-    what = f"the {end} after 「…{tail}」 (line {k + 1})"
+    nxt = window[k + 1][0]
+    start = nxt[:8] + ("…" if len(nxt) > 8 else "")
+    where = f"after 「…{tail}」 (line {k + 1}, its {end})"
     if kind == "at the end":
-        return f"4 lines at the end: make {what} a <PAGE> (or fit the last page into 3 lines)"
-    if end == "<WAIT>":
-        return f"make {what} a <PAGE>"
-    return f"no <WAIT> before the 4th line: a <PAGE> in place of {what} (or fewer lines)"
+        head = f"4 lines at the end: a page break {where}"
+    else:
+        head = f"a page break {where}"
+    if nxt.startswith("「"):
+        return head + f"; the next line starts a speech (「{start[1:]}): a <PAGE> would indent it one cell"
+    return head + f"; next line 「{start}」: a <PAGE> indents it one cell (right only for a continued speech)"
 
 
 def label_lines(path: Path) -> dict[str, int]:
