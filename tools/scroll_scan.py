@@ -47,12 +47,7 @@ KEEP_INDENT = {"<NL>": "<PAGE>", "<NLNI>": "<PAGENI>"}
 
 def compiled_tokens(rec, cmap) -> list[str]:
     """The tokens the build compiles for this record (kanji_text.build)."""
-    extra = kt.extra_for(rec)
-    tokens = kt.reflow(kt.tokenize(rec.text))
-    try:
-        return kt.fit_tokens(rec, tokens, extra, False, cmap)[3]
-    except RuntimeError:
-        return kt.fit_tokens(rec, tokens, extra, True, cmap)[3]
+    return kt.fit_tokens(rec, kt.reflow(kt.tokenize(rec.text)), cmap)[2]
 
 
 def auto_marks(src: list[str], out: list[str]) -> dict[int, str]:

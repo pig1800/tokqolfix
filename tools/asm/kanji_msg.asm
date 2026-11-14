@@ -1,50 +1,47 @@
 ; ======================================================================
-; Kanji-target text-engine overlay (revision 11, ROM-resident)
+; The message engine: the kanji half of the game's text engine (revision
+; 11 as the ROM-resident overlay; 2026-11-14 out of the text banks, the
+; user's order), in hack bank 23's lower half, included by hack.asm.
 ;
-; Assembled for $B800 and included identically in text banks 18-22.
-; The overlay never touches the PPU or a mapper register.  It posts
-; requests (KANJI_REQ) that the NMI serves in vblank, or that the hack
-; bank serves directly when rendering is off, and waits frame by frame
-; through the fixed-bank WAIT_TEXT helper, which maps this bank again.
+; While a message prints the current bank is MSG_BANK (kanji.inc): this
+; code at R6, the message's text chunk at R7 ($A000-$BFFF).  The fixed
+; bank's text engine calls it on every character ($D28E: text_dispatch)
+; and every line control ($D2C7: ctrl_store); the F8 trampoline enters at
+; msg_entry (MSG_ENTRY).  The engine never touches the PPU or a mapper
+; register.  It posts requests (KANJI_REQ) that the NMI serves in vblank,
+; or that the hack code serves directly when rendering is off, and waits
+; frame by frame through the fixed-bank WAIT_TEXT helper, which maps the
+; message bank again.
 ;
 ; Since 2026-11-14 there is no band page (the user's order): map mode, the
 ; boot screens and the opening oath put their own kanji tiles (TXR_ON), the
 ; battle set's pool takes the rest, and any other message stops the CPU in
-; band_trap.  The metadata's band parts (the kana bitmap, keep and clean
-; lists, each entry's four tiles) are gone too.
+; band_trap.
 ;
-; Message metadata in the text bank:
-;   page count (bit 5: a victory message), then count * page record:
-;     entries, entries * (code_lo, code_hi)
-;                            (entries bits 0-4; bits 5-6: the page's runtime
-;                            officer names, 3 pool slots reserved for each)
-;   (Until 2026-11-14 also the band page's kana bitmap, keep / clean lists
-;   and four tiles per entry.)
+; No metadata (2026-11-14): a page's kanji table, REG_LO/HI 0-15 in
+; first-appearance order, is built as the page prints (map mode: page_find
+; adds each new kanji) or scanned from the text before the page starts
+; (the pool, which must know the page's slots in advance: scan_table).
+; KANJI_PAGE_N = the table's entries | the page's runtime officer names <<
+; 5 (3 pool slots each).
 ;
 ; KANJI_TEXT_ADDR is free after entry: it is the main-thread scratch
 ; KANJI_M0/M1.  The page-start flag is bit 7 of KANJI_PAGES_LEFT.
 ; ======================================================================
-.include "../../decomp/include/hardware.inc"
-.include "../../decomp/include/ram.inc"
-.include "../../decomp/include/kanji.inc"
-.include "../../decomp/build/kanji/fixed_hooks.inc"
 
 TEXT_MSG_LOOP = $D160       ; text_show_message line loop (sets the line address)
-META_PAGES = 1              ; offset of the first page record (after the count)
 PAGE_FLAG = $80                 ; in KANJI_PAGES_LEFT: page start pending
                                 ; (bit 6: PAGE_POOL, kanji.inc)
-
-.base $B800
-.org $B800
+SCAN_TABLE = $80                ; KANJI_SCAN: the scan fills the table
 
 ; ----------------------------------------------------------------------
-; Message entry.  The trampoline has stored the text bank, the text
-; address and the metadata address, and mapped this bank.  The stack
+; Message entry.  The trampoline has stored the text chunk, the text
+; address and the victory flag, and mapped the message bank.  The stack
 ; holds the F8 handler's TEXT_RETURN above text_clear_line's return.
 ; ----------------------------------------------------------------------
-overlay_entry:
+msg_entry:
     stx KANJI_BUFX
-    ; Drop the F8 handler's TEXT_RETURN now: the overlay leaves through
+    ; Drop the F8 handler's TEXT_RETURN now: the engine leaves through
     ; TEXT_LINE_LOOP or TEXT_MSG_LOOP, and every wait below then runs two
     ; bytes shallower on the text task's small stack.
     pla
@@ -60,10 +57,10 @@ overlay_entry:
 
     ; A message that continues a window (text_line > 0) would share its
     ; tiles with the previous message's lines, which the compiler cannot
-    ; know.  Clear the window first (as after a page flip); the
-    ; message then starts on the top line of a clean window.  The line the engine was building is dropped
-    ; with its text_clear_line frame (so the scroll runs at the engine's
-    ; usual stack depth) and the line loop restarts.
+    ; know.  Clear the window first (as after a page flip); the message
+    ; then starts on the top line of a clean window.  The line the engine
+    ; was building is dropped with its text_clear_line frame (so the scroll
+    ; runs at the engine's usual stack depth) and the line loop restarts.
     ; Battle pool (revision 20): when the lines above are pool kanji or
     ; kana and this message's first page fits in pool slots none of them
     ; shows, the window scrolls on as in the original.
@@ -71,8 +68,8 @@ overlay_entry:
     beq @fresh
     jsr pool_decide
     bcc @clear
-    lda #META_PAGES
-    jsr record_n
+    ldy #0
+    jsr scan_table              ; the first page's slots
     jsr pool_choose
     bcc @fresh
 @clear:
@@ -86,47 +83,32 @@ overlay_entry:
     ldx KANJI_BUFX
     jmp TEXT_LINE_LOOP
 
-; Read the metadata.  Map mode (the text renderer), the boot screens and the
-; opening oath (their fixed sets): TXR_ON non-zero, the screen's own tiles,
-; no pool, no requests.  Otherwise the battle pool, or the band page, which
-; is gone: band_trap.  (KANJI_BAND stays 0: a save state from an earlier
-; build may hold 1.)
+; The message's setup.  Map mode (the text renderer), the boot screens and
+; the opening oath (their fixed sets): TXR_ON non-zero, the screen's own
+; tiles, no pool, no requests.  Otherwise the battle pool, or the band
+; page, which is gone: band_trap.  (KANJI_BAND stays 0: a save state from
+; an earlier build may hold 1.)
 message_setup:
     lda #0
     sta KANJI_BAND
     lda TXR_ON
-    bne @meta
+    bne @setup
     jsr pool_decide             ; C set: the battle pool
-    bcs @meta
+    bcs @setup
     jmp band_trap
-@meta:
-
-    lda $10                     ; the game's $10/$11 (math temps)
-    pha
-    lda $11
-    pha
-    lda KANJI_PAGE_PTR
-    sta $10
-    lda KANJI_PAGE_PTR+1
-    sta $11
-    ldy #0
-    lda ($10),y
-    cmp #META_WIN               ; a victory message (b10_msg_059 / 061 / 062):
-    bcc @count                  ; in a battle, the battle is won (the pool
-    and #META_WIN-1             ; gets tiles $80-$A3, UIF_PCHOOSE)
-    ldy UI_BATTLE
+@setup:
+    lda KANJI_PAGES_LEFT        ; the stub's victory flag (b10_msg_059 / 061
+    and #MSG_WIN                ; / 062): in a battle, the battle is won (the
+    beq @count                  ; pool gets tiles $80-$A3, UIF_PCHOOSE)
+    lda UI_BATTLE
     beq @count
-    pha
-    tya
     ora #UI_WON
     sta UI_BATTLE
-    pla
 @count:
+    lda #0
     sta KANJI_PAGES_LEFT
-    pla                         ; give the game its $10/$11 back
-    sta $11
-    pla
-    sta $10
+    sta KANJI_PAGE_N            ; the first page's table: empty (map mode
+                                ; fills it as the page prints)
     lda UI_BATTLE               ; won just now: the reward window's 金兵糧
     and #UI_WON|UI_RWLOAD       ; 経験値 to slots 0-5, one a frame (the UI
     cmp #UI_WON                 ; bank queues it, the NMI flushes it while
@@ -149,28 +131,17 @@ message_setup:
     bne @load
 @noload:
 
-    lda TXR_ON                  ; map mode, the boot screens, the oath:
-    bne @cleaned                ; their own tiles
-    lda KANJI_PAGES_LEFT        ; the pool: flag the message
-    ora #PAGE_POOL
-    sta KANJI_PAGES_LEFT
-@cleaned:
-
-    lda KANJI_PAGE_PTR
-    clc
-    adc #META_PAGES
-    sta KANJI_PAGE_PTR
-    bcc @nohi
-    inc KANJI_PAGE_PTR+1
-@nohi:
     lda #0
     sta KANJI_UPLOADED
     sta KANJI_UPLOADED+1
-    bit KANJI_PAGES_LEFT
-    bvc @done
-    jsr record_n                ; pool: the first page's slots (A = 0: the
-    jsr pool_choose             ; record at KANJI_PAGE_PTR) beside the
-    sta KANJI_UPLOADED+1        ; lines still on screen
+    lda TXR_ON                  ; map mode, the boot screens, the oath:
+    bne @done                   ; their own tiles
+    lda #PAGE_POOL              ; the pool: flag the message, scan its
+    sta KANJI_PAGES_LEFT        ; first page and choose its slots beside
+    ldy #0                      ; the lines still on screen
+    jsr scan_table
+    jsr pool_choose
+    sta KANJI_UPLOADED+1
 @done:
     rts
 
@@ -331,16 +302,11 @@ pool_decide:
     clc
     rts
 
-; $10/$11 = page record -> Y = offset of its entry count (0: the record
-; starts with it since the band page's keep / clean lists went).
-entries_offset:
-    ldy #0
-    rts
-
 ; ----------------------------------------------------------------------
-; First character of a new page.  The pool: this page's slots beside the
-; lines still on screen (after a clear: from 0).  Map mode, the boot screens
-; and the oath: nothing (their tiles are fixed or the renderer's).
+; First character of a new page.  The pool: this page's slots (scan_table
+; built its table at the page break) beside the lines still on screen
+; (after a clear: from 0).  Map mode: the page's table starts empty.  The
+; boot screens and the oath: nothing (their tiles are fixed).
 ; ----------------------------------------------------------------------
 page_start:
     lda KANJI_PAGES_LEFT
@@ -348,25 +314,13 @@ page_start:
     sta KANJI_PAGES_LEFT
     lda TXR_ON
     beq @pool
+    lda #0
+    sta KANJI_PAGE_N
     rts
 @pool:
-    lda $10                     ; the game's $10/$11 (math temps)
-    pha
-    lda $11
-    pha
-    lda KANJI_PAGE_PTR
-    sta $10
-    lda KANJI_PAGE_PTR+1
-    sta $11
-    jsr entries_offset
-    lda ($10),y
+    lda KANJI_PAGE_N
     jsr pool_need
-    jsr pool_choose
-    pla                         ; give the game its $10/$11 back
-    sta $11
-    pla
-    sta $10
-    rts
+    jmp pool_choose
 
 ; ----------------------------------------------------------------------
 ; Extended dispatcher for $EC-$F7 (replaces the original $D28E path).
@@ -549,29 +503,14 @@ KANJI_EC:
 @fix:
     jmp fix_put
 @meta:
-    lda $10                     ; the game's $10/$11 (math temps)
-    pha
-    lda $11
-    pha
-    jsr page_find
-    bcc @found
-    jmp @blank_r
-@found:
+    jsr page_find               ; KANJI_M2 = its entry in the page's table
+    bcs @blank_r
     bit TXR_ON
     bpl @notxr
     ; Map mode (TEXT_RENDERER.md): the renderer's codes, $80 + 2e (left
     ; half) and $81 + 2e (right), in both rows; e = the entry, whose glyph
     ; REG_LO/HI keeps.  The renderer uploads the glyph when it draws them.
-    pla                         ; give the game its $10/$11 back
-    sta $11
-    pla
-    sta $10
-    ldy KANJI_M2
-    lda KANJI_CODE_LO
-    sta REG_LO,y
-    lda KANJI_CODE_HI
-    sta REG_HI,y
-    tya
+    lda KANJI_M2
     asl a
     ora #$80
     ldx KANJI_BUFX
@@ -585,23 +524,14 @@ KANJI_EC:
     rts
 @notxr:
     jsr pool_tiles              ; pool: its slot (the slot table); V set:
-    pla                         ; in a slot already
-    sta $11                     ; (give the game its $10/$11 back; pla and
-    pla                         ; sta keep V)
-    sta $10
-    bvs @write_tiles
+    bvs @write_tiles            ; in a slot already
     lda #REQ_UPLOAD
     jsr post_wait
-    jmp put_tiles
 @write_tiles:
     jmp put_tiles
 
-@blank_r:
-    pla                         ; give the game its $10/$11 back
-    sta $11
-    pla
-    sta $10
-    ldx KANJI_BUFX
+@blank_r:                       ; the page's table is full (the compiler
+    ldx KANJI_BUFX              ; allows MAX_PAGE_KANJI): blank
     lda #$0A
     sta $0300,x
     sta $0318,x
@@ -614,12 +544,12 @@ KANJI_EC:
 ; The band page is gone (2026-11-14, the user's order): a message that
 ; would have shown its kanji there (outside map mode, the battle set's pool,
 ; the boot screens and the oath) stops the CPU here, to be found in play
-; and given its own tiles.  A = its text bank, X/Y = its text address
-; (tools/band_trap.py names it).
+; and given its own tiles.  A = its text chunk (an 8 KiB bank), X/Y = its
+; text address (tools/band_trap.py names it).
 band_trap:
     ldx text_ptr_lo
     ldy text_ptr_hi
-    lda KANJI_TEXT_BANK
+    lda KANJI_TEXT_CHUNK
     .db $02                     ; JAM: the CPU stops
 
 ; The boot screens (TXR_ON = $40) and the opening oath (TXR_SPLIT),
@@ -751,21 +681,8 @@ KNAME:                          ; $F4-$F7 (Y = 2 * (code - $EC): 16-22)
 ; (Z: kana, put nothing; N: no officer).
 kn_put:
     stx KANJI_BUFX
-    lda $10                     ; the game's $10/$11 (math temps)
-    pha
-    lda $11
-    pha
-    lda KANJI_PAGE_PTR
-    sta $10
-    lda KANJI_PAGE_PTR+1
-    sta $11
-    jsr entries_offset
-    lda ($10),y
+    lda KANJI_PAGE_N
     sta TXR_TX                  ; the page's entry count byte
-    pla                         ; give the game its $10/$11 back
-    sta $11
-    pla
-    sta $10
     ldx #TXF_NAME
     jsr TXR_CALL                ; TXR_NM: kanji (0: kana, $FF: none), codes; TXR_NE: entry
     lda TXR_NM
@@ -803,54 +720,183 @@ kn_orig:
     .dw $D2E7, $D2E1, $D2DB, $D2CF
 
 ; ----------------------------------------------------------------------
-; Search the current page record for KANJI_CODE_LO/HI.  Carry set when
-; absent; otherwise Y = entry offset (code_lo), KANJI_M2 = entry index,
-; $10/$11 = page record.
+; KANJI_CODE_LO/HI in the page's table (REG_LO/HI 0 .. KANJI_PAGE_N & $1F):
+; KANJI_M2 = its entry, C clear; a new kanji is added (map mode: the page's
+; kanji in first-appearance order; the pool: scan_table has added them all
+; already).  C set: the table is full (MAX_PAGE_KANJI).  A, Y lost.
 ; ----------------------------------------------------------------------
 page_find:
-    lda KANJI_PAGE_PTR
-    sta $10
-    lda KANJI_PAGE_PTR+1
-    sta $11
-    jsr entries_offset
-    lda ($10),y
-    and #$1F                    ; (bits 5-6: reserved names)
-    sta KANJI_M1
-    beq @notfound
-    lda #0
-    sta KANJI_M2
-    iny
+    lda KANJI_PAGE_N
+    and #$1F
+    sta KANJI_M1                ; entries
+    ldy #0
 @loop:
-    lda ($10),y
+    cpy KANJI_M1
+    beq @add
+    lda REG_LO,y
     cmp KANJI_CODE_LO
     bne @next
-    iny
-    lda ($10),y
+    lda REG_HI,y
     cmp KANJI_CODE_HI
     beq @found
-    dey
 @next:
-    tya
-    clc
-    adc #2                      ; (code lo, hi)
-    tay
-    inc KANJI_M2
-    dec KANJI_M1
-    bne @loop
-@notfound:
-    sec
-    rts
+    iny
+    bne @loop                   ; (always)
+@add:
+    cpy #MAX_PAGE_KANJI
+    bcs @rts
+    lda KANJI_CODE_LO
+    sta REG_LO,y
+    lda KANJI_CODE_HI
+    sta REG_HI,y
+    inc KANJI_PAGE_N
 @found:
-    dey
+    sty KANJI_M2
     clc
+@rts:
+    rts
+
+; ----------------------------------------------------------------------
+; The page at ($51),Y (its first byte), up to its page break, the end or
+; a jump: C set when it has content (a cell, a kanji, an inserted word or
+; name, a call, a jump), A = the pool slots it needs (pool_need of
+; KANJI_PAGE_N).
+; scan_table also builds its table: REG_LO/HI 0-15 = its kanji in
+; first-appearance order (both variants of a pick, as the compiler counts
+; them), KANJI_PAGE_N = the entries | its runtime officer names << 5
+; ($F4-$F7 and the tactic pick, at most 3).  scan_content only looks (map
+; mode at a page break: the table still serves the line being drawn).
+; The text codes as the compiler's page_from_bytes reads them.  X, Y lost.
+; ----------------------------------------------------------------------
+scan_table:
+    lda #SCAN_TABLE
+    sta KANJI_SCAN
+    lda #0
+    sta KANJI_PAGE_N
+    beq scan_page               ; (always)
+scan_content:
+    lda #0
+    sta KANJI_SCAN
+scan_page:
+    lda #0
+    sta KANJI_M2                ; names
+@next:
+    lda ($51),y
+    cmp #$EC
+    bcc @cell                   ; a kana cell
+    cmp #$F0
+    bcc @kanji                  ; $EC-$EF pos: a kanji
+    beq @pick                   ; $F0 ctl ...: a kanji pick
+    cmp #$F3
+    bcc @ins2                   ; $F1 / $F2 n: an inserted word
+    beq @cell                   ; $F3: an inserted name
+    cmp #$F8
+    bcc @name                   ; $F4-$F7: a runtime officer name
+    beq @call                   ; $F8 lo hi: a call (it returns)
+    cmp #$FA
+    bcc @jump                   ; $F9: a jump (the message goes on in code)
+    cmp #$FC
+    bcs @end                    ; $FC / $FD: the page break; $FE / $FF: the end
+    iny                         ; $FA / $FB: a line break
+    bne @next
+    beq @end
+@jump:                          ; content (the compiler's page has the jump's
+    lda KANJI_SCAN              ; operand cells; what the code shows next
+    ora #1                      ; goes on from this window), then the end
+    sta KANJI_SCAN
+    bne @end                    ; (always)
+@call:
+    iny
+@ins2:
+    iny
+@cell:
+    iny
+@content:
+    lda KANJI_SCAN
+    ora #1
+    sta KANJI_SCAN
+    tya
+    bne @next
+    beq @end
+@name:
+    inc KANJI_M2
+    bne @cell                   ; (always)
+@pick:
+    iny
+    lda ($51),y                 ; $FB: the tactic's name (reserved entries
+    cmp #$FB                    ; like a name); $FF id lenA: 4 bytes, the
+    bne @pick3                  ; others 3
+    inc KANJI_M2
+@pick3:
+    cmp #$FF
+    bne @pick2
+    iny
+@pick2:
+    iny
+    iny
+    bne @next
+    beq @end
+@kanji:
+    sec
+    sbc #$EC
+    sta KANJI_M1                ; code high: the store bank
+    iny
+    lda ($51),y
+    sta KANJI_M0                ; code low: pos
+    iny
+    bit KANJI_SCAN
+    bpl @content
+    ldx KANJI_PAGE_N            ; (bits 5-6 are 0 while scanning)
+    beq @add
+@find:
+    dex
+    lda REG_LO,x
+    cmp KANJI_M0
+    bne @nf
+    lda REG_HI,x
+    cmp KANJI_M1
+    beq @content                ; on the page already
+@nf:
+    txa
+    bne @find
+    ldx KANJI_PAGE_N
+@add:
+    cpx #MAX_PAGE_KANJI
+    bcs @content
+    lda KANJI_M0
+    sta REG_LO,x
+    lda KANJI_M1
+    sta REG_HI,x
+    inc KANJI_PAGE_N
+    bne @content                ; (always)
+@end:
+    bit KANJI_SCAN
+    bpl @look                   ; scan_content: the table stays
+    lda KANJI_M2                ; names, at most 3, to bits 5-6
+    cmp #4
+    bcc @n3
+    lda #3
+@n3:
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    ora KANJI_PAGE_N
+    sta KANJI_PAGE_N
+    jsr pool_need
+@look:
+    lsr KANJI_SCAN              ; C = content
     rts
 
 ; ----------------------------------------------------------------------
 ; Control store (replaces STA $0300,X at $D2C7).  A page break, $FC <PAGE>
 ; or $FD <PAGENI> (the same but for the next line's indent, which the
-; engine does), advances to the next page record: page_flip then clears
-; the window after the wait.  (Since 2026-11-14 $FD is a page break: the
-; compiler splits page records at both.)
+; engine does), starts the next page, the text after it: page_flip clears
+; the window after the wait (PAGE_FLAG), unless the next page has no
+; content (a page break right before the end: the window stays).  The
+; pool: when the next page fits beside the lines on screen, its slots are
+; set up here and the engine scrolls on (no page flip).  X kept.
 ; ----------------------------------------------------------------------
 ctrl_store:
     sta $0300,x
@@ -860,105 +906,34 @@ ctrl_store:
     beq @page
     rts
 @page:
-    lda KANJI_PAGES_LEFT
-    and #<~(PAGE_FLAG|PAGE_POOL)
-    cmp #2
-    bcc @no_next
-    lda KANJI_PAGES_LEFT
-    sbc #1                      ; C set: pages left - 1, bits 6-7 kept
-    sta KANJI_PAGES_LEFT
     txa
     pha
-    lda $10                     ; the game's $10/$11 (math temps)
-    pha
-    lda $11
-    pha
-    lda KANJI_PAGE_PTR
-    sta $10
-    lda KANJI_PAGE_PTR+1
-    sta $11
-    jsr entries_offset
-    sty KANJI_M2
-    lda ($10),y
-    and #$1F
-    asl a                       ; 2 * entries
-    sec
-    adc KANJI_M2                ; + entries offset + 1
-    clc
-    adc KANJI_PAGE_PTR
-    sta KANJI_PAGE_PTR
-    lda KANJI_PAGE_PTR+1
-    adc #0
-    sta KANJI_PAGE_PTR+1
-    pla                         ; give the game its $10/$11 back
-    sta $11
-    pla
-    sta $10
-    pla
-    tax
+    ldy text_col                ; the page break's offset: the next page
+    iny                         ; starts after it
     bit KANJI_PAGES_LEFT
-    bvc @flag                   ; band: the next page starts on a clear window
-    txa                         ; pool: when the next page fits beside the
-    pha                         ; lines on screen, set it up here and let
-    lda #0                      ; the engine scroll on (no page flip)
-    jsr record_n
-    jsr pool_choose             ; (A = 0)
-    tay
-    pla
-    tax
-    bcs @flag
-    sty KANJI_UPLOADED
-    sty KANJI_UPLOADED+1
-    rts
+    bvs @pool
+    jsr scan_content            ; map mode, the fixed sets: the table still
+    bcc @clear                  ; serves the line being drawn
 @flag:
     lda KANJI_PAGES_LEFT
     ora #PAGE_FLAG
     sta KANJI_PAGES_LEFT
-    jmp @clear
-@no_next:
-    lda KANJI_PAGES_LEFT        ; count 0, the pending and pool flags as they were
-    and #PAGE_FLAG|PAGE_POOL
-    sta KANJI_PAGES_LEFT
-    lda #<empty_record
-    sta KANJI_PAGE_PTR
-    lda #>empty_record
-    sta KANJI_PAGE_PTR+1
 @clear:
     lda #0
     sta KANJI_UPLOADED
     sta KANJI_UPLOADED+1
-@done:
-    rts
-
-empty_record:
-    .db 0                       ; (no entries)
-
-; ----------------------------------------------------------------------
-; A = the pool slots of the page record at KANJI_PAGE_PTR + A: its entries
-; and reserved names (pool_need; the game's $10/$11 kept; X, Y clobbered).
-; ----------------------------------------------------------------------
-record_n:
-    clc
-    adc KANJI_PAGE_PTR
-    tax
-    lda KANJI_PAGE_PTR+1
-    adc #0
-    tay
-    lda $10                     ; the game's $10/$11 (math temps)
-    pha
-    lda $11
-    pha
-    stx $10
-    sty $11
-    jsr entries_offset
-    lda ($10),y
-    jsr pool_need
-    tax
-    pla                         ; give the game its $10/$11 back
-    sta $11
     pla
-    sta $10
-    txa
+    tax
+    rts
+@pool:
+    jsr scan_table              ; the next page's table and slots
+    bcc @clear
+    jsr pool_choose             ; C clear: it fits beside the lines on
+    bcs @flag                   ; screen (A = 0)
+    sta KANJI_UPLOADED
+    sta KANJI_UPLOADED+1
+    pla
+    tax
     rts
 
 ; ----------------------------------------------------------------------
@@ -982,8 +957,7 @@ pool_choose:
     lda #0
     rts
 
-bitmask:
-    .db $80, $40, $20, $10, $08, $04, $02, $01
-
 ; the boot screens' fixed set (fix_put)
 .include "../../decomp/build/kanji/boot_fix.inc"
+
+msg_end:                        ; (the build reports the engine's size)

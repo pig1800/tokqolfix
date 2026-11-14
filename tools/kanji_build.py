@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Build the 512 KiB kanji-target resources.
 
-Owns the fixed-bank stubs, the hack banks (code + glyph data), the
-trampoline, the font, the text overlay and the generated text banks.
+Owns the fixed-bank stubs, the hack bank (its code and the message engine),
+the trampoline, the font and the generated text chunks.
 The original 256 KiB target never runs this script.
 """
 from __future__ import annotations
@@ -20,10 +20,8 @@ OUT = ROOT / "decomp" / "build" / "kanji"
 ASM = ROOT / "tools" / "asm"
 ASM6F = ROOT / "tools" / "toolchain" / "asm6f" / "asm6f_64.exe"
 
-TEXT_BANK_START = 18
-TEXT_BANK_END = 22
-OVERLAY_LIMIT = 0x800
-HACK_BANK = 23                 # the hack code, $8000-$9FFF (kanji.inc KANJI_HACK_BANK)
+HACK_BANK = 23                 # the hack code and the message engine, $8000-$9FFF
+                               # (kanji.inc KANJI_HACK_BANK)
 
 # Fixed-bank regions assigned to the hooks (revision 11; $C460-$C47D, the
 # dead MMC1 reset/init, and $F004-$F00B since the MMC3 port, revision 21).
@@ -868,7 +866,7 @@ def build_txr_ui() -> None:
     if FIX_FIRST + 4 * len(fixed) > FIX_LIMIT:
         raise SystemExit(f"boot fixed set: {len(fixed)} kanji, tiles past ${FIX_LIMIT:02X}")
     for ch in ui_kanji:                 # a UI glyph index for each UI word's kanji
-        enc(ch)                         # (the messages' take the overlay's copy)
+        enc(ch)                         # (the messages' take the message engine's copy)
     labs = [enc(t) for t in kanji_common.MAP_UI_LABELS]
     if len(labs) != len(MAP_UI_LABEL_POS):
         raise SystemExit("MAP_UI_LABEL_POS does not match MAP_UI_LABELS")
@@ -907,7 +905,7 @@ def build_txr_ui() -> None:
     lines.append(f"OATH_N = {len(oath)}")
     lines.append("oath_clo: .db " + ",".join(f"${codes[ch] & 0xFF:02X}" for ch in oath))
     lines.append("oath_chi: .db " + ",".join(f"${codes[ch] >> 8:02X}" for ch in oath))
-    # The overlay's copy (the boot screens' and the oath's messages: a kanji
+    # The message engine's copy (the boot screens' and the oath's messages: a kanji
     # is its tiles in the set, no band; KANJI_EC): the boot set's entries,
     # then the oath's.  The text's kanji byte is $EC + code >> 8.
     both = fixed + oath
@@ -1022,14 +1020,6 @@ def write_txr_bank(image: bytes) -> None:
     write_bank(f"bank{TXR_BANK:02d}.bin", image + bytes(0x4000 - len(image)))
 
 
-def build_overlay(overlay: bytes) -> None:
-    if len(overlay) > OVERLAY_LIMIT:
-        raise SystemExit(f"overlay is {len(overlay)} bytes, max {OVERLAY_LIMIT}")
-    if len(overlay) < OVERLAY_LIMIT:
-        overlay = overlay + bytes(OVERLAY_LIMIT - len(overlay))
-    (OUT / "kanji_overlay_padded.bin").write_bytes(overlay)
-
-
 def apply_patch(bank: bytearray, addr: int, data: bytes) -> None:
     off = addr - 0xC000
     original = bytes(bank[off:off + len(data)])
@@ -1041,7 +1031,7 @@ def apply_patch(bank: bytearray, addr: int, data: bytes) -> None:
 
 
 def build_bank15(fixed: bytes, labels: dict[str, int],
-                 overlay_labels: dict[str, int]) -> None:
+                 hack_labels: dict[str, int]) -> None:
     original = prg()
     bank = bytearray(original[15 * 0x4000:16 * 0x4000])
 
@@ -1084,11 +1074,15 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     apply_patch(bank, 0xC4AA, bytes((0x4C, labels["nmi_prg"] & 0xFF,
                                      labels["nmi_prg"] >> 8)))
 
-    # Text-engine hooks (extended dispatcher and page control).
-    apply_patch(bank, 0xD28E, bytes((0x4C, overlay_labels["text_dispatch"] & 0xFF,
-                                     overlay_labels["text_dispatch"] >> 8)))
-    apply_patch(bank, 0xD2C7, bytes((0x20, overlay_labels["ctrl_store"] & 0xFF,
-                                     overlay_labels["ctrl_store"] >> 8)))
+    # Text-engine hooks (extended dispatcher and page control): the message
+    # engine in the hack bank's lower half (MSG_BANK maps it at R6).
+    for name in ("text_dispatch", "ctrl_store"):
+        if not 0x8000 <= hack_labels[name] < 0xA000:
+            raise SystemExit(f"{name} at ${hack_labels[name]:04X}: not in the hack bank's lower half")
+    apply_patch(bank, 0xD28E, bytes((0x4C, hack_labels["text_dispatch"] & 0xFF,
+                                     hack_labels["text_dispatch"] >> 8)))
+    apply_patch(bank, 0xD2C7, bytes((0x20, hack_labels["ctrl_store"] & 0xFF,
+                                     hack_labels["ctrl_store"] >> 8)))
 
     # return_inline_block popped its return address and then read it from
     # the freed stack bytes: an interrupt between (the map's IRQs, 4 a
@@ -1270,11 +1264,12 @@ def main() -> int:
 
     font = build_font()
     build_store(font)
-    build_hack_banks()
     build_ui_block()
     nglyphs = build_ui_data()
     ui = assemble("ui")
-    build_txr_ui()
+    build_txr_ui()              # (boot_fix.inc: the message engine's fixed sets)
+    build_hack_banks()
+    hack_labels = read_labels(OUT / "hack.lst")
     txr = assemble("txr")
     attract = assemble("attract")
 
@@ -1284,11 +1279,7 @@ def main() -> int:
     (OUT / "far_stub.txt").write_text(
         f"{labels['far_head']:04X}\n", encoding="utf-8")
 
-    overlay = assemble("kanji_overlay")
-    overlay_labels = read_labels(OUT / "kanji_overlay.lst")
-    build_overlay(overlay)
-
-    build_bank15(fixed, labels, overlay_labels)
+    build_bank15(fixed, labels, hack_labels)
     build_bank31()
     build_skeleton()
 
@@ -1300,8 +1291,10 @@ def main() -> int:
     write_txr_bank(txr)
     write_att_bank(attract)
 
-    print(f"fixed hooks: {len(fixed)} bytes; overlay: {len(overlay)} bytes; "
-          f"hack code: {(OUT / 'hack.bin').stat().st_size} bytes; "
+    msg = hack_labels["msg_end"] - hack_labels["msg_entry"] if "msg_end" in hack_labels else 0
+    print(f"fixed hooks: {len(fixed)} bytes; "
+          f"hack code: {(OUT / 'hack.bin').stat().st_size} bytes "
+          f"(the message engine {msg}); "
           f"kanji store: {len(font) // 32} of 1024 glyphs; "
           f"RAM code: {len(canvas)} bytes; UI bank: {len(ui)} bytes "
           f"({nglyphs} glyphs); text renderer: {len(txr)} bytes; "

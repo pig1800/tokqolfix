@@ -2595,3 +2595,83 @@ them behave by their design instead of a patch that depends on context.
 - Boot flows: identical but for the copy flow's frame 800 (the menu
   border one scanline apart, as in every comparison).
 - The original build is byte-identical.
+
+## The message engine out of the text banks; no metadata (2026-11-14)
+
+The user: the overlay should be gone from the text banks entirely, its
+code merged into the new code banks, and every unnecessary band-era
+metadata removed; without both, the text should fit 32 KiB, four
+consecutive 8 KiB banks, a message never crossing a bank border.
+
+**The layout:**
+- **Text:** four 8 KiB chunks, the 8 KiB banks 36-39 (16 KiB banks 18-19,
+  right after the kanji store), always read at R7 (`$A000-$BFFF`).
+  `kanji_text.py` packs the 758 unique messages first-fit by decreasing
+  size: 30,918 bytes, chunks 36-38 full to the byte, 1,850 bytes free in 39.
+  Banks 20 and 21 are free.
+- **The message engine** (`tools/asm/kanji_msg.asm`, the old overlay):
+  1,471 bytes in hack bank 23's lower half, included by `hack.asm`; entry
+  `MSG_ENTRY` (`$800F`, the jump table), the fixed bank's hooks at `$D28E`
+  / `$D2C7` point into it.  The overlay was 1,540 bytes in a 2 KiB slot in
+  each of four text banks.
+- **The message bank** `MSG_BANK` = `$97` (`$80 | 23`, a number no bank
+  has): while a message prints it is the current bank.
+  - `main_prg` maps it as R6 = 46 (the hack bank's lower half: `2 * $97`
+    without bit 8) and R7 = `KANJI_TEXT_CHUNK`.
+  - So every "map the message bank again" goes through unchanged: the
+    engine's `set_bank_b(text_window_x)` and `set_bank_current`, and the
+    hack's `WAIT_TEXT`, `scroll_text`, `call_ui`, `call_hack`, `txr_call`.
+  - `PRG_R7X` (the kanji store's R7 protocol) follows: `main_prg` clears it
+    first for every bank, and sets it to the chunk just before R7 gets it,
+    so an NMI anywhere restores what the main thread has.  `nmi_prg`'s R7
+    range now covers 32-39 (store and text: the same instructions).
+  - `main_prg` keeps its 63 cycles for every other bank (the original's
+    timing: a 4-cycle change once moved a lag frame) and its 36 bytes (the
+    routines after it keep their addresses); its end (`main_tail`, 24
+    bytes) went into the gap at `$C6AC`.
+- **Why not PRG mode 1** (`$C000` = R6, the user's first idea): the
+  engine is entered from bank 62 code, both interrupt vectors reach bank
+  62 within a few instructions, and mode 1 puts bank 62 at `$8000`, so the
+  text could only live at `$A000` anyway.  Then R6 is free in mode 0.
+- **The stub** (banks 10/11): `F8 <far_head> <chunk | $80 victory> <text
+  addr>`, 6 bytes (was 8: no metadata pointer).  The trampoline stores the
+  chunk, the victory flag (`MSG_WIN` in `KANJI_PAGES_LEFT` until the
+  message's setup) and the address, keeping X (the engine's line-buffer
+  index).
+- **No metadata** (13.6 KiB before): a page's kanji table (`REG_LO/HI`
+  0-15, first-appearance order, `KANJI_PAGE_N` = entries | names << 5) is
+  built at run time.
+  - Map mode: `page_find` adds each new kanji as the page prints.
+  - The battle pool, which must know a page's slots before it starts:
+    `scan_table` reads the page's text ahead (at the message's setup, at a
+    page break, and for the window-continuing check at the entry), with
+    the compiler's rules (both variants of a pick, names `$F4-$F7` and the
+    tactic pick).
+  - At a page break, `scan_content` decides the flip: a page with content
+    (a cell, a kanji, an insertion, a call or a jump) flips the window
+    after the wait; a page break right before the end does not (8
+    messages), as the old page count did.  A jump counts: the old records
+    gave the page after 「…<PAGE>」 before b10_msg_129's jump a record, so
+    the window flipped there and the next message's first line kept the
+    `<PAGE>`'s indent.
+- **The compiler** (`kanji_text.py`, 1,417 -> 690 lines): the band-era tile
+  planner is gone (reserved kana, scene borrow, menu contexts, tile
+  assignment, relaxed retries).  `fit_tokens` splits a page only when it
+  has more kanji than the table (16; at most 15 now, no split).  The ROM is
+  byte-identical with and without the planner.
+
+**Space:** 167.0 -> 186.8 KiB free (MEMORY_MAP.md); stubs 3,651 -> 2,739
+bytes (bank 10) and 2,374 -> 1,788 (bank 11).
+
+**Checked** (against the build before):
+- Pixel-identical on 13 tests, 3,197 screenshots: greeting, menu cycle,
+  officer-switch, level-up and capture battles (victory, reward window,
+  capture prompt), title, the standard path from frame 2000, the oath and
+  the five boot flows.  The one difference is the copy flow's frame 800,
+  the menu border one scanline apart (it differs between earlier builds
+  too).
+- The RAM image and the original build are byte-identical.
+- Seen on the way, the same in both builds: in the level-up battle the
+  「は<CALL:D565=さくりゃく>を覚えた」 page shows 計 as its 言 half and 覚
+  blank (frame 1700 of the r4/s2 run): the call's kanji tail and the
+  page's kanji meet in the pool's slots.  Not fixed here.

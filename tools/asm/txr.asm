@@ -14,7 +14,7 @@
 ; tiles from the top down.  Text tiles are 1bpp: plane 0, plane 1 zero.
 ;
 ; The game's text cells hold old font codes ($00-$7F) and, from the
-; overlay, kanji halves $80 + 2e (left) / $81 + 2e (right), e = the page
+; message engine, kanji halves $80 + 2e (left) / $81 + 2e (right), e = the page
 ; entry (REG_LO/HI[e] = glyph code); $FA-$FF are line-end codes.  A row's
 ; screen row gives its part, its parity the kanji half's row (text lines
 ; start on odd rows in map mode).  Glyphs a row needs are uploaded (the NMI
@@ -951,7 +951,7 @@ cvf_tdone:
 ; boot menu, the speed window, the name entry, the record prompts: the
 ; user's set, 2026-11-14) goes to upper-page tiles FIX_FIRST.. (the battle
 ; set's tiles there are never shown on these screens).  The UI words and
-; the messages' kanji (the overlay's fix_put) are put with those tiles
+; the messages' kanji (the message engine's fix_put) are put with those tiles
 ; (TXR_ON = $40): no band.  The battle pool's tiles hold the set: no pool.
 ; The set goes into CHR once, at the boot entry (txr_menuset; 2026-11-14:
 ; nothing writes those tiles while the boot screens last, measured on every
@@ -2456,8 +2456,8 @@ ui_rn:
     clc
     rts
 
-; TXF_NAME (the overlay, battle messages): TXR_TA = the name's code, as
-; the overlay's dispatch index: 16-22 for $F4-$F7 (an officer: $F4
+; TXF_NAME (the message engine, battle messages): TXR_TA = the name's code, as
+; the message engine's dispatch index: 16-22 for $F4-$F7 (an officer: $F4
 ; text_target's, $F5 text_actor's, $F6 party_slot's else text_target's,
 ; $F7 the record of $05F0,[$72]; TXR_TA = the record after), 24 for $D565's
 ; tactic (text_command).  TXR_TX = the pool page's entry count byte (bits

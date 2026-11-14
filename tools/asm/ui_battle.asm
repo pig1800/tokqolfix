@@ -1623,7 +1623,7 @@ reward_tail:
 
 ; ======================================================================
 ; The battle messages' kanji slots (2026-11-13, the user's design; the
-; overlay calls these through call_ui).  Slot s = tiles $80 + 4s (kanji.inc
+; message engine calls these through call_ui).  Slot s = tiles $80 + 4s (kanji.inc
 ; SL_*): before the win 9-23 (the command kanji 17-23 last), from the win
 ; 6-31 (0-5: the reward window's).  The slot table knows the kanji in each
 ; slot (messages' and the UI's own uploads), so a kanji already in a slot
@@ -1975,9 +1975,9 @@ lru_slot:
     rts
 
 ; ----------------------------------------------------------------------
-; UIF_RWLOAD (the first victory message, kanji_overlay message_setup): the
+; UIF_RWLOAD (the first victory message, kanji_msg message_setup): the
 ; reward kanji KANJI_M2 (ui_reward_g) to slot RW_SLOT + KANJI_M2 through
-; the VRAM queue; the overlay waits a frame after each (the NMI flushes
+; the VRAM queue; the message engine waits a frame after each (the NMI flushes
 ; it).  The slot table notes its text code.  ZP_PTR and ZP_T are the game's
 ; here: kept.
 ; ----------------------------------------------------------------------

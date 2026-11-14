@@ -50,9 +50,9 @@ local function cmp(tag)
   snap = nil
 end
 local function on(addr, fn) emu.addMemoryCallback(fn, emu.callbackType.exec, addr, addr, emu.memType.nesMemory, emu.cpuType.nes) end
-local A_ENTRY = 0xB800  -- @overlay_entry@
-local A_DISPATCH = 0xBB18  -- @text_dispatch@
-local A_CTRL = 0xBDDB  -- @ctrl_store@
+local A_ENTRY = 0x85BC  -- @msg_entry@
+local A_DISPATCH = 0x8767  -- @text_dispatch@
+local A_CTRL = 0x8AD1  -- @ctrl_store@
 local A_WAIT = 0xFFE6  -- @wait_text@
 local A_SCROLL = 0xD2AC  -- @scroll_text@
 on(A_ENTRY, function() take("entry") end)

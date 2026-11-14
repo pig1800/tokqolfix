@@ -7,10 +7,10 @@
 ;
 ; Persistent hack state lives only in $0131-$017F.  That range sits between
 ; the text task's stack (top $0130) and the engine's saved tile rows
-; ($0180-$01DF), so no stack can ever reach it.  $0102-$0103 are overlay /
+; ($0180-$01DF), so no stack can ever reach it.  $0102-$0103 are message-engine /
 ; main-thread scratch that is never live across a yield or an NMI.
 ; $0100/$0101 belong to the game (bank-14 item code keeps a flag and a
-; chest index there across a message; revision 16c moved the overlay's
+; chest index there across a message; revision 16c moved the message engine's
 ; scratch off them).  Nothing is stored in $0104-$0130 (task stacks and
 ; number scratch) or in $01E0-$01FF (main stack and its overflow margin).
 ; There is no RAM code.
@@ -44,17 +44,20 @@ CHR_SCENE_LO      = 4       ; 1 KiB CHR bank numbers: page 1 tiles $00-$7F
 CHR_SCENE_HI      = 6       ;   page 1 tiles $80-$FF
 CHR_BAND_LO       = 14      ;   page 2 tiles $00-$7F: CHR $3800 since the map renderer (TEXT_RENDERER.md)
 
-KANJI_TEXT_BANK   = $0131
-KANJI_TEXT_ADDR   = $0132   ; 2 bytes (consumed at overlay entry)
-KANJI_PAGE_PTR    = $0134   ; 2 bytes: current page record in the text bank
+KANJI_TEXT_CHUNK  = $0131   ; the message's text chunk: an 8 KiB bank (TEXT_8K..), at R7
+KANJI_TEXT_ADDR   = $0132   ; 2 bytes, $A000-$BFFF (consumed at message entry)
+KANJI_PAGE_N      = $0134   ; the current page's kanji table (REG_LO/HI 0-15):
+                            ; entries (bits 0-4), runtime officer names (bits
+                            ; 5-6, 3 pool slots each); kanji_msg.asm page_scan
+KANJI_SCAN        = $0135   ; page_scan: bit 7 = fill the table, bit 0 = content
 KANJI_CODE_LO     = $0136   ; upload request: glyph code (pos in its store bank)
 KANJI_CODE_HI     = $0137   ;   (its store bank 0-3: STORE_8K below)
-KANJI_PAGES_LEFT  = $0138   ; bit 7: page start pending, bit 6: PAGE_POOL
+KANJI_PAGES_LEFT  = $0138   ; bit 7: page start pending, bit 6: PAGE_POOL, bit 5:
+                            ; MSG_WIN from the stub until the message's setup
 KANJI_BUFX        = $0139
 KANJI_TILES       = $013A   ; 4 tile numbers (upload request / current kanji)
-KANJI_UPLOADED    = $013E   ; 2-byte bitmap: page entry glyph is in CHR page 2
-                            ; (band pages); pool pages: byte 0 counts the
-                            ; names' kanji placed (kn_put, TXF_NAME)
+KANJI_UPLOADED    = $013E   ; pool pages: byte 0 counts the names' kanji
+                            ; placed (kn_put, TXF_NAME); byte 1: 0
 
 KANJI_A           = $0140   ; 16 bytes: active kanji tiles (lower 128)
 KANJI_STALE       = $0150   ; 16 bytes: lower tiles where page 2 != page 1
@@ -81,10 +84,10 @@ KANJI_T0          = $017D   ; NMI-context scratch
 KANJI_T1          = $017E
 KANJI_T2          = $017F
 
-; Main-thread scratch (overlay and main-context hack calls only; never live
+; Main-thread scratch (message engine and main-context hack calls only; never live
 ; across a yield).  KANJI_MAINCHR is set while main-thread hack code has
 ; the band page selected, so a busy-mode NMI leaves CHR register 1 alone.
-KANJI_M0          = $0132   ; = KANJI_TEXT_ADDR, consumed at overlay entry
+KANJI_M0          = $0132   ; = KANJI_TEXT_ADDR, consumed at message entry
 KANJI_M1          = $0133   ;   (M0/M1 is also the dispatcher's jump vector)
 KANJI_M2          = $0102
 KANJI_MAINCHR     = $0103
@@ -162,9 +165,9 @@ KANJI_PAL_HI      = KANJI_PAL_DATA + $D3   ; data_C6C2 (pointer high bytes)
 HACK_PAL_COPY     = $8009   ; hack-bank table copy for load_text_graphics
 
 KANA_FONT_BANK    = 9
-KANJI_TEXT_BANKS  = 18      ; banks 18-22 are generated text/metadata banks
-KANJI_HACK_BANK   = 23      ; the hack code, all in $8000-$9FFF (its upper
-                            ; half is free)
+KANJI_HACK_BANK   = 23      ; the hack code and the message engine
+                            ; (kanji_msg.asm), all in $8000-$9FFF; R7 is a
+                            ; window: a kanji store bank or a text chunk
 
 ; ----------------------------------------------------------------------
 ; The kanji store (2026-11-13, the user's layout): every kanji glyph once,
@@ -183,6 +186,28 @@ STORE_8K          = 32
 STORE_16K         = 16
 STORE_TAB         = $A000
 STORE_GLYPHS      = 1024
+
+; ----------------------------------------------------------------------
+; Message text (2026-11-14, the user's layout): every message in one of
+; TEXT_CHUNKS consecutive 8 KiB banks TEXT_8K.. (the 16 KiB banks 18-19,
+; right after the kanji store), always read at R7 ($A000-$BFFF; a message
+; never crosses a chunk).  While a message prints, the current bank is
+; MSG_BANK, a number no real bank has: main_prg maps it as R6 = the hack
+; bank's lower half (the message engine; the MMC3 drops bit 7 of 2 *
+; MSG_BANK) and R7 = KANJI_TEXT_CHUNK, with PRG_R7X = the chunk so that an
+; NMI's restore maps the same; every "map the message bank again" of the
+; engine (text_window_x, set_bank_current) and of the hack's helpers goes
+; through it unchanged.  No metadata: the page's kanji are scanned at run
+; time (kanji_msg.asm page_scan).
+; ----------------------------------------------------------------------
+MSG_BANK          = $80 | KANJI_HACK_BANK
+TEXT_8K           = STORE_8K + 4
+TEXT_CHUNKS       = 4
+TEXT_ADDR         = $A000
+MSG_WIN           = $20     ; stub byte bit 7 -> KANJI_PAGES_LEFT bit 5: a
+                            ; victory message (kanji_text WIN_LABELS)
+MSG_ENTRY         = $800F   ; hack bank jump table: the message entry
+MAX_PAGE_KANJI    = 16      ; REG_LO/HI 0-15: a page's kanji
 
 ; Fixed-bank entry points (bank 15/31).
 TEXT_RETURN       = $D285
@@ -306,11 +331,11 @@ UIF_WIPE          = 13      ; sub_CE2D (bank 14's room transfer wipe), before
 UIF_WIPE_ROWS     = 14      ; after it: the two buffer rows, the text row back
 UIF_ROWEV         = 15      ; sub_CE7A (bank 15 $CE7A is a stub): an event's
                             ; map change, the player's metarow redrawn
-UIF_PCHOOSE       = 16      ; kanji_overlay pool_choose: a pool page's slots
+UIF_PCHOOSE       = 16      ; kanji_msg pool_choose: a pool page's slots
                             ; (n in KANJI_M2; V set: fallback, clear the window)
-UIF_PTILES        = 17      ; kanji_overlay pool_tiles: entry KANJI_M2's tiles
+UIF_PTILES        = 17      ; kanji_msg pool_tiles: entry KANJI_M2's tiles
 UIF_RWLOAD        = 18      ; the first victory message: queue reward kanji
-                            ; KANJI_M2 into slot KANJI_M2 (the overlay waits)
+                            ; KANJI_M2 into slot KANJI_M2 (the message engine waits)
 UIF_NAMEG         = 19      ; put_officer_name's kanji path (mmc3_b15
                             ; pon_kanji): kanji NG_K of record NG_REC to
                             ; plane 1 of $A9-$A9+3 through the VRAM queue;
@@ -352,7 +377,10 @@ UI_SLV            = UI_RAM2+15 ; SL_MAGIC: the slot table is this build's (a
 SL_MAGIC          = $5A
 PRG_R7X           = UI_RAM2+16 ; main thread: the 8 KiB bank at R7 that the
                             ; NMI's last restore keeps (0: none, R7 =
-                            ; 2 * current_prg_bank + 1); hack_init clears it
+                            ; 2 * current_prg_bank + 1): a store bank, or
+                            ; the text chunk (main_prg sets it for MSG_BANK,
+                            ; clears it for every other bank); hack_init
+                            ; clears it
 NG_REC            = UI_RAM2+17 ; put_officer_name's kanji (mmc3_b15 pon_kanji,
 NG_K              = UI_RAM2+18 ;   UIF_NAMEG): the record, its kanji 0-2,
 NG_X              = UI_RAM2+19 ;   the line-buffer index
@@ -362,10 +390,8 @@ UI_SHOWCHK        = UI_RAM2+32 ; 1: the window being drawn opens beside the
                             ; (UI_RAM2+33: free)
 RW_SLOT           = 0       ; the reward window's first slot (from the win)
 UI_WON            = $80     ; UI_BATTLE bit 7: the battle is won (a message
-                            ; with META_WIN started: b10_msg_059 / 061 / 062)
+                            ; with MSG_WIN started: b10_msg_059 / 061 / 062)
 UI_RWLOAD         = $40     ; UI_BATTLE bit 6: the reward kanji are in 0-5
-META_WIN          = $20     ; metadata byte 0 (page count) bit 5: a victory
-                            ; message (kanji_text WIN_LABELS)
 UI_RAM            = $7FC0   ; battery RAM after UI_RAM2
 UI_PATH           = UI_RAM+0 ; 1 = the info screen was opened from a battle
 UI_P2             = UI_RAM+1 ; 3 bytes: the battle's P2 colours 1-3
@@ -521,7 +547,7 @@ SL_HI             = TXR_EB+32  ; 32: its high byte; $FF: none known
 SL_AGE            = TXR_EB+64  ; 32: SL_CLK when slot s was last used
 SL_CLK            = TXR_EB+96  ; pages begun (UIF_PCHOOSE)
 TXR_NM            = TXR_GBUF ; TXF_NAME: kanji count (0: none or no room), 3 codes lo, 3 hi
-TXR_NJ            = TXR_NM+7 ;   the overlay's loop: the name's kanji 0-2
+TXR_NJ            = TXR_NM+7 ;   the message engine's loop: the name's kanji 0-2
 TXR_NE            = TXR_NM+8 ;   the first free reserved pool entry (TXF_NAME), then the loop's
 TXR_TBM           = $7ED5   ; 4 x 16: tiles in use in part p (bit set)
 TXR_GHI           = $7E65   ; 4 x 28: glyph code of group g in part p (high; $FF = free)

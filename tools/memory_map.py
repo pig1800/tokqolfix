@@ -256,7 +256,7 @@ def main() -> int:
         nstub = 0
         for i in range(cnt):
             a = (k[info["lo"] + i] | k[info["hi"] + i] << 8) - 0x8000
-            ln = 8 if k[a] == 0xF8 else 3
+            ln = 6 if k[a] == 0xF8 else 3
             stub_end = max(stub_end, a + ln)
         seen = set()
         for i in range(cnt):
@@ -266,12 +266,12 @@ def main() -> int:
         if info["lo"] + cnt < info["hi"]:
             add_orig(b, info["lo"] + cnt, info["hi"] - 1, "original bytes between the tables")
         add(b, info["hi"], info["hi"] + cnt - 1, "data", "message pointer table, high bytes")
-        add(b, start, stub_end - 1, "data", f"{len(seen)} stubs: F8 far stubs (8 bytes: text bank, text, metadata) and JUMP-only messages (3 bytes)")
+        add(b, start, stub_end - 1, "data", f"{len(seen)} stubs: F8 far stubs (6 bytes: F8, far head, text chunk and victory flag, text address) and JUMP-only messages (3 bytes)")
         add(b, stub_end, tail - 1, "free", "the original message text, zeroed (2026-11-14 debloat; usable while this bank is mapped)")
         toff = kt.TRAMPOLINE_ADDR - 0x8000
         add_orig(b, tail, toff - 1, "original bytes after the text")
         tl = size("trampoline.bin")
-        add(b, toff, toff + tl - 1, "code", f"F8 trampoline ({tl} bytes): maps the text bank, enters the overlay")
+        add(b, toff, toff + tl - 1, "code", f"F8 trampoline ({tl} bytes): makes the message bank current (the message engine at R6, the text chunk at R7), enters the engine")
         add_orig(b, toff + tl, B - 1, "original bank trailer")
 
     # ---------------- bank 15 (slot): free, JAM bytes
@@ -301,48 +301,41 @@ def main() -> int:
             else:
                 add(b, lo, lo + 0x1FFF, "free", f"kanji store, 8 KiB bank {k8}: no glyphs")
 
-    # ---------------- text banks
-    recs = set()
+    # ---------------- text chunks (8 KiB banks TEXT_8K.., read at R7)
+    msgs: dict[int, set[int]] = {}
     for b in (10, 11):
         info = kt.BANK_INFO[b]
         k = rom[b * B:(b + 1) * B]
         for i in range(info["count"]):
             a = (k[info["lo"] + i] | k[info["hi"] + i] << 8) - 0x8000
             if k[a] == 0xF8:
-                recs.add((k[a + 3], k[a + 4] | k[a + 5] << 8, k[a + 6] | k[a + 7] << 8))
-    ovl_code = size("kanji_overlay.bin")
-    for b in range(16, 31):
-        mine = [r for r in recs if r[0] == b]
-        if not mine:
-            continue
+                msgs.setdefault(k[a + 3] & 0x3F, set()).add(k[a + 4] | k[a + 5] << 8)
+    chunk_used = {int(c): n for c, n in report["text_chunks"].items()}
+    for b in text_banks:
         kind_of[b] = "text"
-        text = meta = 0
-        end = 0
-        s = rom[b * B:(b + 1) * B]
-        for _, da, ma in mine:
-            text += ma - da
-            o = ma - 0x8000
-            n = s[o] & 0x1F
-            p = o + 1
-            for _ in range(n):
-                p += 1 + 2 * (s[p] & 0x1F)
-            meta += p - o
-            end = max(end, p)
-        add(b, 0, end - 1, "data", f"{len(mine)} messages: text {text} bytes, metadata {meta} bytes (page count, per page an entry byte and 2 bytes a kanji)")
-        add(b, end, kt.TEXT_BANK_LIMIT - 1, "free", "the text area's free end")
-        add(b, kt.TEXT_BANK_LIMIT, kt.TEXT_BANK_LIMIT + ovl_code - 1, "code", f"the overlay ({ovl_code} bytes; the same copy in every text bank)")
-        add(b, kt.TEXT_BANK_LIMIT + ovl_code, B - 1, "free", "the overlay slot's padding (room for the overlay to grow; must stay equal in every text bank)")
+        for half in (0, 1):
+            k8 = 2 * b + half
+            used = chunk_used.get(k8, 0)
+            lo = half * 0x2000
+            add(b, lo, lo + used - 1, "data", f"text chunk, 8 KiB bank {k8} (at R7, $A000-$BFFF): "
+                f"{len(msgs.get(k8, ()))} messages, {used} bytes; no metadata (the message engine scans each page)")
+            add(b, lo + used, lo + 0x1FFF, "free", f"text chunk {k8}'s free end (room for text; a message never crosses a chunk)")
 
     # ---------------- the hack bank
     kind_of[HACK] = "hack bank"
     hl = size("hack.bin")
     pal = K["KANJI_PAL_DATA"] - 0x8000
     pal_len = 0xC6D1 - 0xC5EF + 1
-    add(HACK, 0, hl - 1, "code", f"hack code ({hl} bytes): the battle pool's uploads and guard, the palette copy, reset")
-    add(HACK, hl, pal - 1, "free", "free")
+    hlab = kb.read_labels(OUT / "hack.lst")
+    m0, m1 = hlab["msg_entry"] - 0x8000, hlab["msg_end"] - 0x8000
+    add(HACK, 0, m0 - 1, "code", f"hack code ({m0} bytes): the battle pool's uploads and guard, the palette copy, reset")
+    add(HACK, m0, m1 - 1, "code", f"the message engine ({m1 - m0} bytes, kanji_msg.asm): the text engine's kanji half, "
+        f"at R6 while a message prints (MSG_BANK)")
+    add(HACK, m1, hl - 1, "code", "hack code") if m1 < hl else None
+    add(HACK, max(hl, m1), pal - 1, "free", "free")
     add(HACK, pal, pal + pal_len - 1, "data", f"load_text_graphics' palette tables ({pal_len} bytes, from $C5EF-$C6D1)")
     add(HACK, pal + pal_len, 0x1FFF, "free", "free")
-    add(HACK, 0x2000, B - 1, "free", "free (R7 holds a kanji store bank while the hack code runs)")
+    add(HACK, 0x2000, B - 1, "free", "free (R7 is a window here: a kanji store bank while the hack code uploads, the text chunk while a message prints)")
 
     # ---------------- the attract bank
     kind_of[ATT] = "title / attract"
@@ -547,6 +540,8 @@ def main() -> int:
             win = f"`{h(cpu)}` (fixed)"
         elif STORE <= b <= STORE + 1:
             win = "`$A000` (R7, the store)"
+        elif b in text_banks:
+            win = "`$A000` (R7, a text chunk)"
         else:
             win = f"`{h(cpu)}` (R{6 + half})"
         parts = []

@@ -1,20 +1,27 @@
 ; ======================================================================
 ; Hack bank code (revision 11), PRG bank 23.  Since 2026-11-14 the band
 ; page is gone (the user's order): no page-2 copy of the font, no stale
-; tracking, restores or band IRQ.  The overlay stops the CPU where a
-; message would have used it (kanji_overlay.asm band_trap).  This bank
+; tracking, restores or band IRQ.  The message engine stops the CPU where
+; a message would have used it (kanji_msg.asm band_trap).  This bank
 ; serves the battle pool's glyph uploads and pool check (KANJI_REQ), guards
-; the pool tiles against the game's CHR writes, and copies the palettes.
+; the pool tiles against the game's CHR writes, copies the palettes, and
+; holds the message engine (kanji_msg.asm, out of the text banks since
+; 2026-11-14), which runs with a text chunk at R7.
 ;
 ; Assembled for $8000; everything (with the relocated palette tables at
-; KANJI_PAL_DATA) in the bank's lower 8 KiB: the glyph upload maps a bank
-; of the kanji store at R7 (kanji.inc STORE_*; since 2026-11-13 the glyphs
-; are no longer kept here, in three copies of this bank).
+; KANJI_PAL_DATA) in the bank's lower 8 KiB: R7 is a window, a bank of the
+; kanji store (the glyph upload; kanji.inc STORE_*) or the message's text
+; chunk (MSG_BANK).
 ;
 ; Entry points:
 ;   $8000  call_hack dispatcher (KANJI_FN), main thread or NMI flush
 ;   $8003  NMI after the game's PPU work, normal frames (loc_EF08)
 ;   $8006  NMI epilogue, every frame (loc_EF31)
+;   $8009  load_text_graphics' table copy (HACK_PAL_COPY)
+;   $800C  reset (HACK_INIT)
+;   $800F  the message entry (MSG_ENTRY: the F8 trampoline's)
+;   text_dispatch, ctrl_store: the fixed bank's text-engine hooks ($D28E,
+;          $D2C7; kanji_build.py patches them from this listing)
 ;
 ; NMI rules: no zero-page use, at most
 ; three nested calls, no PPU access in busy frames, every PPU address
@@ -40,6 +47,11 @@ OFF_UNITS    = 16           ; work units per NMI with rendering off
     jmp nmi_ef31
     jmp pal_copy                ; $8009 HACK_PAL_COPY (load_text_graphics)
     jmp hack_init               ; $800C HACK_INIT (reset)
+msg_entry_slot:
+    jmp msg_entry               ; $800F MSG_ENTRY (the F8 trampoline)
+.if msg_entry_slot != MSG_ENTRY
+    .error "MSG_ENTRY is not the jump table's $800F"
+.endif
 
 
 ; ======================================================================
@@ -554,7 +566,7 @@ fn_block_post:
 
 ; ----------------------------------------------------------------------
 ; Main thread with rendering off (busy mode or NMI disabled): serve the
-; overlay's request directly.  KANJI_MAINCHR tells the store mapping that
+; message engine's request directly.  KANJI_MAINCHR tells the store mapping that
 ; the main thread runs (map_store / unmap_store); two tiles a unit.
 ; ----------------------------------------------------------------------
 fn_service:
@@ -623,7 +635,7 @@ pal_copy:
     cmp #POOL_SET
     bne ltg_mask
     lda KANJI_REQ
-    bne ltg_mask                ; busy: the overlay checks at its next message
+    bne ltg_mask                ; busy: the message engine checks at its next message
     lda #POOL_FIRST
     sta KANJI_TILES
     lda #0
@@ -822,6 +834,12 @@ pool_check_go:                  ; (pool tiles are upper tiles: R1, the scene pag
 @more:
     clc
     rts
+
+
+; ======================================================================
+; The message engine (the text engine's kanji half).
+; ======================================================================
+.include "kanji_msg.asm"
 
 .if $ > KANJI_PAL_DATA
     .error "the hack code runs into the relocated palette tables (KANJI_PAL_DATA)"

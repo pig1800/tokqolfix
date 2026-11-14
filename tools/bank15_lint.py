@@ -15,11 +15,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ORIGINAL = ROOT / "Tenchi o Kurau (Japan) (Rev 1).nes"
 KANJI = ROOT / "decomp" / "build" / "rom_kanji.nes"
-# The text banks the compiler filled (kanji_text_report.json data_banks;
-# 18-22 before the 2026-11-14 debloat): each holds the same overlay copy.
-REPORT = Path(__file__).resolve().parent.parent / "decomp" / "build" / "kanji" / "kanji_text_report.json"
-OVERLAY_OFF = 0x3800
-OVERLAY_SIZE = 0x800
+# The text engine's two hooks into the message engine (kanji_msg.asm, in
+# hack bank 23's lower half since 2026-11-14: MSG_BANK maps it at R6 while
+# a message prints; before, an overlay copy at $B800 in every text bank).
+MSG_HOOKS = {0xD28E: 0x4C, 0xD2C7: 0x20}    # jmp text_dispatch, jsr ctrl_store
 
 PATCHES = [
     (0xC460, 0xC47D),   # dead mmc1_reset/mmc1_init: render_ctl, IRQ tail
@@ -54,7 +53,7 @@ PATCHES = [
     (0xEF0B, 0xEF0F),   # jmp cv_nmi (RAM: bank 26's nmi_cvg) + nop nop
     (0xEF31, 0xEF33),   # jmp ef31_gate
     (0xF004, 0xF039),   # reset: MMC3 registers + hack RAM clear (rewritten)
-    (0xFFE0, 0xFFEF),   # block-writer entry, overlay frame wait (padding)
+    (0xFFE0, 0xFFEF),   # block-writer entry, the message engine's frame wait (padding)
     (0xFFFE, 0xFFFF),   # IRQ vector: irq_handler (MMC3 scanline IRQ)
     # the map text renderer (TEXT_RENDERER.md): RAM stubs
     (0xDD03, 0xDD05),   # text_draw_line's end: jmp txr_dlx
@@ -113,16 +112,12 @@ def main() -> int:
         print(f"lint: {len(bad)} unexpected bank-15 changes; first at "
               f"${0xC000 + bad[0]:04X}", file=sys.stderr)
         return 1
-    import json
-    overlay = None
-    for bank in json.loads(REPORT.read_text(encoding="utf-8"))["data_banks"]:
-        base = 16 + bank * 0x4000 + OVERLAY_OFF
-        block = data[base:base + OVERLAY_SIZE]
-        if overlay is None:
-            overlay = block
-        elif block != overlay:
-            print(f"lint: bank {bank} overlay differs from the first text bank's",
-                  file=sys.stderr)
+    for addr, op in MSG_HOOKS.items():
+        i = addr - 0xC000
+        target = got[i + 1] | (got[i + 2] << 8)
+        if got[i] != op or not 0x8000 <= target < 0xA000:
+            print(f"lint: ${addr:04X} does not enter the message engine in $8000-$9FFF "
+                  f"({got[i:i + 3].hex()})", file=sys.stderr)
             return 1
     if data[4] != 32 or (data[6] >> 4) | (data[7] & 0xF0) != 4:
         print("lint: header is not 32 x 16 KiB PRG, mapper 4", file=sys.stderr)

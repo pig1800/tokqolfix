@@ -15,9 +15,9 @@
 ;   $EED0-$EED2  NMI: jmp nmi_gate (map mode: the uploads before $EED0-$EF0A;
 ;                elsewhere the original's cycles exactly)
 ;   $D291-$D2B6  NMI epilogue hook at loc_EF31 (dead original $EF-$F7
-;                dispatcher, replaced by the overlay's text_dispatch)
+;                dispatcher, replaced by the message engine's text_dispatch)
 ;   $F004-$F039  reset mapper/RAM setup, rewritten
-;   $FFE0-$FFEF  block-writer original entry, overlay frame wait
+;   $FFE0-$FFEF  block-writer original entry, the message engine's frame wait
 ;   $D671-$D6C1  copy_pointer_triplet and its divisor table (QoL: the
 ;                digits come from the UI bank; stubs in the space)
 ;   $C1D2-$C216  div24_shift (QoL: the UI bank divides; the block
@@ -71,30 +71,35 @@ ltg_copied:                     ; a jump there and back: no extra stack depth
 ; set_bank_lock body (jumped to from $C486, after "sta current_prg_bank";
 ; A = the 16 KiB bank).  Main thread: $8000-$9FFF = R6 = 2 * bank,
 ; $A000-$BFFF = R7 = 2 * bank + 1, MMC3_SEL stored before each select.
-; X and Y untouched, one stack byte.  Returns as the original: A = 0,
-; Z set, N clear, C = bit 3 of the bank, V unchanged.
+; The message bank (MSG_BANK, bit 7 set, kanji.inc): R6 = the hack bank's
+; lower half (2 * MSG_BANK without bit 8; the MMC3 keeps 6 bits anyway),
+; R7 = KANJI_TEXT_CHUNK.  PRG_R7X follows, each time before the R7 write
+; that it describes: 0 first (an NMI from there on restores both halves of
+; the new bank), the chunk just before R7 gets it (main_tail).  X and Y
+; untouched, no stack.  Returns as the original: A = 0, Z set, N clear, C =
+; bit 3 of the bank (the original's banks 0-15; set for 8-31), V
+; unchanged.  Cycles: 63 to the rts's end for every bank but MSG_BANK, as
+; before the message bank (the original game's timing: every bank switch
+; runs through here).  36 bytes, as before: the routines after it keep
+; their addresses (a save state's stack may hold them).
 main_prg:
-    asl a
-    pha
-    lda #MMC3_R6
-    sta MMC3_SEL
-    sta MMC3_SELECT
-    pla
-    sta MMC3_DATA
-    pha
-    lda #MMC3_R7
-    sta MMC3_SEL
-    sta MMC3_SELECT
-    pla
-    ora #1
-    sta MMC3_DATA
-    lda current_prg_bank
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lda #0
-    rts
+    lda #0                      ; 2
+    sta PRG_R7X                 ; 4
+    lda #MMC3_R6                ; 2
+    sta MMC3_SEL                ; 3
+    sta MMC3_SELECT             ; 4
+    lda current_prg_bank        ; 3
+    asl a                       ; 2
+    sta MMC3_DATA               ; 4
+    lda #MMC3_R7                ; 2
+    sta MMC3_SEL                ; 3
+    sta MMC3_SELECT             ; 4
+    lda current_prg_bank        ; 3
+    asl a                       ; 2  C = MSG_BANK
+    nop                         ; 2
+    nop                         ; 2
+    jmp main_tail               ; 3  (+18 there)
+    .dsb 3, $EA                 ; (free: main_prg's 36 bytes)
 
 ; (restore_bank_after_nmi's body, nmi_prg, is at $D4C9 since the kanji
 ; store: it keeps the main thread's 8 KiB bank at R7.)
@@ -164,13 +169,13 @@ map_hack:
     jmp SET_BANK_LOCK
 
 ; Kanji page flip (patched over $D1C8 "jsr text_draw_char", the wait after a
-; <PAGE>).  After the player's button press, when the overlay has the next
+; <PAGE>).  After the player's button press, when the message engine has the next
 ; page of a kanji message pending, clear the window and restart at the top
 ; line: a page never shares the window (or its CHR tiles) with the one
 ; before it.  The original keeps scrolling line by line.
 page_flip:
     jsr TEXT_DRAW_CHAR          ; prompt and wait, as the original
-    bit KANJI_PAGES_LEFT        ; bit 7: the overlay has a page pending
+    bit KANJI_PAGES_LEFT        ; bit 7: the message engine has a page pending
     bpl window_done
 ; Blank the four text lines (8 tile rows at $0300), draw them with one pass
 ; of the engine's scroll (it maps the text bank again), top line next.
@@ -280,8 +285,23 @@ irq_split:
     sta MMC3_DATA
     sta MMC3_IRQ_OFF            ; acknowledge; off until the next arm
     jmp irq_tail
+
+; main_prg's end (C = MSG_BANK, A = 2 * the bank, R7 selected).
+main_tail:
+    bcs @msg                    ; 2
+    ora #1                      ; 2
+    sta MMC3_DATA               ; 4
+    cmp #$11                    ; 2  C = bit 3 of banks 0-15
+    lda #0                      ; 2
+    rts                         ; 6
+@msg:
+    lda KANJI_TEXT_CHUNK
+    sta PRG_R7X                 ; (first: an NMI from here on restores it)
+    sta MMC3_DATA
+    lda #0
+    rts
 .if $ > $C6D2
-    .error "txr_tp / irq_split: past load_text_graphics' gap ($C6D1)"
+    .error "txr_tp / irq_split / main_tail: past load_text_graphics' gap ($C6D1)"
 .endif
 
 ; ----------------------------------------------------------------------
@@ -393,17 +413,17 @@ ef31_hook:
     jmp $EF34
 
 ; F8 far head: the message stub in banks 10/11 is
-;   F8 <far_head> <text bank> <text addr> <meta addr>
+;   F8 <far_head> <text chunk | MSG_WIN flag in bit 7> <text addr>
 far_head:
     lda text_window_x
     jsr SET_BANK_B
     jmp $BF00
 
-; Overlay helper: scroll the text window up one line with the engine's own
-; routine (it waits frames), then map the text bank again.
+; Message-engine helper: scroll the text window up one line with the
+; engine's own routine (it waits frames), then map the message bank again.
 scroll_text:
     jsr $D376                   ; text_scroll_up
-    lda KANJI_TEXT_BANK
+    lda #MSG_BANK
     jmp SET_BANK_LOCK
 
 ; ----------------------------------------------------------------------
@@ -462,11 +482,11 @@ c343_plain:
     lda PPUSTATUS
     jmp $C346
 
-; Overlay frame wait: yield one frame, then map the text bank again (other
-; tasks may have switched banks while this one was suspended).
+; Message-engine frame wait: yield one frame, then map the message bank
+; again (other tasks may have switched banks while this one was suspended).
 wait_text:
     jsr WAIT_VBLANK
-    lda KANJI_TEXT_BANK
+    lda #MSG_BANK
     jmp SET_BANK_LOCK
 
 ;----------------------------------------------------------------------
@@ -1144,17 +1164,18 @@ nmi_r7:
     sta MMC3_SELECT
     rts
 nmi_r7x:
-    cpx #STORE_8K               ; a kanji store bank, else a stale byte
-    bcc nmi_prg_pair            ; (a state saved by an earlier build, whose
-    cpx #STORE_8K+4             ; battery RAM had other data there): both
-    bcs nmi_prg_pair            ; halves
-    asl a                       ; C clear (banks below 128)
+    cpx #STORE_8K               ; a kanji store bank or a text chunk, else a
+    bcc nmi_prg_pair            ; stale byte (a state saved by an earlier
+    cpx #TEXT_8K+TEXT_CHUNKS    ; build, whose battery RAM had other data
+    bcs nmi_prg_pair            ; there): both halves
+    asl a                       ; (MSG_BANK: the hack bank's lower half)
     pha
     lda #MMC3_R6
     sta MMC3_SELECT
     pla
     sta MMC3_DATA
-    bcc nmi_r7                  ; (always; X = PRG_R7X)
+    bne nmi_r7                  ; (always: 2 * a bank with PRG_R7X set is
+                                ; never 0 mod 256; X = PRG_R7X)
 .if $ > $D549
     .error "pon_kanji and nmi_prg outgrew put_officer_name's kanji path ($D4C9-$D548)"
 .endif

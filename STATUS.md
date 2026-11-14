@@ -16,15 +16,18 @@ tests; see CHANGELOG for what each revision fixed.
   `load_text_graphics` rewritten in place, its palette tables moved to hack
   bank 23 at `$9F00`.  Hack code from `$8000` in bank 23's lower 8 KiB
   (since the kanji store, 2026-11-13; before: three copies beside glyph
-  tables in banks 23-25); overlay at `$B800` in the text banks.
+  tables in banks 23-25), with the message engine (`kanji_msg.asm`, the
+  old overlay, out of the text banks since 2026-11-14: TEXT_RENDERER.md
+  "The message engine out of the text banks").
 - Text: revision-14 Opus re-conversion (`decomp/text/kanji_r14/`), laid out by
   `tools/kanji_layout.py` into `decomp/text/kanji_plan/bank1X_messages_kanji_r14.dtx`
-  (the compiler's source when present); text in banks 18-22, 30 (29 holds
-  an overlay copy, reserved for growth); no relaxed messages.
+  (the compiler's source when present); text in four 8 KiB chunks
+  (8 KiB banks 36-39 = 16 KiB banks 18-19, read at R7), no metadata.
 - Kanji store (2026-11-13): every glyph once, 256 a bank in the 8 KiB banks
   32-35 (16 KiB banks 16-17), code = bank << 8 | pos, in the text `$EC +
-  bank, pos`; 1,003 glyphs (833 message kanji, the rest UI, officer
-  names and, since 2026-11-14, the title and attract mode's 21), 21 free.
+  bank, pos`; 1,004 glyphs since the 2026-11-14 text refinement (832
+  distinct kanji in the messages, the rest UI, officer names and the title
+  and attract mode's 21), 20 free.
   TEXT_RENDERER.md "The kanji store".
 - Title screen and attract mode in kanji (2026-11-14): bank 24, portraits
   as 8x16 sprites.  TEXT_RENDERER.md "The title screen and the attract
@@ -137,17 +140,15 @@ kanji-store build:
 
 | Content | KiB | Where |
 |---|---|---|
-| Kanji store (1,003 glyphs since 2026-11-14, room for 21 more) | 32 | banks 16-17 (8 KiB banks 32-35) |
-| Message text (747 unique messages) | 30.2 | text banks 18-21 |
-| Message metadata (page count; per page an entry byte, 2 bytes a kanji; 52.5 before the 2026-11-14 debloat) | 13.6 | after each message |
-| Overlay copies (2 KiB in each text bank) | 8 | `$B800` of 18-21 |
-| Hack code, palette tables | 3.7 | bank 23 lower half |
+| Kanji store (1,004 glyphs since the 2026-11-14 text refinement, room for 20 more) | 32 | banks 16-17 (8 KiB banks 32-35) |
+| Message text (758 unique messages; no metadata since 2026-11-14, 13.6 before, 52.5 before the debloat) | 30.2 | four 8 KiB chunks, banks 18-19 (1.8 free in the last) |
+| Hack code, the message engine (1.4, the old overlay: 2 KiB in each of 4 text banks before 2026-11-14), palette tables | 3.1 | bank 23 lower half |
 | Map renderer | 11.7 | bank 26 |
 | RAM image | 0.7 | bank 27 upper half |
 | UI bank (code, tables, the officer names' codes 1.3) | 9.5 | bank 28 |
 | Fixed bank (slot 15 free since the debloat: JAM bytes) | 16 | bank 31 |
 | Title screen and attract mode (2026-11-14: code, tile sets, phrases) | 4.2 | bank 24 |
-| **Free** | **128.3** | banks 22, 25, 29, 30 (16 each); bank 23 (14.3); bank 27 (8 + 7.3); bank 21 (12.0); bank 24 (11.8); bank 28 (6.5); bank 26 (4.3); the text banks' ends (0.1).  Also slot 15 (16) and banks 10/11 (20.7, while mapped).  DEBLOAT_TODO "Done (2026-11-14)"; every region and hole by address: MEMORY_MAP.md |
+| **Free** | **186.8 in all** | banks 15 (JAM), 20, 21, 22, 25, 29, 30 (16 each); bank 23 (12.9); bank 27 (14.2); bank 24 (11.6); bank 28 (6.5); bank 26 (4.3); bank 19 (1.8); banks 10/11 (22.2, while mapped).  DEBLOAT_TODO "Done (2026-11-14)"; every region and hole by address: MEMORY_MAP.md |
 
 Before the store (`fd47464`): 29 KiB free.  The store replaced the band
 page / battle copy (33.7 KiB, banks 23-25, with three copies of the hack
@@ -155,25 +156,9 @@ code, 11.6), the map renderer's copy (32, banks 16, 17b, 27a), the
 officer-name font (8, bank 17a) and the UI bank's 147 glyphs (4.6); the
 text is 0.9 KiB smaller (no 3-byte codes).
 
-Candidates for more (measured, not done):
-- **The band page's parts of the metadata: 38.9 KiB** (the 16-byte kana
-  bitmap a message, the keep / clean lists, 4 tile bytes a kanji).  Map mode
-  and battle use only the page count, the kanji codes and the names count
-  (13.6 KiB).  Messages that can show on a band-page screen (anything
-  outside map mode, battle and, since 2026-11-14, the boot screens) need
-  theirs: that list is not derived yet.
-- **The rest of the metadata, 13.6 KiB:** the codes are in the text itself;
-  map mode and battle could count a page's kanji from it at the page start.
-- **The original message text in banks 10 / 11: 20.7 KiB** (bank 10
-  `$9243-$BDD2`, bank 11 `$8CC6-$B3EF`), behind the stubs: no byte read on
-  five test paths (`out/test/opt/romprobe.lua`: menu cycle, level-up and
-  capture battles, officer-switch battle, standard path).  Usable only
-  while those banks are mapped (message starts).
-- **Bank 15, 16 KiB:** the fixed bank's original copy; MMC3 shows bank 31
-  at `$C000`.  No byte of it read on the same five paths.
-- **The overlay copies, 12 KiB of 14:** one copy would need its own 8 KiB
-  bank at R7 across the text task's waits; `PRG_R7X` is one global, so
-  that needs a per-task R7.
+Candidates for more: DEBLOAT_TODO.md "Smaller ones" (the band page's
+metadata, the rest of the metadata, the old text in banks 10/11, bank 15
+and the overlay copies are done, 2026-11-14).
 
 ## Gates on the final build
 
@@ -196,7 +181,7 @@ Candidates for more (measured, not done):
 | Stack at battle entry (`taint_check.lua`, normal and boss) | min SP `$0F` (revision 20: `$0D`; revision 17: `$0B`; original `$1C`) |
 | `mask_restore` | 0 |
 | Message timeline | messages start at 608/888/1589/2363/3297 (original 607/888/1589/2359/3290; revision 20: 607/888/1593/2367/3302) |
-| `zp_check.lua` | `$10/$11` unchanged at every overlay exit (836 checks; the town's RNG differs by build) |
+| `zp_check.lua` | `$10/$11` unchanged at every overlay exit (836 checks; the town's RNG differs by build; since 2026-11-14 the message engine's entry, `@msg_entry@`) |
 | Battles from three states (`garble_state.lua`: play-test, before a normal and a boss battle) and a forced level-up (`SHOP_POKE`), converted states (`out/user/m3/`) | 0 frames, window closes, shake steps and scrolling included (revision 17: 15 frames in 7 closes) |
 | Battles from three states (`taint_check.lua`) | 0 game reads of hack-changed RAM, 0 game writes to hack state |
 | Battle round from the play-test state (`taint_check.lua`, revision 16c) | 0 game reads of hack-changed RAM, 0 game writes to hack state; damage 26/22/4/9/3/7 (revision 16b: every hit killed) |
