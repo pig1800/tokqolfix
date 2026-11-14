@@ -1021,7 +1021,8 @@ wipe_cols_end:
 
 ; sub_CE7A (bank 14 $81AE, an event's map change: the player's metarow
 ; redrawn, 10 metatiles from 9 columns left): the UI bank's UIF_ROWEV
-; (2026-11-13: its fixed-bank space holds the map-mode page breaks below).
+; (2026-11-13; until 2026-11-14 its fixed-bank space also held the map-mode
+; look-ahead page breaks, gone since <PAGENI> is a page break).
 ; draw_party_status starts 8 rows above now (was 7): the text position
 ; goes one row further first and comes back one more.
 .base $CE7A
@@ -1042,74 +1043,13 @@ wipe_ui:
     lda #UI_BANK
     jmp SET_BANK_LOCK
 
-; The engine's two scrolls of a full window, in map mode (the user,
-; 2026-11-13: "in map mode only, treat now-to-scroll as page break").
-; $D1BA, after every line (A = text_line, 1-4; the line's control on the
-; stack, pushed at $D1B3):
-; - text_line 4: the original scroll.  (In map mode only if the look-ahead
-;   below could not read the lines: text outside the overlay's bank.)
-; - map mode, after the 3rd line or a <WAIT>: bank 26's TXF_LOOK reads the
-;   lines to come.  If they would fill the window and the engine would
-;   scroll, the line just ended becomes a page break: page_flip clears the
-;   window after the wait (PAGE_FLAG; in map mode page_start only clears
-;   it again), and a 3rd line ended by <NL> / <NL2> waits as at a <WAIT>
-;   ($FD).  So the break comes before the window holds 4 lines: with 4 up
-;   the prompt sits on the 4th line's text (tried); this way it sits on an
-;   empty line, as at any page, and an existing <WAIT> is the break when
-;   there is one (no extra press).
-map_lines:
-    cmp #4
-    beq map_scroll
-    bit TXR_ON
-    bpl map_rts
-    cmp #3
-    beq @look
-    tsx
-    lda $0103,x                 ; the line's control
-    cmp #$FD
-    bne map_rts                 ; lines 1-2: only a <WAIT> can be the break
-@look:
-    ldx #TXF_LOOK
-    jsr TXR_CALL                ; V set: the next line would scroll
-    bvc map_rts
-    lda KANJI_PAGES_LEFT
-    ora #$80                    ; PAGE_FLAG
-    sta KANJI_PAGES_LEFT
-    tsx
-    lda $0103,x                 ; the line's control
-    cmp #$FC
-    bcs map_rts
-    lda #$FD
-    sta $0103,x
-map_rts:
-    rts
-; $D1DE (the end of a message with 4 lines in the window, text_line 3
-; already): in map mode no scroll.  The caller waits for the button and
-; the next message starts on a cleared window (overlay_entry's @clear), so
-; this is the page break there; a wait and a clear here would add a press
-; on a blank window.
-map_end4:
-    bit TXR_ON
-    bmi map_rts
-map_scroll:
-    jmp $D376                   ; text_scroll_up
 wipe_rows_end:
 .if wipe_rows_end > $CED2
-    .error "sub_CE7A's stub, the trampolines and the page breaks outgrew $CE7A-$CED1"
+    .error "sub_CE7A's stub and the trampolines outgrew $CE7A-$CED1"
 .endif
 .if wipe_status != WIPE_STATUS || wipe_wait != WIPE_WAIT || wipe_tick != WIPE_TICK
     .error "the wipe trampolines moved: kanji.inc WIPE_STATUS / WIPE_WAIT / WIPE_TICK"
 .endif
-
-; The engine's "lda text_line / cmp #$04 / bne / jsr text_scroll_up" after
-; a line: map_lines after every line ("cmp #$01 / bcc": text_line is 1 or
-; more there).  And its "jsr text_scroll_up" at a message's end.
-.base $D1B7
-    .db $01, $90                ; cmp #$01 / bcc loc_D1BD
-.base $D1BA
-    jsr map_lines
-.base $D1DE
-    jsr map_end4
 
 ; ----------------------------------------------------------------------
 ; text_init's "jsr scroll_map" ($CB1B, $CB80): step B's battle row hook

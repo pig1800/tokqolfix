@@ -8,9 +8,9 @@
 #
 # Named tokens:
 #   <NL>          $FA  new line, with the automatic indent
-#   <NL2>         $FB  new line, without the indent
-#   <PAGE>        $FC  page break / wait for the player
-#   <WAIT>        $FD  wait for the player without a new page
+#   <NLNI>        $FB  new line, no indent
+#   <PAGE>        $FC  page break: wait for the player, the next line indented
+#   <PAGENI>      $FD  page break: wait for the player, no indent
 #   <END>         $FF  end of message
 #   <END_NOWAIT>  $FE  end without waiting
 #   <NAME_F3>..<NAME_F7>  insert a runtime name
@@ -39,7 +39,7 @@ b11_msg_000:
 
 # b11_msg_001  $83B9  len=46  refs=1
 b11_msg_001:
-    "「<WORD:F3=われら>のぐんが<NL>やぶれたのは　はじめてです<PAGE><WORD:8A=どうか>　ぐんのはしにでも<NL>おくわえください<NL2><JUMP:31A8>"
+    "「<WORD:F3=われら>のぐんが<NL>やぶれたのは　はじめてです<PAGE><WORD:8A=どうか>　ぐんのはしにでも<NL>おくわえください<NLNI><JUMP:31A8>"
 
 # b11_msg_002  $83E7  len=49  refs=2
 b11_msg_002:
@@ -183,7 +183,7 @@ b11_msg_036:
 
 # b11_msg_037  $8920  len=72  refs=37
 b11_msg_037:
-    "「<WORD:78=ケイシュウ>は<WORD:54=ショク>にとって<NL>じゅうようなとち　にどと<NL>みだれぬよう<PAGE>よいせいじを　おこなってくれ！<WAIT><NAME:A9>と<NAME:AA>は　<WORD:78=ケイシュウ>に<NL2>むかって　たびだっていった<END>"
+    "「<WORD:78=ケイシュウ>は<WORD:54=ショク>にとって<NL>じゅうようなとち　にどと<NL>みだれぬよう<PAGE>よいせいじを　おこなってくれ！<PAGENI><NAME:A9>と<NAME:AA>は　<WORD:78=ケイシュウ>に<NLNI>むかって　たびだっていった<END>"
 
 # b11_msg_038  $8968  len=29  refs=38
 b11_msg_038:
@@ -211,7 +211,7 @@ b11_msg_043:
 
 # b11_msg_044  $8ABC  len=38  refs=44
 b11_msg_044:
-    "「そうだ　ゴのないじょうについて<NL><NAME:AA>が　しらべが<NL>ついたと　いっていたな<WAIT>"
+    "「そうだ　ゴのないじょうについて<NL><NAME:AA>が　しらべが<NL>ついたと　いっていたな<PAGENI>"
 
 # b11_msg_045  $8AE2  len=30  refs=45
 b11_msg_045:
@@ -227,7 +227,7 @@ b11_msg_047:
 
 # b11_msg_048  $8B73  len=51  refs=48
 b11_msg_048:
-    "「<NAME_F7>と　もうします<NL>ちちにかわって　<WORD:2C=カンオウチョウ>の<NL>ために　<WORD:17=たたかい>たいと<PAGE>おもいます<NL>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NL2><JUMP:1CE9>"
+    "「<NAME_F7>と　もうします<NL>ちちにかわって　<WORD:2C=カンオウチョウ>の<NL>ために　<WORD:17=たたかい>たいと<PAGE>おもいます<NL>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NLNI><JUMP:1CE9>"
 
 # b11_msg_049  $8BA6  len=8  refs=49
 b11_msg_049:
@@ -267,7 +267,7 @@ b11_msg_057:
 
 # b11_msg_058  $8D27  len=40  refs=58
 b11_msg_058:
-    "とつぜん　ものすごいおとがきこえ<NL2>だいちが　ゆれた<NL2><WORD:26=しかし>　べつに　へんかはない<END>"
+    "とつぜん　ものすごいおとがきこえ<NLNI>だいちが　ゆれた<NLNI><WORD:26=しかし>　べつに　へんかはない<END>"
 
 # b11_msg_059  $8D4F  len=16  refs=59
 b11_msg_059:
@@ -371,7 +371,7 @@ b11_msg_083:
 
 # b11_msg_084  $906A  len=41  refs=84
 b11_msg_084:
-    "「これいじょう　ゴのくにを<NL><WORD:B4=おかす>ことは　ゆるさん<NL><NAME:CC>のけん　うけてみよ！<NL2><JUMP:3334>"
+    "「これいじょう　ゴのくにを<NL><WORD:B4=おかす>ことは　ゆるさん<NL><NAME:CC>のけん　うけてみよ！<NLNI><JUMP:3334>"
 
 # b11_msg_085  $9093  len=36  refs=85
 b11_msg_085:
@@ -379,7 +379,7 @@ b11_msg_085:
 
 # b11_msg_086  $90B7  len=76  refs=86
 b11_msg_086:
-    "「<NAME:AD><WORD:12=しょうぐん>に<NL><WORD:90=おねがい>が　<WORD:5E=ございます><PAGE>このしろの　みなみにある　こやに<NL><WORD:B3=かいぞく>が　すみついて<NL>しまったのです<PAGE><WORD:8A=どうか>　この<WORD:B3=かいぞく>を<NL><WORD:4E=たいじ>して　もらえない<NL><WORD:82=でしょう>か<NL2><JUMP:32EC>"
+    "「<NAME:AD><WORD:12=しょうぐん>に<NL><WORD:90=おねがい>が　<WORD:5E=ございます><PAGE>このしろの　みなみにある　こやに<NL><WORD:B3=かいぞく>が　すみついて<NL>しまったのです<PAGE><WORD:8A=どうか>　この<WORD:B3=かいぞく>を<NL><WORD:4E=たいじ>して　もらえない<NL><WORD:82=でしょう>か<NLNI><JUMP:32EC>"
 
 # b11_msg_087  $9103  len=49  refs=87
 b11_msg_087:
@@ -407,7 +407,7 @@ b11_msg_092:
 
 # b11_msg_093  $9193  len=66  refs=93
 b11_msg_093:
-    "「てめえら　なにしに　きやがった！<NL><WORD:AB=ひゃくしょう>があつまったところで<NL>おれたちに　かてるわけがねえー！<PAGE>これでもくらって　かえんな！<NL2><JUMP:3392>"
+    "「てめえら　なにしに　きやがった！<NL><WORD:AB=ひゃくしょう>があつまったところで<NL>おれたちに　かてるわけがねえー！<PAGE>これでもくらって　かえんな！<NLNI><JUMP:3392>"
 
 # b11_msg_094  $91D5  len=34  refs=94
 b11_msg_094:
@@ -427,7 +427,7 @@ b11_msg_097:
 
 # b11_msg_098  $92B3  len=141  refs=98
 b11_msg_098:
-    "「あに　<NAME:56>を　あんさつ<NL>したのは　わしだ---<PAGE>いまおもえば　みな　ギの<NAME:71>に<NL>だまされて　やったこと<PAGE><WORD:AC=あにじゃには>　わるいことをしたと<NL>おもっている<NL><WORD:AC=あにじゃには>　めいどで--グフッ<WAIT><NAME:57>は　いきを　ひきとった<WAIT>さんだいつづいた　ゴのくにの<NL2>れきしも　いま　とじようと<NL2>している----<NL2><JUMP:3385>"
+    "「あに　<NAME:56>を　あんさつ<NL>したのは　わしだ---<PAGE>いまおもえば　みな　ギの<NAME:71>に<NL>だまされて　やったこと<PAGE><WORD:AC=あにじゃには>　わるいことをしたと<NL>おもっている<NL><WORD:AC=あにじゃには>　めいどで--グフッ<PAGENI><NAME:57>は　いきを　ひきとった<PAGENI>さんだいつづいた　ゴのくにの<NLNI>れきしも　いま　とじようと<NLNI>している----<NLNI><JUMP:3385>"
 
 # b11_msg_099  $9340  len=30  refs=99
 b11_msg_099:
@@ -439,19 +439,19 @@ b11_msg_100:
 
 # b11_msg_101  $9374  len=211  refs=101
 b11_msg_101:
-    "　<NAME_F6><WAIT>「わがきみ<NL>ごけっしんを　うながしたいことが<NL><WORD:5E=ございます><PAGE><WORD:3D=ぎゃくぞく>　<NAME:71>が　<WORD:22=ミカド>の<NL><WORD:BD=くらい>をうばったいま<NL><WORD:0E=リュウビさま>　みずから<PAGE><WORD:C3=コウテイ>の<WORD:BD=くらい>につき<NL>そびょうのれいを　なぐさめ<PAGE>また　もって　ばんみんを<NL>やすんずべきと　かんがえます<PAGE><NAME:A8><NL2>「その<WORD:A2=はなし>をするな！<PAGE><NAME:D5><WAIT>「<WORD:26=しかし>　カンの<WORD:22=ミカド>のちをひく<NL>わがきみが　すすんで　せいとうを<NL>つぐべきです<PAGE><NAME:A8><NL2>「だまれ！！<PAGE>そちたちは　よを　まつだいまで<NL>ふちゅうふぎのひとと<NL>よばせたいのか！<END>"
+    "　<NAME_F6><PAGENI>「わがきみ<NL>ごけっしんを　うながしたいことが<NL><WORD:5E=ございます><PAGE><WORD:3D=ぎゃくぞく>　<NAME:71>が　<WORD:22=ミカド>の<NL><WORD:BD=くらい>をうばったいま<NL><WORD:0E=リュウビさま>　みずから<PAGE><WORD:C3=コウテイ>の<WORD:BD=くらい>につき<NL>そびょうのれいを　なぐさめ<PAGE>また　もって　ばんみんを<NL>やすんずべきと　かんがえます<PAGE><NAME:A8><NLNI>「その<WORD:A2=はなし>をするな！<PAGE><NAME:D5><PAGENI>「<WORD:26=しかし>　カンの<WORD:22=ミカド>のちをひく<NL>わがきみが　すすんで　せいとうを<NL>つぐべきです<PAGE><NAME:A8><NLNI>「だまれ！！<PAGE>そちたちは　よを　まつだいまで<NL>ふちゅうふぎのひとと<NL>よばせたいのか！<END>"
 
 # b11_msg_102  $9447  len=173  refs=102
 b11_msg_102:
-    "　<NAME_F6><NL2>「<NAME:71>　<NAME:57>と　わがきみとは<NL>おなじでは　ございませぬ<PAGE>カンチョウをうばった　<WORD:3D=ぎゃくぞく><NL><NAME:71>をだれが　こらしめます<PAGE><NAME:D5><NL2>「このまま　だまっていては<NL>ギの<NAME:71>　ゴの<NAME:57>のそくいを<PAGE>せいとうなものとして<NL>みとめたことになります<PAGE><NAME_F6><NL2>「いままで　かずかずの　<WORD:3D=ぎゃくぞく>が<NL><WORD:C3=コウテイ>の<WORD:BD=くらい>を　ねらうことを<PAGE>そしせんと　たたかってきたことが<NL>むいみと　なります<END>"
+    "　<NAME_F6><NLNI>「<NAME:71>　<NAME:57>と　わがきみとは<NL>おなじでは　ございませぬ<PAGE>カンチョウをうばった　<WORD:3D=ぎゃくぞく><NL><NAME:71>をだれが　こらしめます<PAGE><NAME:D5><NLNI>「このまま　だまっていては<NL>ギの<NAME:71>　ゴの<NAME:57>のそくいを<PAGE>せいとうなものとして<NL>みとめたことになります<PAGE><NAME_F6><NLNI>「いままで　かずかずの　<WORD:3D=ぎゃくぞく>が<NL><WORD:C3=コウテイ>の<WORD:BD=くらい>を　ねらうことを<PAGE>そしせんと　たたかってきたことが<NL>むいみと　なります<END>"
 
 # b11_msg_103  $94F4  len=162  refs=103
 b11_msg_103:
-    "　<NAME:A8><NL2>「よくわかった！<NL>よは　ちいさなことに<PAGE>こだわりすぎたようじゃ！<NL><NAME:71>と<NAME:57>の　<WORD:BE=そくい>は<NL>みとめぬと　<WORD:BF=てんか>にしらしめるため<PAGE>よは　<WORD:C3=コウテイ>を　なのろう！！<WAIT>かくして---<NL2>けんあん　２６ねん　４がつ<WAIT>だいれいだいが　きずかれ<NL2>ぶんぶかんの　みまもるなかで<NL2><NAME:A8>は　ぎょくじを　うけ<WAIT>ここに　<WORD:54=ショク>の<WORD:C3=コウテイ>を<NL2><WORD:BF=てんか>に　せんした<END>"
+    "　<NAME:A8><NLNI>「よくわかった！<NL>よは　ちいさなことに<PAGE>こだわりすぎたようじゃ！<NL><NAME:71>と<NAME:57>の　<WORD:BE=そくい>は<NL>みとめぬと　<WORD:BF=てんか>にしらしめるため<PAGE>よは　<WORD:C3=コウテイ>を　なのろう！！<PAGENI>かくして---<NLNI>けんあん　２６ねん　４がつ<PAGENI>だいれいだいが　きずかれ<NLNI>ぶんぶかんの　みまもるなかで<NLNI><NAME:A8>は　ぎょくじを　うけ<PAGENI>ここに　<WORD:54=ショク>の<WORD:C3=コウテイ>を<NLNI><WORD:BF=てんか>に　せんした<END>"
 
 # b11_msg_104  $9596  len=39  refs=104
 b11_msg_104:
-    "「おーい　おれだ　<NAME:38>だ！<NL>はやくはしをかけてくれ！<WAIT>「おう！いまかけるぞ！<END>"
+    "「おーい　おれだ　<NAME:38>だ！<NL>はやくはしをかけてくれ！<PAGENI>「おう！いまかけるぞ！<END>"
 
 # b11_msg_105  $95BD  len=3  refs=105
 b11_msg_105:
@@ -479,7 +479,7 @@ b11_msg_110:
 
 # b11_msg_111  $9658  len=92  refs=111
 b11_msg_111:
-    "「<NAME_F6>　<WORD:12=しょうぐん>よ！<NL>よくぞ　<WORD:3D=ぎゃくぞく>　<NAME:1B>を<NL>たおし<WORD:91=てくれ>た<PAGE>だが　<NAME_F6>よ！<NL>あんしんしては　ならぬ<PAGE><NAME:1B>には　あにがおる<NL>きっと　<WORD:45=このしろ>に　せめてくるに<NL>ちがいない<PAGE><WORD:50=こころ>してかかるがよい<NL2><JUMP:20EB><END>"
+    "「<NAME_F6>　<WORD:12=しょうぐん>よ！<NL>よくぞ　<WORD:3D=ぎゃくぞく>　<NAME:1B>を<NL>たおし<WORD:91=てくれ>た<PAGE>だが　<NAME_F6>よ！<NL>あんしんしては　ならぬ<PAGE><NAME:1B>には　あにがおる<NL>きっと　<WORD:45=このしろ>に　せめてくるに<NL>ちがいない<PAGE><WORD:50=こころ>してかかるがよい<NLNI><JUMP:20EB><END>"
 
 # b11_msg_112  $96B4  len=135  refs=112
 b11_msg_112:
@@ -532,7 +532,7 @@ b11_msg_124:
 
 # b11_msg_125  $9875  len=113  refs=125
 b11_msg_125:
-    "「<WORD:0E=リュウビさま>たいへんで<WORD:5E=ございます><NL>じつは---カクカク　シカジカ<PAGE>なに！ゴの<NAME:57><NL>ギの<NAME:71>ともに<WORD:22=ミカド>を<NL>なのったというのか<PAGE><WORD:D9=カンチョウ>の<WORD:22=ミカド>のくらいを<NL>はくだつしたということは<PAGE>じじつじょう　<WORD:2C=カンオウチョウ>の<NL>ほうかいを<NL>いみするではないか---<WAIT><JUMP:30AE>"
+    "「<WORD:0E=リュウビさま>たいへんで<WORD:5E=ございます><NL>じつは---カクカク　シカジカ<PAGE>なに！ゴの<NAME:57><NL>ギの<NAME:71>ともに<WORD:22=ミカド>を<NL>なのったというのか<PAGE><WORD:D9=カンチョウ>の<WORD:22=ミカド>のくらいを<NL>はくだつしたということは<PAGE>じじつじょう　<WORD:2C=カンオウチョウ>の<NL>ほうかいを<NL>いみするではないか---<PAGENI><JUMP:30AE>"
 
 # b11_msg_126  $98E6  len=30  refs=126
 b11_msg_126:
@@ -580,7 +580,7 @@ b11_msg_136:
 
 # b11_msg_137  $99D7  len=67  refs=137
 b11_msg_137:
-    "「<NAME_F6><WORD:12=しょうぐん><NL>ぶじで　なによりだ<PAGE><WORD:22=ミカド>の<WORD:BD=くらい>をうばった<NL><NAME:1B>を　のさばらせて<NL>おくわけには　いかぬ<WAIT>「みなとちからをあわせ<NL><NAME:1B>をうて！<END>"
+    "「<NAME_F6><WORD:12=しょうぐん><NL>ぶじで　なによりだ<PAGE><WORD:22=ミカド>の<WORD:BD=くらい>をうばった<NL><NAME:1B>を　のさばらせて<NL>おくわけには　いかぬ<PAGENI>「みなとちからをあわせ<NL><NAME:1B>をうて！<END>"
 
 # b11_msg_138  $9A1A  len=86  refs=138
 b11_msg_138:
@@ -588,7 +588,7 @@ b11_msg_138:
 
 # b11_msg_139  $9A70  len=86  refs=139
 b11_msg_139:
-    "「おお　<NAME_F6>か　よくもどった<NL>たったいま　キンとなのる<NL>しょうねんが　あらわれ<PAGE>あにが　かえったので　しきゅう<NL>きてくれるよういっておったぞ！<NL>さあ　いくがよい　<NAME_F6>！<NL2><JUMP:2E95>"
+    "「おお　<NAME_F6>か　よくもどった<NL>たったいま　キンとなのる<NL>しょうねんが　あらわれ<PAGE>あにが　かえったので　しきゅう<NL>きてくれるよういっておったぞ！<NL>さあ　いくがよい　<NAME_F6>！<NLNI><JUMP:2E95>"
 
 # b11_msg_140  $9AC6  len=3  refs=140
 b11_msg_140:
@@ -661,15 +661,15 @@ b11_msg_160:
 
 # b11_msg_161  $9C84  len=41  refs=161
 b11_msg_161:
-    "「よくやってくれたぞ<NL><NAME_F6><WORD:12=しょうぐん>よ！<PAGE>しかし　いまだ　<WORD:78=ケイシュウ>は<NL>へいていされて　おらぬ<WAIT>"
+    "「よくやってくれたぞ<NL><NAME_F6><WORD:12=しょうぐん>よ！<PAGE>しかし　いまだ　<WORD:78=ケイシュウ>は<NL>へいていされて　おらぬ<PAGENI>"
 
 # b11_msg_162  $9CAD  len=28  refs=162
 b11_msg_162:
-    "「<WORD:70=いっこくもはやく>　<WORD:78=ケイシュウ>を<NL>へいていし　<WORD:A5=たみを>　やすんじてくれ<NL2><JUMP:20EB>"
+    "「<WORD:70=いっこくもはやく>　<WORD:78=ケイシュウ>を<NL>へいていし　<WORD:A5=たみを>　やすんじてくれ<NLNI><JUMP:20EB>"
 
 # b11_msg_163  $9CC9  len=62  refs=163
 b11_msg_163:
-    "「<WORD:78=ケイシュウ>　へいてい<NL>よくやってくれた<NL>たみも　あんしん　するだろう<PAGE>しかし　ボッカイの<NAME:26>を<NL>うつのを　わすれては　おらぬか<NL2>"
+    "「<WORD:78=ケイシュウ>　へいてい<NL>よくやってくれた<NL>たみも　あんしん　するだろう<PAGE>しかし　ボッカイの<NAME:26>を<NL>うつのを　わすれては　おらぬか<NLNI>"
 
 # b11_msg_164  $9D07  len=15  refs=164
 b11_msg_164:
@@ -689,7 +689,7 @@ b11_msg_167:
 
 # b11_msg_168  $9DC7  len=49  refs=168
 b11_msg_168:
-    "「<WORD:03=ありがとうございます><NL><PLACE:67=コウソウじょう>にいる　<NAME:D7>に<NL>あいましたら<PAGE>この<ITEM:22=てがみ>を<WORD:21=わたし>て<WORD:3F=ください><WAIT><NAME_F6>は　<ITEM:22=てがみ>を<NL2>うけとった<NL2><JUMP:28BC><END>"
+    "「<WORD:03=ありがとうございます><NL><PLACE:67=コウソウじょう>にいる　<NAME:D7>に<NL>あいましたら<PAGE>この<ITEM:22=てがみ>を<WORD:21=わたし>て<WORD:3F=ください><PAGENI><NAME_F6>は　<ITEM:22=てがみ>を<NLNI>うけとった<NLNI><JUMP:28BC><END>"
 
 # b11_msg_169  $9DF8  len=4  refs=169
 b11_msg_169:
@@ -701,11 +701,11 @@ b11_msg_170:
 
 # b11_msg_171  $9E34  len=83  refs=171
 b11_msg_171:
-    "「こ　これは---<NL><NAME_F6><WORD:12=しょうぐん><NL>かたじけない<PAGE>いもうとを　たすけて<NL>いただいたのですね<PAGE>こんどこそ　<WORD:12=しょうぐん>のために<NL>たたかいたいと　おもいます<PAGE>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NL2><JUMP:1CE9><END>"
+    "「こ　これは---<NL><NAME_F6><WORD:12=しょうぐん><NL>かたじけない<PAGE>いもうとを　たすけて<NL>いただいたのですね<PAGE>こんどこそ　<WORD:12=しょうぐん>のために<NL>たたかいたいと　おもいます<PAGE>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NLNI><JUMP:1CE9><END>"
 
 # b11_msg_172  $9E87  len=54  refs=172
 b11_msg_172:
-    "「<WORD:12=しょうぐん><NL>カギをかってほしいのことあるよ<NL>これ　ほんとうに　やくにたつよ<PAGE>１つ　金　４０００<NL>でいいよ<NL2><JUMP:27A4>"
+    "「<WORD:12=しょうぐん><NL>カギをかってほしいのことあるよ<NL>これ　ほんとうに　やくにたつよ<PAGE>１つ　金　４０００<NL>でいいよ<NLNI><JUMP:27A4>"
 
 # b11_msg_173  $9EBD  len=13  refs=173
 b11_msg_173:
@@ -721,7 +721,7 @@ b11_msg_175:
 
 # b11_msg_176  $9EDA  len=172  refs=176
 b11_msg_176:
-    "「<NAME_F6><WORD:12=しょうぐん><NL><WORD:3D=ぎゃくぞく><NAME:57>を<NL>よくぞ　たおし<WORD:91=てくれ>た<PAGE><WORD:26=しかし>　ギにには<WORD:22=ミカド>の<WORD:BD=くらい>を<NL>はくだつした　ちょうほんにん<NL><NAME:71>が　ぐんびを<PAGE>たくわえたままでいる<NL>このままでは　このくにに<NL>しんの<WORD:27=へいわ>は　おとずれぬ<PAGE><WORD:1E=いくさ>　<WORD:1E=いくさ>のまいにちで<NL>つかれてはいようが<NL><WORD:70=いっこくもはやく><PAGE><NAME:71>をたおし　<WORD:D9=カンチョウ>を<NL><WORD:E6=ふっこう>させねばならぬ<PAGE>ギのくにへは　ゴの<PLACE:57=ケンギョウ>より<NL>ほくとうに　<WORD:E7=せめいる>がよい<NL2><JUMP:20EB>"
+    "「<NAME_F6><WORD:12=しょうぐん><NL><WORD:3D=ぎゃくぞく><NAME:57>を<NL>よくぞ　たおし<WORD:91=てくれ>た<PAGE><WORD:26=しかし>　ギにには<WORD:22=ミカド>の<WORD:BD=くらい>を<NL>はくだつした　ちょうほんにん<NL><NAME:71>が　ぐんびを<PAGE>たくわえたままでいる<NL>このままでは　このくにに<NL>しんの<WORD:27=へいわ>は　おとずれぬ<PAGE><WORD:1E=いくさ>　<WORD:1E=いくさ>のまいにちで<NL>つかれてはいようが<NL><WORD:70=いっこくもはやく><PAGE><NAME:71>をたおし　<WORD:D9=カンチョウ>を<NL><WORD:E6=ふっこう>させねばならぬ<PAGE>ギのくにへは　ゴの<PLACE:57=ケンギョウ>より<NL>ほくとうに　<WORD:E7=せめいる>がよい<NLNI><JUMP:20EB>"
 
 # b11_msg_177  $9F86  len=9  refs=177
 b11_msg_177:
@@ -729,7 +729,7 @@ b11_msg_177:
 
 # b11_msg_178  $9F8F  len=21  refs=178
 b11_msg_178:
-    "「この<WORD:FA=なかに>　<WORD:D2=ショカツリョウさま>は<NL>おられますか？<NL2><JUMP:33B6>"
+    "「この<WORD:FA=なかに>　<WORD:D2=ショカツリョウさま>は<NL>おられますか？<NLNI><JUMP:33B6>"
 
 # b11_msg_179  $9FA4  len=99  refs=179
 b11_msg_179:
@@ -790,11 +790,11 @@ b11_msg_193:
 
 # b11_msg_194  $A24B  len=9  refs=194
 b11_msg_194:
-    "<NAME:88>の<WORD:E0=こうげき><NL2><WORD:E1=バシュッ><END>"
+    "<NAME:88>の<WORD:E0=こうげき><NLNI><WORD:E1=バシュッ><END>"
 
 # b11_msg_195  $A254  len=16  refs=195
 b11_msg_195:
-    "「グオー　<NAME:88>きさま----<WAIT><END>"
+    "「グオー　<NAME:88>きさま----<PAGENI><END>"
 
 # b11_msg_196  $A264  len=12  refs=196
 b11_msg_196:
@@ -826,11 +826,11 @@ b11_msg_202:
 
 # b11_msg_203  $A352  len=16  refs=203
 b11_msg_203:
-    "「<NAME_F6><WORD:12=しょうぐん><NL>もうだいじょうぶか？<WAIT>"
+    "「<NAME_F6><WORD:12=しょうぐん><NL>もうだいじょうぶか？<PAGENI>"
 
 # b11_msg_204  $A362  len=129  refs=204
 b11_msg_204:
-    "「わがぐん　ぜんめつのききをすくい<NL>きみらを　<WORD:EA=ここまで>はこんできたのは<PAGE><NAME:A9><WORD:12=しょうぐん>のじなん<NL><NAME:A4><WORD:12=しょうぐん>だ<PAGE>かれもまた　<WORD:D9=カンチョウ>の<NL><WORD:E6=ふっこう>を<NL><WORD:50=こころ>より　ねがっておる<PAGE>れいがてら　かれのいる<NL><PLACE:65=チョウサじょう>まで<NL>いってみてはどうだ<PAGE><NAME:88>の<WORD:FE=つかう>　<WORD:D6=ようじゅつ>の<NL>ナゾも　とけるかもしれんぞ<NL2><JUMP:3432>"
+    "「わがぐん　ぜんめつのききをすくい<NL>きみらを　<WORD:EA=ここまで>はこんできたのは<PAGE><NAME:A9><WORD:12=しょうぐん>のじなん<NL><NAME:A4><WORD:12=しょうぐん>だ<PAGE>かれもまた　<WORD:D9=カンチョウ>の<NL><WORD:E6=ふっこう>を<NL><WORD:50=こころ>より　ねがっておる<PAGE>れいがてら　かれのいる<NL><PLACE:65=チョウサじょう>まで<NL>いってみてはどうだ<PAGE><NAME:88>の<WORD:FE=つかう>　<WORD:D6=ようじゅつ>の<NL>ナゾも　とけるかもしれんぞ<NLNI><JUMP:3432>"
 
 # b11_msg_205  $A3E3  len=31  refs=205
 b11_msg_205:
@@ -858,7 +858,7 @@ b11_msg_210:
 
 # b11_msg_211  $A510  len=74  refs=211
 b11_msg_211:
-    "「フン！　<WORD:E4=きさまら>が<NL><WORD:EA=ここまで>きれるとは<NL>おもっても　みんかったわい<PAGE><WORD:87=きょう>のところは<NL><WORD:D3=ラクライのけい>をやぶったことを<NL>たたえて<PAGE>ひとまず　たいさんするとするか<NL2><JUMP:343A>"
+    "「フン！　<WORD:E4=きさまら>が<NL><WORD:EA=ここまで>きれるとは<NL>おもっても　みんかったわい<PAGE><WORD:87=きょう>のところは<NL><WORD:D3=ラクライのけい>をやぶったことを<NL>たたえて<PAGE>ひとまず　たいさんするとするか<NLNI><JUMP:343A>"
 
 # b11_msg_212  $A55A  len=9  refs=212
 b11_msg_212:
@@ -906,7 +906,7 @@ b11_msg_222:
 
 # b11_msg_223  $A750  len=30  refs=223
 b11_msg_223:
-    "「<WORD:E4=きさまら>の　いきおいを<NL>とめることは　できんのか---<NL2><JUMP:3442>"
+    "「<WORD:E4=きさまら>の　いきおいを<NL>とめることは　できんのか---<NLNI><JUMP:3442>"
 
 # b11_msg_224  $A76E  len=24  refs=224
 b11_msg_224:
@@ -966,7 +966,7 @@ b11_msg_237:
 
 # b11_msg_238  $A9A7  len=199  refs=238
 b11_msg_238:
-    "「ソ---<WORD:34=ソウソウさま>のもとで<NL>ぐんしとして　めしかかえられ<NL><NAME:71>さまを　うらぎるまで<PAGE>ながいようで　みじかい<NL>じんせいだったような　きがする<NL><WORD:DE=クーデター>は　せいこうした<PAGE>はずなのに　まさか<WORD:E4=きさまら>ごときに<NL>たおされるとは　ゆめにも<NL>おもわなかった<PAGE>し---<WORD:26=しかし>これで<NL>このくにも　<WORD:F9=ひとつ>にまとまった<NL>ことになる<PAGE>こ---これからは---<NL>---ぐふっ---<NAME:A8>と---<PAGE>ごふっ---<WAIT><NAME:88>は　いきをひきとった<NL2><JUMP:345D>"
+    "「ソ---<WORD:34=ソウソウさま>のもとで<NL>ぐんしとして　めしかかえられ<NL><NAME:71>さまを　うらぎるまで<PAGE>ながいようで　みじかい<NL>じんせいだったような　きがする<NL><WORD:DE=クーデター>は　せいこうした<PAGE>はずなのに　まさか<WORD:E4=きさまら>ごときに<NL>たおされるとは　ゆめにも<NL>おもわなかった<PAGE>し---<WORD:26=しかし>これで<NL>このくにも　<WORD:F9=ひとつ>にまとまった<NL>ことになる<PAGE>こ---これからは---<NL>---ぐふっ---<NAME:A8>と---<PAGE>ごふっ---<PAGENI><NAME:88>は　いきをひきとった<NLNI><JUMP:345D>"
 
 # b11_msg_239  $AA6E  len=17  refs=239
 b11_msg_239:
@@ -998,7 +998,7 @@ b11_msg_245:
 
 # b11_msg_246  $AB2E  len=103  refs=246
 b11_msg_246:
-    "「<CALL:346A>　<CALL:346E><NL><CALL:3472>　<CALL:3476><NL><CALL:347A>　<CALL:347E><PAGE><CALL:3482><NL>ほんとうに<NL>ごくろうであった<PAGE>これで　このくにがまた<NL><WORD:F9=ひとつ>にまとまった<PAGE>もうにどと　ぶんれつ<WORD:F1=すること>の<NL>ないよう　よいせいじを<NL><WORD:F1=すること>を　ちかおう<NL2><JUMP:348E>"
+    "「<CALL:346A>　<CALL:346E><NL><CALL:3472>　<CALL:3476><NL><CALL:347A>　<CALL:347E><PAGE><CALL:3482><NL>ほんとうに<NL>ごくろうであった<PAGE>これで　このくにがまた<NL><WORD:F9=ひとつ>にまとまった<PAGE>もうにどと　ぶんれつ<WORD:F1=すること>の<NL>ないよう　よいせいじを<NL><WORD:F1=すること>を　ちかおう<NLNI><JUMP:348E>"
 
 # b11_msg_247  $AB95  len=25  refs=247,248
 b11_msg_247:
@@ -1011,7 +1011,7 @@ b11_msg_249:
 
 # b11_msg_250  $ABBD  len=70  refs=250
 b11_msg_250:
-    "「くそ---　あくうんも　つきたか<NL>ぐふっ<WAIT>おもえば　<NAME:BC>の　じんせいは<NL2>じだいが　そうさせたとはいえ<NL2>うらぎりの　じんせいであった<NL2><JUMP:31E3>"
+    "「くそ---　あくうんも　つきたか<NL>ぐふっ<PAGENI>おもえば　<NAME:BC>の　じんせいは<NLNI>じだいが　そうさせたとはいえ<NLNI>うらぎりの　じんせいであった<NLNI><JUMP:31E3>"
 
 # b11_msg_251  $AC03  len=25  refs=251,252,253,254,255,256
 b11_msg_251:
@@ -1031,7 +1031,7 @@ b11_msg_258:
 b11_msg_259:
 b11_msg_260:
 b11_msg_261:
-    "「<NAME:9D>さまですが---<NL>たったいま　てぜいをつれて<NL>でていかれ<WORD:97=ました><NL2><JUMP:2E81>"
+    "「<NAME:9D>さまですが---<NL>たったいま　てぜいをつれて<NL>でていかれ<WORD:97=ました><NLNI><JUMP:2E81>"
 
 # b11_msg_262  $AC49  len=30  refs=262
 b11_msg_262:
@@ -1039,7 +1039,7 @@ b11_msg_262:
 
 # b11_msg_263  $AC67  len=81  refs=263
 b11_msg_263:
-    "「なにっ　ケイシュウを<NL><WORD:F9=ひとつ>にまとめ<NL><WORD:27=へいわ>を　とりもどすために<PAGE>たたかって　おられたのか<NL>ならば　<WORD:8A=どうか>　<WORD:21=わたし>を<NL><WORD:07=へいのはしにでも>　<WORD:06=くわえてください><WAIT><NAME:9D>が　わがぐんに　くわわった<NL2><JUMP:2EA8>"
+    "「なにっ　ケイシュウを<NL><WORD:F9=ひとつ>にまとめ<NL><WORD:27=へいわ>を　とりもどすために<PAGE>たたかって　おられたのか<NL>ならば　<WORD:8A=どうか>　<WORD:21=わたし>を<NL><WORD:07=へいのはしにでも>　<WORD:06=くわえてください><PAGENI><NAME:9D>が　わがぐんに　くわわった<NLNI><JUMP:2EA8>"
 
 # b11_msg_264  $ACB8  len=29  refs=264
 b11_msg_264:
@@ -1047,23 +1047,23 @@ b11_msg_264:
 
 # b11_msg_265  $ACD5  len=29  refs=265
 b11_msg_265:
-    "「この<WORD:1C=どうくつ>を　ぬけたいなら<NL>みぐるみ　おいていきな<NL2><JUMP:28D7>"
+    "「この<WORD:1C=どうくつ>を　ぬけたいなら<NL>みぐるみ　おいていきな<NLNI><JUMP:28D7>"
 
 # b11_msg_266  $ACF2  len=131  refs=266
 b11_msg_266:
-    "「--------<PAGE>--------<PAGE>--------<PAGE>ちょっとまった　きでんの　なまえを<NL>おきかせねがいたい<WAIT>「わしのなは<NL><NAME_F6>！！<WAIT>「<WORD:5B=これは>　とんだしつれいを<NL>いたし<WORD:97=ました><WAIT>「<WORD:21=わたし>は　<NAME_F7><WORD:7A=というもの><NL><NAME_F6><WORD:12=しょうぐん>に<NL>おつかえしたくて<PAGE>へいを　あつめており<WORD:97=ました><NL><WORD:8A=どうか>　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><END>"
+    "「--------<PAGE>--------<PAGE>--------<PAGE>ちょっとまった　きでんの　なまえを<NL>おきかせねがいたい<PAGENI>「わしのなは<NL><NAME_F6>！！<PAGENI>「<WORD:5B=これは>　とんだしつれいを<NL>いたし<WORD:97=ました><PAGENI>「<WORD:21=わたし>は　<NAME_F7><WORD:7A=というもの><NL><NAME_F6><WORD:12=しょうぐん>に<NL>おつかえしたくて<PAGE>へいを　あつめており<WORD:97=ました><NL><WORD:8A=どうか>　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><END>"
 
 # b11_msg_267  $AD75  len=53  refs=267
 b11_msg_267:
-    "「<WORD:0F=リュウビぐん>の<NAME_F6><NL><WORD:12=しょうぐん>ですね<PAGE><NAME_F6><WORD:12=しょうぐん>が　この<NL><WORD:1C=どうくつ>にはいったときき<NL>はせさんじました<PAGE>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NL2><JUMP:1CE9>"
+    "「<WORD:0F=リュウビぐん>の<NAME_F6><NL><WORD:12=しょうぐん>ですね<PAGE><NAME_F6><WORD:12=しょうぐん>が　この<NL><WORD:1C=どうくつ>にはいったときき<NL>はせさんじました<PAGE>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NLNI><JUMP:1CE9>"
 
 # b11_msg_268  $ADAA  len=19  refs=268
 b11_msg_268:
-    "ちいさな　カギあなを<NL2>はっけんし<WORD:97=ました><END>"
+    "ちいさな　カギあなを<NLNI>はっけんし<WORD:97=ました><END>"
 
 # b11_msg_269  $ADBD  len=50  refs=269
 b11_msg_269:
-    "「<WORD:32=わたしのなは>　<NAME_F7><NL>ちちにかわって　<WORD:3D=ぎゃくぞく>と<NL>たたかいとう<WORD:5E=ございます><PAGE><WORD:8A=どうか>　ぐんのはしにでも<NL>おくわえ<WORD:3F=ください><NL2><JUMP:1CE9><END>"
+    "「<WORD:32=わたしのなは>　<NAME_F7><NL>ちちにかわって　<WORD:3D=ぎゃくぞく>と<NL>たたかいとう<WORD:5E=ございます><PAGE><WORD:8A=どうか>　ぐんのはしにでも<NL>おくわえ<WORD:3F=ください><NLNI><JUMP:1CE9><END>"
 
 # b11_msg_270  $ADEF  len=16  refs=270
 b11_msg_270:
@@ -1075,11 +1075,11 @@ b11_msg_271:
 
 # b11_msg_272  $AE0E  len=22  refs=272
 b11_msg_272:
-    "<WORD:98=これで>　<WORD:78=ケイシュウ>にも<NL2><WORD:27=へいわ>が　おとずれ<WORD:97=ました><NL2><JUMP:2E62>"
+    "<WORD:98=これで>　<WORD:78=ケイシュウ>にも<NLNI><WORD:27=へいわ>が　おとずれ<WORD:97=ました><NLNI><JUMP:2E62>"
 
 # b11_msg_273  $AE24  len=180  refs=273
 b11_msg_273:
-    "「<NAME_F6>よ<NL>ごくろうであった<PAGE>おーそうじゃ　<NAME:D6>のははうえの<NL><ITEM:22=てがみ>を　あずかっておる<WAIT><NAME:D6>は　<ITEM:22=てがみ>をうけとった<WAIT>「--------<PAGE>--------<PAGE>--------<PAGE>--------<WAIT>「みよりのないみやこで<NL>さみしいおもいを<NL>しているのでしょう<PAGE><WORD:90=おねがい>で　<WORD:5E=ございます><NL><WORD:21=わたし>においとまを　くださいませ<WAIT>「<NAME:D6>よ　いってははうえを<NL>あんしんさせて　あげなさい<WAIT>「あっ-<WORD:03=ありがとうございます><END>"
+    "「<NAME_F6>よ<NL>ごくろうであった<PAGE>おーそうじゃ　<NAME:D6>のははうえの<NL><ITEM:22=てがみ>を　あずかっておる<PAGENI><NAME:D6>は　<ITEM:22=てがみ>をうけとった<PAGENI>「--------<PAGE>--------<PAGE>--------<PAGE>--------<PAGENI>「みよりのないみやこで<NL>さみしいおもいを<NL>しているのでしょう<PAGE><WORD:90=おねがい>で　<WORD:5E=ございます><NL><WORD:21=わたし>においとまを　くださいませ<PAGENI>「<NAME:D6>よ　いってははうえを<NL>あんしんさせて　あげなさい<PAGENI>「あっ-<WORD:03=ありがとうございます><END>"
 
 # b11_msg_274  $AED8  len=3  refs=274,275
 b11_msg_274:
@@ -1100,7 +1100,7 @@ b11_msg_278:
 
 # b11_msg_279  $AF5F  len=24  refs=279
 b11_msg_279:
-    "<WORD:0F=リュウビぐん>により　<WORD:54=ショク>も<NL2>ぶじ　へいていされた<NL2><JUMP:2F06>"
+    "<WORD:0F=リュウビぐん>により　<WORD:54=ショク>も<NLNI>ぶじ　へいていされた<NLNI><JUMP:2F06>"
 
 # b11_msg_280  $AF77  len=3  refs=280
 b11_msg_280:
@@ -1112,11 +1112,11 @@ b11_msg_281:
 
 # b11_msg_282  $AF97  len=36  refs=282
 b11_msg_282:
-    "「<NAME:A8>に　あってつたえろ<NL>ゴのうしろには　ギが<NL>ついているとな！<NL2><JUMP:318A>"
+    "「<NAME:A8>に　あってつたえろ<NL>ゴのうしろには　ギが<NL>ついているとな！<NLNI><JUMP:318A>"
 
 # b11_msg_283  $AFBB  len=65  refs=283
 b11_msg_283:
-    "「このしろをとりもどしたからといって<NL>３だいつづいた　われらのゴが<NL>やぶれたわけではない<PAGE><WORD:2C=カンオウチョウ>の　<WORD:E6=ふっこう>など<NL>させるものか！<NL2><JUMP:3169>"
+    "「このしろをとりもどしたからといって<NL>３だいつづいた　われらのゴが<NL>やぶれたわけではない<PAGE><WORD:2C=カンオウチョウ>の　<WORD:E6=ふっこう>など<NL>させるものか！<NLNI><JUMP:3169>"
 
 # b11_msg_284  $AFFC  len=3  refs=284
 b11_msg_284:
@@ -1136,31 +1136,31 @@ b11_msg_287:
 
 # b11_msg_288  $B0AA  len=18  refs=288
 b11_msg_288:
-    "<WORD:0F=リュウビぐん>の　ぼうぎょりょくが<NL2>あがった<END>"
+    "<WORD:0F=リュウビぐん>の　ぼうぎょりょくが<NLNI>あがった<END>"
 
 # b11_msg_289  $B0BC  len=19  refs=289
 b11_msg_289:
-    "<NAME_F5>ぐんの　ぼうぎょりょくが<NL2>あがった<END>"
+    "<NAME_F5>ぐんの　ぼうぎょりょくが<NLNI>あがった<END>"
 
 # b11_msg_290  $B0CF  len=24  refs=290,291
 b11_msg_290:
 b11_msg_291:
-    "かけいに　たいする<NL2>ぼうぎょりょくを　たかめた<END>"
+    "かけいに　たいする<NLNI>ぼうぎょりょくを　たかめた<END>"
 
 # b11_msg_292  $B0E7  len=25  refs=292,293
 b11_msg_292:
 b11_msg_293:
-    "すいけいに　たいする<NL2>ぼうぎょりょくを　たかめた<END>"
+    "すいけいに　たいする<NLNI>ぼうぎょりょくを　たかめた<END>"
 
 # b11_msg_294  $B100  len=21  refs=294,295
 b11_msg_294:
 b11_msg_295:
-    "てきの　しようする　<WORD:62=さくりゃく>を<NL2>むこうにした<END>"
+    "てきの　しようする　<WORD:62=さくりゃく>を<NLNI>むこうにした<END>"
 
 # b11_msg_296  $B115  len=25  refs=296,297
 b11_msg_296:
 b11_msg_297:
-    "てきの　こうげきを<NL2>いっさい　うけつけなくなった<END>"
+    "てきの　こうげきを<NLNI>いっさい　うけつけなくなった<END>"
 
 # b11_msg_298  $B12E  len=13  refs=298
 b11_msg_298:
@@ -1172,45 +1172,45 @@ b11_msg_299:
 
 # b11_msg_300  $B148  len=24  refs=300
 b11_msg_300:
-    "てきしょう　<NAME_F4>に　<NL2>ぎしんあんきを　おこさせた<END>"
+    "てきしょう　<NAME_F4>に　<NLNI>ぎしんあんきを　おこさせた<END>"
 
 # b11_msg_301  $B160  len=16  refs=301
 b11_msg_301:
-    "<NAME_F4>は<NL2>ぎしんあんきを　おこした<END>"
+    "<NAME_F4>は<NLNI>ぎしんあんきを　おこした<END>"
 
 # b11_msg_302  $B170  len=20  refs=302
 b11_msg_302:
-    "てきしょう　<NAME_F4>　<NL2>りかんを　おこさせた<END>"
+    "てきしょう　<NAME_F4>　<NLNI>りかんを　おこさせた<END>"
 
 # b11_msg_303  $B184  len=13  refs=303
 b11_msg_303:
-    "<NAME_F4>は<NL2>りかんを　おこした<END>"
+    "<NAME_F4>は<NLNI>りかんを　おこした<END>"
 
 # b11_msg_304  $B191  len=14  refs=304,305
 b11_msg_304:
 b11_msg_305:
-    "<NAME_F4>の<NL2>すばやさが　あがった<END>"
+    "<NAME_F4>の<NLNI>すばやさが　あがった<END>"
 
 # b11_msg_306  $B19F  len=24  refs=306
 b11_msg_306:
-    "<NAME_F4>ぐんの　つかった<NL2><WORD:77=へいりょく>　すべて　ときはなった<END>"
+    "<NAME_F4>ぐんの　つかった<NLNI><WORD:77=へいりょく>　すべて　ときはなった<END>"
 
 # b11_msg_307  $B1B7  len=23  refs=307
 b11_msg_307:
-    "<WORD:0F=リュウビぐん>の　つかった<NL2><WORD:77=へいりょく>　すべて　ときはなった<END>"
+    "<WORD:0F=リュウビぐん>の　つかった<NLNI><WORD:77=へいりょく>　すべて　ときはなった<END>"
 
 # b11_msg_308  $B1CE  len=14  refs=308
 b11_msg_308:
-    "<NAME_F5>は　<NAME_F4>の<NL2>くびを　とった<END>"
+    "<NAME_F5>は　<NAME_F4>の<NLNI>くびを　とった<END>"
 
 # b11_msg_309  $B1DC  len=15  refs=309
 b11_msg_309:
-    "<NAME_F4>は　<NAME_F5>に<NL2>くびを　とられた<END>"
+    "<NAME_F4>は　<NAME_F5>に<NLNI>くびを　とられた<END>"
 
 # b11_msg_310  $B1EB  len=17  refs=310,311
 b11_msg_310:
 b11_msg_311:
-    "<NAME_F4>の　こうげきりょくが<NL2>あがった<END>"
+    "<NAME_F4>の　こうげきりょくが<NLNI>あがった<END>"
 
 # b11_msg_312  $B1FC  len=13  refs=312,313
 b11_msg_312:
@@ -1239,23 +1239,23 @@ b11_msg_318:
 
 # b11_msg_319  $B246  len=15  refs=319
 b11_msg_319:
-    "<NAME_F5>は　<CALL:D565=さくりゃく>を<NL2>ときはなった<END>"
+    "<NAME_F5>は　<CALL:D565=さくりゃく>を<NLNI>ときはなった<END>"
 
 # b11_msg_320  $B255  len=25  refs=320
 b11_msg_320:
-    "<NAME_F5>ぐんの　さくめんのけいの<NL2>こうりょくが　きれた<END>"
+    "<NAME_F5>ぐんの　さくめんのけいの<NLNI>こうりょくが　きれた<END>"
 
 # b11_msg_321  $B26E  len=24  refs=321
 b11_msg_321:
-    "<WORD:0F=リュウビぐん>の　さくめんのけいの<NL2>こうりょくが　きれた<END>"
+    "<WORD:0F=リュウビぐん>の　さくめんのけいの<NLNI>こうりょくが　きれた<END>"
 
 # b11_msg_322  $B286  len=25  refs=322
 b11_msg_322:
-    "<NAME_F5>ぐんの　げきめんのけいの<NL2>こうりょくが　きれた<END>"
+    "<NAME_F5>ぐんの　げきめんのけいの<NLNI>こうりょくが　きれた<END>"
 
 # b11_msg_323  $B29F  len=24  refs=323
 b11_msg_323:
-    "<WORD:0F=リュウビぐん>の　げきめんのけいの<NL2>こうりょくが　きれた<END>"
+    "<WORD:0F=リュウビぐん>の　げきめんのけいの<NLNI>こうりょくが　きれた<END>"
 
 # b11_msg_324  $B2B7  len=156  refs=324,325,326,327,328
 b11_msg_324:

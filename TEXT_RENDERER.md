@@ -2529,3 +2529,69 @@ b10_msg_126-128's text.
 - The standard path differs after the oath only by timing: the teardown
   is 2 frames shorter, and screen loads no longer copy to page 2.
 - The original build is byte-identical.
+
+## Page breaks by design: `<NLNI>`, `<PAGENI>` (2026-11-14)
+
+The user: rename `<NL2>` to `<NLNI>` and `<WAIT>` to `<PAGENI>`.  Make
+them behave by their design instead of a patch that depends on context.
+
+**The engine** (bank 15 `$D1A5-$D1CB`, `$D2C3`), read from the code:
+
+| Code | Name | Waits | Next line |
+|---|---|---|---|
+| `$FA` | `<NL>` | no | indented one cell (`inc $5F`) |
+| `$FB` | `<NLNI>` (was `<NL2>`) | no | column 0 |
+| `$FC` | `<PAGE>` | yes | indented one cell |
+| `$FD` | `<PAGENI>` (was `<WAIT>`) | yes | column 0 |
+
+- `$5F` is consumed by the next line, even an empty one, and never
+  carries over into the next message.
+- In the original game neither page code clears the window: both wait,
+  and the lines scroll at a 4th line.  So `<WAIT>` was always a page break
+  without the indent.
+
+**The kanji build until now:**
+- `<PAGE>` cleared the window; `<WAIT>` did not.
+- Lines piled up across waits.  In 19 messages a 4th line came: the
+  engine's scroll, slow in map mode.
+- The 2026-11-13 run-time patch (`map_lines`, `map_end4`, bank 26's
+  `TXF_LOOK`) looked ahead and turned a line into a page break there.
+- Also, the band-era page splits (`split_failing_page`) turned any line
+  break into an indented `<PAGE>`, `<NL2>` included.  b11_msg_098's
+  三代続いた呉の国の came out indented.
+
+**Now:**
+- **Both page codes are page breaks:**
+  - the compiler splits page records at both (`split_pages`,
+    `page_from_bytes`);
+  - the overlay's `ctrl_store` advances the record and sets the page flag
+    at `$FD` as at `$FC`;
+  - `page_flip` clears the window after the wait.
+  - The engine itself handles the indent.
+  - In battle a page may still share the window when its kanji fit the
+    pool (the original's scroll), for both.
+- **A page split keeps the break's kind:** `<NL>` becomes `<PAGE>`,
+  `<NLNI>` becomes `<PAGENI>`.  With the smaller page records, no split is
+  needed any more (`split_pages` 6 -> 0); the mid-line fallback is counted
+  (`fallback_splits`, 0).
+- **Removed:** `map_lines` and `map_end4` (`$D1B7`, `$D1BA` and `$D1DE`
+  hold the original bytes again; lint 76 -> 73 ranges), and `TXF_LOOK`
+  (`TXF_MENUSET` / `_OATH` / `_OATHEND` are now 12-14).  The RAM image is
+  unchanged.
+- **Renamed everywhere:** the dtx sources (the original's too: its build is
+  byte-identical), the r14 batches and the glossary, the tools, and
+  decomp/text/README.md.  Older sections here keep the old names.
+- `tools/scroll_scan.py` uses the new rule: 0 of 765 messages scroll.
+
+**Checked** (against the previous build):
+- The 19 messages that scrolled, injected into the save man's talk
+  (converted state `s1_c.mss`): no scroll from the 4th line (`$D1BA`) or
+  the end (`$D1DE`); a clear at each page break.
+- After a `<PAGENI>` the next line starts at column 0 (b11_msg_044's
+  「桂陽の…, b11_msg_098's 孫権は… and 三代…).  After a `<PAGE>` it is
+  indented (今思えば…).
+- Pixel-identical: greeting, menu cycle, officer-switch, level-up and
+  capture battles, title, the standard path from frame 2000, and the oath.
+- Boot flows: identical but for the copy flow's frame 800 (the menu
+  border one scanline apart, as in every comparison).
+- The original build is byte-identical.

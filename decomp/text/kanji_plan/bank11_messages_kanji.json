@@ -10,8 +10,8 @@
     "labels": [
       "b11_msg_001"
     ],
-    "source": "「<WORD:F3=われら>のぐんが<NL>やぶれたのは　はじめてです<PAGE><WORD:8A=どうか>　ぐんのはしにでも<NL>おくわえください<NL2><JUMP:31A8>",
-    "kanji": "「<WORD:F3=われら>の群が<NL>破れたのは　初めてです<PAGE><WORD:8A=どうか>　群の端にでも<NL>お加えください<NL2><JUMP:31A8>"
+    "source": "「<WORD:F3=われら>のぐんが<NL>やぶれたのは　はじめてです<PAGE><WORD:8A=どうか>　ぐんのはしにでも<NL>おくわえください<NLNI><JUMP:31A8>",
+    "kanji": "「<WORD:F3=われら>の群が<NL>破れたのは　初めてです<PAGE><WORD:8A=どうか>　群の端にでも<NL>お加えください<NLNI><JUMP:31A8>"
   },
   {
     "labels": [
@@ -262,8 +262,8 @@
     "labels": [
       "b11_msg_037"
     ],
-    "source": "「<WORD:78=ケイシュウ>は<WORD:54=ショク>にとって<NL>じゅうようなとち　にどと<NL>みだれぬよう<PAGE>よいせいじを　おこなってくれ！<WAIT><NAME:A9>と<NAME:AA>は　<WORD:78=ケイシュウ>に<NL2>むかって　たびだっていった<END>",
-    "kanji": "「<WORD:78=ケイシュウ>は<WORD:54=ショク>にとって<NL>重要な土地　二度と<NL>乱れぬよう<PAGE>よい政治を　行ってくれ！<WAIT><NAME:A9>と<NAME:AA>は　<WORD:78=ケイシュウ>二<NL2>むかって　旅立って行った<END>"
+    "source": "「<WORD:78=ケイシュウ>は<WORD:54=ショク>にとって<NL>じゅうようなとち　にどと<NL>みだれぬよう<PAGE>よいせいじを　おこなってくれ！<PAGENI><NAME:A9>と<NAME:AA>は　<WORD:78=ケイシュウ>に<NLNI>むかって　たびだっていった<END>",
+    "kanji": "「<WORD:78=ケイシュウ>は<WORD:54=ショク>にとって<NL>重要な土地　二度と<NL>乱れぬよう<PAGE>よい政治を　行ってくれ！<PAGENI><NAME:A9>と<NAME:AA>は　<WORD:78=ケイシュウ>二<NLNI>むかって　旅立って行った<END>"
   },
   {
     "labels": [
@@ -311,8 +311,8 @@
     "labels": [
       "b11_msg_044"
     ],
-    "source": "「そうだ　ゴのないじょうについて<NL><NAME:AA>が　しらべが<NL>ついたと　いっていたな<WAIT>",
-    "kanji": "「そうだ　御の内情について<NL><NAME:AA>が　調べが<NL>ついたと　云っていたな<WAIT>"
+    "source": "「そうだ　ゴのないじょうについて<NL><NAME:AA>が　しらべが<NL>ついたと　いっていたな<PAGENI>",
+    "kanji": "「そうだ　御の内情について<NL><NAME:AA>が　調べが<NL>ついたと　云っていたな<PAGENI>"
   },
   {
     "labels": [
@@ -339,8 +339,8 @@
     "labels": [
       "b11_msg_048"
     ],
-    "source": "「<NAME_F7>と　もうします<NL>ちちにかわって　<WORD:2C=カンオウチョウ>の<NL>ために　<WORD:17=たたかい>たいと<PAGE>おもいます<NL>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NL2><JUMP:1CE9>",
-    "kanji": "「<NAME_F7>と　申します<NL>父に代って　<WORD:2C=カンオウチョウ>の<NL>為に　<WORD:17=たたかい>大と<PAGE>思います<NL>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NL2><JUMP:1CE9>"
+    "source": "「<NAME_F7>と　もうします<NL>ちちにかわって　<WORD:2C=カンオウチョウ>の<NL>ために　<WORD:17=たたかい>たいと<PAGE>おもいます<NL>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NLNI><JUMP:1CE9>",
+    "kanji": "「<NAME_F7>と　申します<NL>父に代って　<WORD:2C=カンオウチョウ>の<NL>為に　<WORD:17=たたかい>大と<PAGE>思います<NL>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NLNI><JUMP:1CE9>"
   },
   {
     "labels": [
@@ -409,8 +409,8 @@
     "labels": [
       "b11_msg_058"
     ],
-    "source": "とつぜん　ものすごいおとがきこえ<NL2>だいちが　ゆれた<NL2><WORD:26=しかし>　べつに　へんかはない<END>",
-    "kanji": "突然　ものすごい音が聞こえ<NL2>大地が　ゆれた<NL2><WORD:26=しかし>　べつに　変化はない<END>"
+    "source": "とつぜん　ものすごいおとがきこえ<NLNI>だいちが　ゆれた<NLNI><WORD:26=しかし>　べつに　へんかはない<END>",
+    "kanji": "突然　ものすごい音が聞こえ<NLNI>大地が　ゆれた<NLNI><WORD:26=しかし>　べつに　変化はない<END>"
   },
   {
     "labels": [
@@ -591,8 +591,8 @@
     "labels": [
       "b11_msg_084"
     ],
-    "source": "「これいじょう　ゴのくにを<NL><WORD:B4=おかす>ことは　ゆるさん<NL><NAME:CC>のけん　うけてみよ！<NL2><JUMP:3334>",
-    "kanji": "「これ以上　後の国を<NL><WORD:B4=おかす>ことは　ゆるさん<NL><NAME:CC>の剣　うけてみよ！<NL2><JUMP:3334>"
+    "source": "「これいじょう　ゴのくにを<NL><WORD:B4=おかす>ことは　ゆるさん<NL><NAME:CC>のけん　うけてみよ！<NLNI><JUMP:3334>",
+    "kanji": "「これ以上　後の国を<NL><WORD:B4=おかす>ことは　ゆるさん<NL><NAME:CC>の剣　うけてみよ！<NLNI><JUMP:3334>"
   },
   {
     "labels": [
@@ -605,8 +605,8 @@
     "labels": [
       "b11_msg_086"
     ],
-    "source": "「<NAME:AD><WORD:12=しょうぐん>に<NL><WORD:90=おねがい>が　<WORD:5E=ございます><PAGE>このしろの　みなみにある　こやに<NL><WORD:B3=かいぞく>が　すみついて<NL>しまったのです<PAGE><WORD:8A=どうか>　この<WORD:B3=かいぞく>を<NL><WORD:4E=たいじ>して　もらえない<NL><WORD:82=でしょう>か<NL2><JUMP:32EC>",
-    "kanji": "「<NAME:AD><WORD:12=しょうぐん>に<NL><WORD:90=おねがい>が　<WORD:5E=ございます><PAGE>この城の　南にある　小屋に<NL><WORD:B3=かいぞく>が　住みついて<NL>しまったのです<PAGE><WORD:8A=どうか>　この<WORD:B3=かいぞく>を<NL><WORD:4E=たいじ>して　もらえない<NL><WORD:82=でしょう>か<NL2><JUMP:32EC>"
+    "source": "「<NAME:AD><WORD:12=しょうぐん>に<NL><WORD:90=おねがい>が　<WORD:5E=ございます><PAGE>このしろの　みなみにある　こやに<NL><WORD:B3=かいぞく>が　すみついて<NL>しまったのです<PAGE><WORD:8A=どうか>　この<WORD:B3=かいぞく>を<NL><WORD:4E=たいじ>して　もらえない<NL><WORD:82=でしょう>か<NLNI><JUMP:32EC>",
+    "kanji": "「<NAME:AD><WORD:12=しょうぐん>に<NL><WORD:90=おねがい>が　<WORD:5E=ございます><PAGE>この城の　南にある　小屋に<NL><WORD:B3=かいぞく>が　住みついて<NL>しまったのです<PAGE><WORD:8A=どうか>　この<WORD:B3=かいぞく>を<NL><WORD:4E=たいじ>して　もらえない<NL><WORD:82=でしょう>か<NLNI><JUMP:32EC>"
   },
   {
     "labels": [
@@ -654,8 +654,8 @@
     "labels": [
       "b11_msg_093"
     ],
-    "source": "「てめえら　なにしに　きやがった！<NL><WORD:AB=ひゃくしょう>があつまったところで<NL>おれたちに　かてるわけがねえー！<PAGE>これでもくらって　かえんな！<NL2><JUMP:3392>",
-    "kanji": "「てめえら　なにしに　きやがった！<NL><WORD:AB=ひゃくしょう>が集まったところで<NL>おれたちに　勝てるわけがねえー！<PAGE>これでもくらって　かえんな！<NL2><JUMP:3392>"
+    "source": "「てめえら　なにしに　きやがった！<NL><WORD:AB=ひゃくしょう>があつまったところで<NL>おれたちに　かてるわけがねえー！<PAGE>これでもくらって　かえんな！<NLNI><JUMP:3392>",
+    "kanji": "「てめえら　なにしに　きやがった！<NL><WORD:AB=ひゃくしょう>が集まったところで<NL>おれたちに　勝てるわけがねえー！<PAGE>これでもくらって　かえんな！<NLNI><JUMP:3392>"
   },
   {
     "labels": [
@@ -689,8 +689,8 @@
     "labels": [
       "b11_msg_098"
     ],
-    "source": "「あに　<NAME:56>を　あんさつ<NL>したのは　わしだ---<PAGE>いまおもえば　みな　ギの<NAME:71>に<NL>だまされて　やったこと<PAGE><WORD:AC=あにじゃには>　わるいことをしたと<NL>おもっている<NL><WORD:AC=あにじゃには>　めいどで--グフッ<WAIT><NAME:57>は　いきを　ひきとった<WAIT>さんだいつづいた　ゴのくにの<NL2>れきしも　いま　とじようと<NL2>している----<NL2><JUMP:3385>",
-    "kanji": "「あに　<NAME:56>を　あんさつ<NL>したのは　わしだ---<PAGE>今思えば　皆　義の<NAME:71>二<NL>だまされて　やったこと<PAGE><WORD:AC=あにじゃには>　悪いことをしたと<NL>思っている<NL><WORD:AC=あにじゃには>　冥土で--ぐふっ<WAIT><NAME:57>は　息を　ひきとった<WAIT>三代続いた　五の国の<NL2>歴史も　今　閉じようと<NL2>している----<NL2><JUMP:3385>"
+    "source": "「あに　<NAME:56>を　あんさつ<NL>したのは　わしだ---<PAGE>いまおもえば　みな　ギの<NAME:71>に<NL>だまされて　やったこと<PAGE><WORD:AC=あにじゃには>　わるいことをしたと<NL>おもっている<NL><WORD:AC=あにじゃには>　めいどで--グフッ<PAGENI><NAME:57>は　いきを　ひきとった<PAGENI>さんだいつづいた　ゴのくにの<NLNI>れきしも　いま　とじようと<NLNI>している----<NLNI><JUMP:3385>",
+    "kanji": "「あに　<NAME:56>を　あんさつ<NL>したのは　わしだ---<PAGE>今思えば　皆　義の<NAME:71>二<NL>だまされて　やったこと<PAGE><WORD:AC=あにじゃには>　悪いことをしたと<NL>思っている<NL><WORD:AC=あにじゃには>　冥土で--ぐふっ<PAGENI><NAME:57>は　息を　ひきとった<PAGENI>三代続いた　五の国の<NLNI>歴史も　今　閉じようと<NLNI>している----<NLNI><JUMP:3385>"
   },
   {
     "labels": [
@@ -710,29 +710,29 @@
     "labels": [
       "b11_msg_101"
     ],
-    "source": "　<NAME_F6><WAIT>「わがきみ<NL>ごけっしんを　うながしたいことが<NL><WORD:5E=ございます><PAGE><WORD:3D=ぎゃくぞく>　<NAME:71>が　<WORD:22=ミカド>の<NL><WORD:BD=くらい>をうばったいま<NL><WORD:0E=リュウビさま>　みずから<PAGE><WORD:C3=コウテイ>の<WORD:BD=くらい>につき<NL>そびょうのれいを　なぐさめ<PAGE>また　もって　ばんみんを<NL>やすんずべきと　かんがえます<PAGE><NAME:A8><NL2>「その<WORD:A2=はなし>をするな！<PAGE><NAME:D5><WAIT>「<WORD:26=しかし>　カンの<WORD:22=ミカド>のちをひく<NL>わがきみが　すすんで　せいとうを<NL>つぐべきです<PAGE><NAME:A8><NL2>「だまれ！！<PAGE>そちたちは　よを　まつだいまで<NL>ふちゅうふぎのひとと<NL>よばせたいのか！<END>",
-    "kanji": "　<NAME_F6><WAIT>「わが君<NL>ご決心を　促したいことが<NL><WORD:5E=ございます><PAGE><WORD:3D=ぎゃくぞく>　<NAME:71>が　<WORD:22=ミカド>の<NL><WORD:BD=くらい>を奪った今<NL><WORD:0E=リュウビさま>　自ら<PAGE><WORD:C3=コウテイ>の<WORD:BD=くらい>につき<NL>素描の礼を　慰め<PAGE>また　以て　万民を<NL>安んずべきと　考えます<PAGE><NAME:A8><NL2>「その<WORD:A2=はなし>をするな！<PAGE><NAME:D5><WAIT>「<WORD:26=しかし>　漢の<WORD:22=ミカド>のちをひく<NL>わが君が　進んで　正統を<NL>つぐべきです<PAGE><NAME:A8><NL2>「黙れ！！<PAGE>そちたちは　世を　末代まで<NL>不忠不義の人と<NL>呼ばせたいのか！<END>"
+    "source": "　<NAME_F6><PAGENI>「わがきみ<NL>ごけっしんを　うながしたいことが<NL><WORD:5E=ございます><PAGE><WORD:3D=ぎゃくぞく>　<NAME:71>が　<WORD:22=ミカド>の<NL><WORD:BD=くらい>をうばったいま<NL><WORD:0E=リュウビさま>　みずから<PAGE><WORD:C3=コウテイ>の<WORD:BD=くらい>につき<NL>そびょうのれいを　なぐさめ<PAGE>また　もって　ばんみんを<NL>やすんずべきと　かんがえます<PAGE><NAME:A8><NLNI>「その<WORD:A2=はなし>をするな！<PAGE><NAME:D5><PAGENI>「<WORD:26=しかし>　カンの<WORD:22=ミカド>のちをひく<NL>わがきみが　すすんで　せいとうを<NL>つぐべきです<PAGE><NAME:A8><NLNI>「だまれ！！<PAGE>そちたちは　よを　まつだいまで<NL>ふちゅうふぎのひとと<NL>よばせたいのか！<END>",
+    "kanji": "　<NAME_F6><PAGENI>「わが君<NL>ご決心を　促したいことが<NL><WORD:5E=ございます><PAGE><WORD:3D=ぎゃくぞく>　<NAME:71>が　<WORD:22=ミカド>の<NL><WORD:BD=くらい>を奪った今<NL><WORD:0E=リュウビさま>　自ら<PAGE><WORD:C3=コウテイ>の<WORD:BD=くらい>につき<NL>素描の礼を　慰め<PAGE>また　以て　万民を<NL>安んずべきと　考えます<PAGE><NAME:A8><NLNI>「その<WORD:A2=はなし>をするな！<PAGE><NAME:D5><PAGENI>「<WORD:26=しかし>　漢の<WORD:22=ミカド>のちをひく<NL>わが君が　進んで　正統を<NL>つぐべきです<PAGE><NAME:A8><NLNI>「黙れ！！<PAGE>そちたちは　世を　末代まで<NL>不忠不義の人と<NL>呼ばせたいのか！<END>"
   },
   {
     "labels": [
       "b11_msg_102"
     ],
-    "source": "　<NAME_F6><NL2>「<NAME:71>　<NAME:57>と　わがきみとは<NL>おなじでは　ございませぬ<PAGE>カンチョウをうばった　<WORD:3D=ぎゃくぞく><NL><NAME:71>をだれが　こらしめます<PAGE><NAME:D5><NL2>「このまま　だまっていては<NL>ギの<NAME:71>　ゴの<NAME:57>のそくいを<PAGE>せいとうなものとして<NL>みとめたことになります<PAGE><NAME_F6><NL2>「いままで　かずかずの　<WORD:3D=ぎゃくぞく>が<NL><WORD:C3=コウテイ>の<WORD:BD=くらい>を　ねらうことを<PAGE>そしせんと　たたかってきたことが<NL>むいみと　なります<END>",
-    "kanji": "　<NAME_F6><NL2>「<NAME:71>　<NAME:57>と　わが君とは<NL>同じでは　ございませぬ<PAGE>間諜を奪った　<WORD:3D=ぎゃくぞく><NL><NAME:71>を誰が　懲らしめます<PAGE><NAME:D5><NL2>「このまま　黙っていては<NL>魏の<NAME:71>　呉の<NAME:57>の即位を<PAGE>正統なものとして<NL>認めたことになります<PAGE><NAME_F6><NL2>「今まで　数々の　<WORD:3D=ぎゃくぞく>が<NL><WORD:C3=コウテイ>の<WORD:BD=くらい>を　狙うことを<PAGE>阻止せんと　戦ってきたことが<NL>無意味と　なります<END>"
+    "source": "　<NAME_F6><NLNI>「<NAME:71>　<NAME:57>と　わがきみとは<NL>おなじでは　ございませぬ<PAGE>カンチョウをうばった　<WORD:3D=ぎゃくぞく><NL><NAME:71>をだれが　こらしめます<PAGE><NAME:D5><NLNI>「このまま　だまっていては<NL>ギの<NAME:71>　ゴの<NAME:57>のそくいを<PAGE>せいとうなものとして<NL>みとめたことになります<PAGE><NAME_F6><NLNI>「いままで　かずかずの　<WORD:3D=ぎゃくぞく>が<NL><WORD:C3=コウテイ>の<WORD:BD=くらい>を　ねらうことを<PAGE>そしせんと　たたかってきたことが<NL>むいみと　なります<END>",
+    "kanji": "　<NAME_F6><NLNI>「<NAME:71>　<NAME:57>と　わが君とは<NL>同じでは　ございませぬ<PAGE>間諜を奪った　<WORD:3D=ぎゃくぞく><NL><NAME:71>を誰が　懲らしめます<PAGE><NAME:D5><NLNI>「このまま　黙っていては<NL>魏の<NAME:71>　呉の<NAME:57>の即位を<PAGE>正統なものとして<NL>認めたことになります<PAGE><NAME_F6><NLNI>「今まで　数々の　<WORD:3D=ぎゃくぞく>が<NL><WORD:C3=コウテイ>の<WORD:BD=くらい>を　狙うことを<PAGE>阻止せんと　戦ってきたことが<NL>無意味と　なります<END>"
   },
   {
     "labels": [
       "b11_msg_103"
     ],
-    "source": "　<NAME:A8><NL2>「よくわかった！<NL>よは　ちいさなことに<PAGE>こだわりすぎたようじゃ！<NL><NAME:71>と<NAME:57>の　<WORD:BE=そくい>は<NL>みとめぬと　<WORD:BF=てんか>にしらしめるため<PAGE>よは　<WORD:C3=コウテイ>を　なのろう！！<WAIT>かくして---<NL2>けんあん　２６ねん　４がつ<WAIT>だいれいだいが　きずかれ<NL2>ぶんぶかんの　みまもるなかで<NL2><NAME:A8>は　ぎょくじを　うけ<WAIT>ここに　<WORD:54=ショク>の<WORD:C3=コウテイ>を<NL2><WORD:BF=てんか>に　せんした<END>",
-    "kanji": "　<NAME:A8><NL2>「よくわかった！<NL>余は　小さなことに<PAGE>こだわりすぎたようじゃ！<NL><NAME:71>と<NAME:57>の　<WORD:BE=そくい>は<NL>認めぬと　<WORD:BF=てんか>に知らしめるため<PAGE>余は　<WORD:C3=コウテイ>を　名のろう！！<WAIT>かくして---<NL2>建安　２６年　４月<WAIT>大霊台が　築かれ<NL2>文武官の　見守る中で<NL2><NAME:A8>は　玉璽を　受け<WAIT>ここに　<WORD:54=ショク>の<WORD:C3=コウテイ>を<NL2><WORD:BF=てんか>に　せんした<END>"
+    "source": "　<NAME:A8><NLNI>「よくわかった！<NL>よは　ちいさなことに<PAGE>こだわりすぎたようじゃ！<NL><NAME:71>と<NAME:57>の　<WORD:BE=そくい>は<NL>みとめぬと　<WORD:BF=てんか>にしらしめるため<PAGE>よは　<WORD:C3=コウテイ>を　なのろう！！<PAGENI>かくして---<NLNI>けんあん　２６ねん　４がつ<PAGENI>だいれいだいが　きずかれ<NLNI>ぶんぶかんの　みまもるなかで<NLNI><NAME:A8>は　ぎょくじを　うけ<PAGENI>ここに　<WORD:54=ショク>の<WORD:C3=コウテイ>を<NLNI><WORD:BF=てんか>に　せんした<END>",
+    "kanji": "　<NAME:A8><NLNI>「よくわかった！<NL>余は　小さなことに<PAGE>こだわりすぎたようじゃ！<NL><NAME:71>と<NAME:57>の　<WORD:BE=そくい>は<NL>認めぬと　<WORD:BF=てんか>に知らしめるため<PAGE>余は　<WORD:C3=コウテイ>を　名のろう！！<PAGENI>かくして---<NLNI>建安　２６年　４月<PAGENI>大霊台が　築かれ<NLNI>文武官の　見守る中で<NLNI><NAME:A8>は　玉璽を　受け<PAGENI>ここに　<WORD:54=ショク>の<WORD:C3=コウテイ>を<NLNI><WORD:BF=てんか>に　せんした<END>"
   },
   {
     "labels": [
       "b11_msg_104"
     ],
-    "source": "「おーい　おれだ　<NAME:38>だ！<NL>はやくはしをかけてくれ！<WAIT>「おう！いまかけるぞ！<END>",
-    "kanji": "「おーい　おれだ　<NAME:38>だ！<NL>早く橋をかけてくれ！<WAIT>「おー！今かけるぞ！<END>"
+    "source": "「おーい　おれだ　<NAME:38>だ！<NL>はやくはしをかけてくれ！<PAGENI>「おう！いまかけるぞ！<END>",
+    "kanji": "「おーい　おれだ　<NAME:38>だ！<NL>早く橋をかけてくれ！<PAGENI>「おー！今かけるぞ！<END>"
   },
   {
     "labels": [
@@ -780,8 +780,8 @@
     "labels": [
       "b11_msg_111"
     ],
-    "source": "「<NAME_F6>　<WORD:12=しょうぐん>よ！<NL>よくぞ　<WORD:3D=ぎゃくぞく>　<NAME:1B>を<NL>たおし<WORD:91=てくれ>た<PAGE>だが　<NAME_F6>よ！<NL>あんしんしては　ならぬ<PAGE><NAME:1B>には　あにがおる<NL>きっと　<WORD:45=このしろ>に　せめてくるに<NL>ちがいない<PAGE><WORD:50=こころ>してかかるがよい<NL2><JUMP:20EB><END>",
-    "kanji": "「<NAME_F6>　<WORD:12=しょうぐん>よ！<NL>よくぞ　<WORD:3D=ぎゃくぞく>　<NAME:1B>を<NL>たおし<WORD:91=てくれ>た<PAGE>だが　<NAME_F6>よ！<NL>安心しては　ならぬ<PAGE><NAME:1B>には　兄がおる<NL>きっと　<WORD:45=このしろ>に　攻めてくるに<NL>違いない<PAGE><WORD:50=こころ>してかかるがよい<NL2><JUMP:20EB><END>"
+    "source": "「<NAME_F6>　<WORD:12=しょうぐん>よ！<NL>よくぞ　<WORD:3D=ぎゃくぞく>　<NAME:1B>を<NL>たおし<WORD:91=てくれ>た<PAGE>だが　<NAME_F6>よ！<NL>あんしんしては　ならぬ<PAGE><NAME:1B>には　あにがおる<NL>きっと　<WORD:45=このしろ>に　せめてくるに<NL>ちがいない<PAGE><WORD:50=こころ>してかかるがよい<NLNI><JUMP:20EB><END>",
+    "kanji": "「<NAME_F6>　<WORD:12=しょうぐん>よ！<NL>よくぞ　<WORD:3D=ぎゃくぞく>　<NAME:1B>を<NL>たおし<WORD:91=てくれ>た<PAGE>だが　<NAME_F6>よ！<NL>安心しては　ならぬ<PAGE><NAME:1B>には　兄がおる<NL>きっと　<WORD:45=このしろ>に　攻めてくるに<NL>違いない<PAGE><WORD:50=こころ>してかかるがよい<NLNI><JUMP:20EB><END>"
   },
   {
     "labels": [
@@ -872,8 +872,8 @@
     "labels": [
       "b11_msg_125"
     ],
-    "source": "「<WORD:0E=リュウビさま>たいへんで<WORD:5E=ございます><NL>じつは---カクカク　シカジカ<PAGE>なに！ゴの<NAME:57><NL>ギの<NAME:71>ともに<WORD:22=ミカド>を<NL>なのったというのか<PAGE><WORD:D9=カンチョウ>の<WORD:22=ミカド>のくらいを<NL>はくだつしたということは<PAGE>じじつじょう　<WORD:2C=カンオウチョウ>の<NL>ほうかいを<NL>いみするではないか---<WAIT><JUMP:30AE>",
-    "kanji": "「<WORD:0E=リュウビさま>大変で<WORD:5E=ございます><NL>実は---かくかく　しかじか<PAGE>何！五の<NAME:57><NL>魏の<NAME:71>友に<WORD:22=ミカド>を<NL>名のったというのか<PAGE><WORD:D9=カンチョウ>の<WORD:22=ミカド>の位を<NL>剥奪したということは<PAGE>事実上　<WORD:2C=カンオウチョウ>の<NL>崩壊を<NL>意味するではないか---<WAIT><JUMP:30AE>"
+    "source": "「<WORD:0E=リュウビさま>たいへんで<WORD:5E=ございます><NL>じつは---カクカク　シカジカ<PAGE>なに！ゴの<NAME:57><NL>ギの<NAME:71>ともに<WORD:22=ミカド>を<NL>なのったというのか<PAGE><WORD:D9=カンチョウ>の<WORD:22=ミカド>のくらいを<NL>はくだつしたということは<PAGE>じじつじょう　<WORD:2C=カンオウチョウ>の<NL>ほうかいを<NL>いみするではないか---<PAGENI><JUMP:30AE>",
+    "kanji": "「<WORD:0E=リュウビさま>大変で<WORD:5E=ございます><NL>実は---かくかく　しかじか<PAGE>何！五の<NAME:57><NL>魏の<NAME:71>友に<WORD:22=ミカド>を<NL>名のったというのか<PAGE><WORD:D9=カンチョウ>の<WORD:22=ミカド>の位を<NL>剥奪したということは<PAGE>事実上　<WORD:2C=カンオウチョウ>の<NL>崩壊を<NL>意味するではないか---<PAGENI><JUMP:30AE>"
   },
   {
     "labels": [
@@ -956,8 +956,8 @@
     "labels": [
       "b11_msg_137"
     ],
-    "source": "「<NAME_F6><WORD:12=しょうぐん><NL>ぶじで　なによりだ<PAGE><WORD:22=ミカド>の<WORD:BD=くらい>をうばった<NL><NAME:1B>を　のさばらせて<NL>おくわけには　いかぬ<WAIT>「みなとちからをあわせ<NL><NAME:1B>をうて！<END>",
-    "kanji": "「<NAME_F6><WORD:12=しょうぐん><NL>無事で　何よりだ<PAGE><WORD:22=ミカド>の<WORD:BD=くらい>を奪った<NL><NAME:1B>を　のさばらせて<NL>おくわけには　いかぬ<WAIT>「みなと力をあわせ<NL><NAME:1B>をうて！<END>"
+    "source": "「<NAME_F6><WORD:12=しょうぐん><NL>ぶじで　なによりだ<PAGE><WORD:22=ミカド>の<WORD:BD=くらい>をうばった<NL><NAME:1B>を　のさばらせて<NL>おくわけには　いかぬ<PAGENI>「みなとちからをあわせ<NL><NAME:1B>をうて！<END>",
+    "kanji": "「<NAME_F6><WORD:12=しょうぐん><NL>無事で　何よりだ<PAGE><WORD:22=ミカド>の<WORD:BD=くらい>を奪った<NL><NAME:1B>を　のさばらせて<NL>おくわけには　いかぬ<PAGENI>「みなと力をあわせ<NL><NAME:1B>をうて！<END>"
   },
   {
     "labels": [
@@ -970,8 +970,8 @@
     "labels": [
       "b11_msg_139"
     ],
-    "source": "「おお　<NAME_F6>か　よくもどった<NL>たったいま　キンとなのる<NL>しょうねんが　あらわれ<PAGE>あにが　かえったので　しきゅう<NL>きてくれるよういっておったぞ！<NL>さあ　いくがよい　<NAME_F6>！<NL2><JUMP:2E95>",
-    "kanji": "「おお　<NAME_F6>か　よく戻った<NL>たった今　金と名乗る<NL>少年が　あらわれ<PAGE>兄が　帰ったので　至急<NL>来てくれるよういっ！<NL>さあ　行くがよい　<NAME_F6>！<NL2><JUMP:2E95>"
+    "source": "「おお　<NAME_F6>か　よくもどった<NL>たったいま　キンとなのる<NL>しょうねんが　あらわれ<PAGE>あにが　かえったので　しきゅう<NL>きてくれるよういっておったぞ！<NL>さあ　いくがよい　<NAME_F6>！<NLNI><JUMP:2E95>",
+    "kanji": "「おお　<NAME_F6>か　よく戻った<NL>たった今　金と名乗る<NL>少年が　あらわれ<PAGE>兄が　帰ったので　至急<NL>来てくれるよういっ！<NL>さあ　行くがよい　<NAME_F6>！<NLNI><JUMP:2E95>"
   },
   {
     "labels": [
@@ -1094,22 +1094,22 @@
     "labels": [
       "b11_msg_161"
     ],
-    "source": "「よくやってくれたぞ<NL><NAME_F6><WORD:12=しょうぐん>よ！<PAGE>しかし　いまだ　<WORD:78=ケイシュウ>は<NL>へいていされて　おらぬ<WAIT>",
-    "kanji": "「よくやってくれたぞ<NL><NAME_F6><WORD:12=しょうぐん>よ！<PAGE>しかし　未だ　<WORD:78=ケイシュウ>は<NL>平定されて　おらぬ<WAIT>"
+    "source": "「よくやってくれたぞ<NL><NAME_F6><WORD:12=しょうぐん>よ！<PAGE>しかし　いまだ　<WORD:78=ケイシュウ>は<NL>へいていされて　おらぬ<PAGENI>",
+    "kanji": "「よくやってくれたぞ<NL><NAME_F6><WORD:12=しょうぐん>よ！<PAGE>しかし　未だ　<WORD:78=ケイシュウ>は<NL>平定されて　おらぬ<PAGENI>"
   },
   {
     "labels": [
       "b11_msg_162"
     ],
-    "source": "「<WORD:70=いっこくもはやく>　<WORD:78=ケイシュウ>を<NL>へいていし　<WORD:A5=たみを>　やすんじてくれ<NL2><JUMP:20EB>",
-    "kanji": "「<WORD:70=いっこくもはやく>　<WORD:78=ケイシュウ>を<NL>平定し　<WORD:A5=たみを>　安んじてくれ<NL2><JUMP:20EB>"
+    "source": "「<WORD:70=いっこくもはやく>　<WORD:78=ケイシュウ>を<NL>へいていし　<WORD:A5=たみを>　やすんじてくれ<NLNI><JUMP:20EB>",
+    "kanji": "「<WORD:70=いっこくもはやく>　<WORD:78=ケイシュウ>を<NL>平定し　<WORD:A5=たみを>　安んじてくれ<NLNI><JUMP:20EB>"
   },
   {
     "labels": [
       "b11_msg_163"
     ],
-    "source": "「<WORD:78=ケイシュウ>　へいてい<NL>よくやってくれた<NL>たみも　あんしん　するだろう<PAGE>しかし　ボッカイの<NAME:26>を<NL>うつのを　わすれては　おらぬか<NL2>",
-    "kanji": "「<WORD:78=ケイシュウ>　平定<NL>よくやってくれた<NL>民も　安心　するだろう<PAGE>しかし　渤海の<NAME:26>を<NL>打つのを　忘れては　おらぬか<NL2>"
+    "source": "「<WORD:78=ケイシュウ>　へいてい<NL>よくやってくれた<NL>たみも　あんしん　するだろう<PAGE>しかし　ボッカイの<NAME:26>を<NL>うつのを　わすれては　おらぬか<NLNI>",
+    "kanji": "「<WORD:78=ケイシュウ>　平定<NL>よくやってくれた<NL>民も　安心　するだろう<PAGE>しかし　渤海の<NAME:26>を<NL>打つのを　忘れては　おらぬか<NLNI>"
   },
   {
     "labels": [
@@ -1143,8 +1143,8 @@
     "labels": [
       "b11_msg_168"
     ],
-    "source": "「<WORD:03=ありがとうございます><NL><PLACE:67=コウソウじょう>にいる　<NAME:D7>に<NL>あいましたら<PAGE>この<ITEM:22=てがみ>を<WORD:21=わたし>て<WORD:3F=ください><WAIT><NAME_F6>は　<ITEM:22=てがみ>を<NL2>うけとった<NL2><JUMP:28BC><END>",
-    "kanji": "「<WORD:03=ありがとうございます><NL><PLACE:67=コウソウじょう>にいる　<NAME:D7>に<NL>会いましたら<PAGE>この<ITEM:22=てがみ>を<WORD:21=わたし>て<WORD:3F=ください><WAIT><NAME_F6>は　<ITEM:22=てがみ>を<NL2>受け取った<NL2><JUMP:28BC><END>"
+    "source": "「<WORD:03=ありがとうございます><NL><PLACE:67=コウソウじょう>にいる　<NAME:D7>に<NL>あいましたら<PAGE>この<ITEM:22=てがみ>を<WORD:21=わたし>て<WORD:3F=ください><PAGENI><NAME_F6>は　<ITEM:22=てがみ>を<NLNI>うけとった<NLNI><JUMP:28BC><END>",
+    "kanji": "「<WORD:03=ありがとうございます><NL><PLACE:67=コウソウじょう>にいる　<NAME:D7>に<NL>会いましたら<PAGE>この<ITEM:22=てがみ>を<WORD:21=わたし>て<WORD:3F=ください><PAGENI><NAME_F6>は　<ITEM:22=てがみ>を<NLNI>受け取った<NLNI><JUMP:28BC><END>"
   },
   {
     "labels": [
@@ -1164,15 +1164,15 @@
     "labels": [
       "b11_msg_171"
     ],
-    "source": "「こ　これは---<NL><NAME_F6><WORD:12=しょうぐん><NL>かたじけない<PAGE>いもうとを　たすけて<NL>いただいたのですね<PAGE>こんどこそ　<WORD:12=しょうぐん>のために<NL>たたかいたいと　おもいます<PAGE>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NL2><JUMP:1CE9><END>",
-    "kanji": "「こ　これは---<NL><NAME_F6><WORD:12=しょうぐん><NL>かたじけない<PAGE>妹を　助けて<NL>いただいたのですね<PAGE>今度こそ　<WORD:12=しょうぐん>のために<NL>戦いたいと　思います<PAGE>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NL2><JUMP:1CE9><END>"
+    "source": "「こ　これは---<NL><NAME_F6><WORD:12=しょうぐん><NL>かたじけない<PAGE>いもうとを　たすけて<NL>いただいたのですね<PAGE>こんどこそ　<WORD:12=しょうぐん>のために<NL>たたかいたいと　おもいます<PAGE>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NLNI><JUMP:1CE9><END>",
+    "kanji": "「こ　これは---<NL><NAME_F6><WORD:12=しょうぐん><NL>かたじけない<PAGE>妹を　助けて<NL>いただいたのですね<PAGE>今度こそ　<WORD:12=しょうぐん>のために<NL>戦いたいと　思います<PAGE>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NLNI><JUMP:1CE9><END>"
   },
   {
     "labels": [
       "b11_msg_172"
     ],
-    "source": "「<WORD:12=しょうぐん><NL>カギをかってほしいのことあるよ<NL>これ　ほんとうに　やくにたつよ<PAGE>１つ　金　４０００<NL>でいいよ<NL2><JUMP:27A4>",
-    "kanji": "「<WORD:12=しょうぐん><NL>鍵を買ってほしい<NL>これ　本当に　役に立つよ<PAGE>１つ　金　４０００<NL>でいいよ<NL2><JUMP:27A4>"
+    "source": "「<WORD:12=しょうぐん><NL>カギをかってほしいのことあるよ<NL>これ　ほんとうに　やくにたつよ<PAGE>１つ　金　４０００<NL>でいいよ<NLNI><JUMP:27A4>",
+    "kanji": "「<WORD:12=しょうぐん><NL>鍵を買ってほしい<NL>これ　本当に　役に立つよ<PAGE>１つ　金　４０００<NL>でいいよ<NLNI><JUMP:27A4>"
   },
   {
     "labels": [
@@ -1199,8 +1199,8 @@
     "labels": [
       "b11_msg_176"
     ],
-    "source": "「<NAME_F6><WORD:12=しょうぐん><NL><WORD:3D=ぎゃくぞく><NAME:57>を<NL>よくぞ　たおし<WORD:91=てくれ>た<PAGE><WORD:26=しかし>　ギにには<WORD:22=ミカド>の<WORD:BD=くらい>を<NL>はくだつした　ちょうほんにん<NL><NAME:71>が　ぐんびを<PAGE>たくわえたままでいる<NL>このままでは　このくにに<NL>しんの<WORD:27=へいわ>は　おとずれぬ<PAGE><WORD:1E=いくさ>　<WORD:1E=いくさ>のまいにちで<NL>つかれてはいようが<NL><WORD:70=いっこくもはやく><PAGE><NAME:71>をたおし　<WORD:D9=カンチョウ>を<NL><WORD:E6=ふっこう>させねばならぬ<PAGE>ギのくにへは　ゴの<PLACE:57=ケンギョウ>より<NL>ほくとうに　<WORD:E7=せめいる>がよい<NL2><JUMP:20EB>",
-    "kanji": "「<NAME_F6><WORD:12=しょうぐん><NL><WORD:3D=ぎゃくぞく><NAME:57>を<NL>よくぞ　倒し<WORD:91=てくれ>た<PAGE><WORD:26=しかし>　ぎにには<WORD:22=ミカド>の<WORD:BD=くらい>を<NL>剥奪した　張本人<NL><NAME:71>が　軍備を<PAGE>蓄えたままでいる<NL>このままでは　この国に<NL>真の<WORD:27=へいわ>は　訪れぬ<PAGE><WORD:1E=いくさ>　<WORD:1E=いくさ>の毎日で<NL>疲れてはいようが<NL><WORD:70=いっこくもはやく><PAGE><NAME:71>を倒し　<WORD:D9=カンチョウ>を<NL><WORD:E6=ふっこう>させねばならぬ<PAGE>魏の国へは　呉の<PLACE:57=ケンギョウ>より<NL>北東に　<WORD:E7=せめいる>がよい<NL2><JUMP:20EB>"
+    "source": "「<NAME_F6><WORD:12=しょうぐん><NL><WORD:3D=ぎゃくぞく><NAME:57>を<NL>よくぞ　たおし<WORD:91=てくれ>た<PAGE><WORD:26=しかし>　ギにには<WORD:22=ミカド>の<WORD:BD=くらい>を<NL>はくだつした　ちょうほんにん<NL><NAME:71>が　ぐんびを<PAGE>たくわえたままでいる<NL>このままでは　このくにに<NL>しんの<WORD:27=へいわ>は　おとずれぬ<PAGE><WORD:1E=いくさ>　<WORD:1E=いくさ>のまいにちで<NL>つかれてはいようが<NL><WORD:70=いっこくもはやく><PAGE><NAME:71>をたおし　<WORD:D9=カンチョウ>を<NL><WORD:E6=ふっこう>させねばならぬ<PAGE>ギのくにへは　ゴの<PLACE:57=ケンギョウ>より<NL>ほくとうに　<WORD:E7=せめいる>がよい<NLNI><JUMP:20EB>",
+    "kanji": "「<NAME_F6><WORD:12=しょうぐん><NL><WORD:3D=ぎゃくぞく><NAME:57>を<NL>よくぞ　倒し<WORD:91=てくれ>た<PAGE><WORD:26=しかし>　ぎにには<WORD:22=ミカド>の<WORD:BD=くらい>を<NL>剥奪した　張本人<NL><NAME:71>が　軍備を<PAGE>蓄えたままでいる<NL>このままでは　この国に<NL>真の<WORD:27=へいわ>は　訪れぬ<PAGE><WORD:1E=いくさ>　<WORD:1E=いくさ>の毎日で<NL>疲れてはいようが<NL><WORD:70=いっこくもはやく><PAGE><NAME:71>を倒し　<WORD:D9=カンチョウ>を<NL><WORD:E6=ふっこう>させねばならぬ<PAGE>魏の国へは　呉の<PLACE:57=ケンギョウ>より<NL>北東に　<WORD:E7=せめいる>がよい<NLNI><JUMP:20EB>"
   },
   {
     "labels": [
@@ -1213,8 +1213,8 @@
     "labels": [
       "b11_msg_178"
     ],
-    "source": "「この<WORD:FA=なかに>　<WORD:D2=ショカツリョウさま>は<NL>おられますか？<NL2><JUMP:33B6>",
-    "kanji": "「この<WORD:FA=なかに>　<WORD:D2=ショカツリョウさま>は<NL>おられますか？<NL2><JUMP:33B6>"
+    "source": "「この<WORD:FA=なかに>　<WORD:D2=ショカツリョウさま>は<NL>おられますか？<NLNI><JUMP:33B6>",
+    "kanji": "「この<WORD:FA=なかに>　<WORD:D2=ショカツリョウさま>は<NL>おられますか？<NLNI><JUMP:33B6>"
   },
   {
     "labels": [
@@ -1319,15 +1319,15 @@
     "labels": [
       "b11_msg_194"
     ],
-    "source": "<NAME:88>の<WORD:E0=こうげき><NL2><WORD:E1=バシュッ><END>",
-    "kanji": "<NAME:88>の<WORD:E0=こうげき><NL2><WORD:E1=バシュッ><END>"
+    "source": "<NAME:88>の<WORD:E0=こうげき><NLNI><WORD:E1=バシュッ><END>",
+    "kanji": "<NAME:88>の<WORD:E0=こうげき><NLNI><WORD:E1=バシュッ><END>"
   },
   {
     "labels": [
       "b11_msg_195"
     ],
-    "source": "「グオー　<NAME:88>きさま----<WAIT><END>",
-    "kanji": "「ぐおー　<NAME:88>きさま----<WAIT><END>"
+    "source": "「グオー　<NAME:88>きさま----<PAGENI><END>",
+    "kanji": "「ぐおー　<NAME:88>きさま----<PAGENI><END>"
   },
   {
     "labels": [
@@ -1382,15 +1382,15 @@
     "labels": [
       "b11_msg_203"
     ],
-    "source": "「<NAME_F6><WORD:12=しょうぐん><NL>もうだいじょうぶか？<WAIT>",
-    "kanji": "「<NAME_F6><WORD:12=しょうぐん><NL>もう大丈夫か？<WAIT>"
+    "source": "「<NAME_F6><WORD:12=しょうぐん><NL>もうだいじょうぶか？<PAGENI>",
+    "kanji": "「<NAME_F6><WORD:12=しょうぐん><NL>もう大丈夫か？<PAGENI>"
   },
   {
     "labels": [
       "b11_msg_204"
     ],
-    "source": "「わがぐん　ぜんめつのききをすくい<NL>きみらを　<WORD:EA=ここまで>はこんできたのは<PAGE><NAME:A9><WORD:12=しょうぐん>のじなん<NL><NAME:A4><WORD:12=しょうぐん>だ<PAGE>かれもまた　<WORD:D9=カンチョウ>の<NL><WORD:E6=ふっこう>を<NL><WORD:50=こころ>より　ねがっておる<PAGE>れいがてら　かれのいる<NL><PLACE:65=チョウサじょう>まで<NL>いってみてはどうだ<PAGE><NAME:88>の<WORD:FE=つかう>　<WORD:D6=ようじゅつ>の<NL>ナゾも　とけるかもしれんぞ<NL2><JUMP:3432>",
-    "kanji": "「わが軍　全滅の危機を救い<NL>君らを　<WORD:EA=ここまで>運んできたのは<PAGE><NAME:A9><WORD:12=しょうぐん>の次男<NL><NAME:A4><WORD:12=しょうぐん>だ<PAGE>彼もまた　<WORD:D9=カンチョウ>の<NL><WORD:E6=ふっこう>を<NL><WORD:50=こころ>より　願っておる<PAGE>例がてら　彼のいる<NL><PLACE:65=チョウサじょう>まで<NL>行ってみてはどうだ<PAGE><NAME:88>の<WORD:FE=つかう>　<WORD:D6=ようじゅつ>の<NL>なぞも　解けるかも知れんぞ<NL2><JUMP:3432>"
+    "source": "「わがぐん　ぜんめつのききをすくい<NL>きみらを　<WORD:EA=ここまで>はこんできたのは<PAGE><NAME:A9><WORD:12=しょうぐん>のじなん<NL><NAME:A4><WORD:12=しょうぐん>だ<PAGE>かれもまた　<WORD:D9=カンチョウ>の<NL><WORD:E6=ふっこう>を<NL><WORD:50=こころ>より　ねがっておる<PAGE>れいがてら　かれのいる<NL><PLACE:65=チョウサじょう>まで<NL>いってみてはどうだ<PAGE><NAME:88>の<WORD:FE=つかう>　<WORD:D6=ようじゅつ>の<NL>ナゾも　とけるかもしれんぞ<NLNI><JUMP:3432>",
+    "kanji": "「わが軍　全滅の危機を救い<NL>君らを　<WORD:EA=ここまで>運んできたのは<PAGE><NAME:A9><WORD:12=しょうぐん>の次男<NL><NAME:A4><WORD:12=しょうぐん>だ<PAGE>彼もまた　<WORD:D9=カンチョウ>の<NL><WORD:E6=ふっこう>を<NL><WORD:50=こころ>より　願っておる<PAGE>例がてら　彼のいる<NL><PLACE:65=チョウサじょう>まで<NL>行ってみてはどうだ<PAGE><NAME:88>の<WORD:FE=つかう>　<WORD:D6=ようじゅつ>の<NL>なぞも　解けるかも知れんぞ<NLNI><JUMP:3432>"
   },
   {
     "labels": [
@@ -1438,8 +1438,8 @@
     "labels": [
       "b11_msg_211"
     ],
-    "source": "「フン！　<WORD:E4=きさまら>が<NL><WORD:EA=ここまで>きれるとは<NL>おもっても　みんかったわい<PAGE><WORD:87=きょう>のところは<NL><WORD:D3=ラクライのけい>をやぶったことを<NL>たたえて<PAGE>ひとまず　たいさんするとするか<NL2><JUMP:343A>",
-    "kanji": "「ふん！　<WORD:E4=きさまら>が<NL><WORD:EA=ここまで>切れるとは<NL>思っても　見んかったわい<PAGE><WORD:87=きょう>の所は<NL><WORD:D3=ラクライのけい>を破ったことを<NL>称えて<PAGE>ひとまず　退散するとするか<NL2><JUMP:343A>"
+    "source": "「フン！　<WORD:E4=きさまら>が<NL><WORD:EA=ここまで>きれるとは<NL>おもっても　みんかったわい<PAGE><WORD:87=きょう>のところは<NL><WORD:D3=ラクライのけい>をやぶったことを<NL>たたえて<PAGE>ひとまず　たいさんするとするか<NLNI><JUMP:343A>",
+    "kanji": "「ふん！　<WORD:E4=きさまら>が<NL><WORD:EA=ここまで>切れるとは<NL>思っても　見んかったわい<PAGE><WORD:87=きょう>の所は<NL><WORD:D3=ラクライのけい>を破ったことを<NL>称えて<PAGE>ひとまず　退散するとするか<NLNI><JUMP:343A>"
   },
   {
     "labels": [
@@ -1522,8 +1522,8 @@
     "labels": [
       "b11_msg_223"
     ],
-    "source": "「<WORD:E4=きさまら>の　いきおいを<NL>とめることは　できんのか---<NL2><JUMP:3442>",
-    "kanji": "「<WORD:E4=きさまら>の　勢いを<NL>止めることは　できんのか---<NL2><JUMP:3442>"
+    "source": "「<WORD:E4=きさまら>の　いきおいを<NL>とめることは　できんのか---<NLNI><JUMP:3442>",
+    "kanji": "「<WORD:E4=きさまら>の　勢いを<NL>止めることは　できんのか---<NLNI><JUMP:3442>"
   },
   {
     "labels": [
@@ -1627,8 +1627,8 @@
     "labels": [
       "b11_msg_238"
     ],
-    "source": "「ソ---<WORD:34=ソウソウさま>のもとで<NL>ぐんしとして　めしかかえられ<NL><NAME:71>さまを　うらぎるまで<PAGE>ながいようで　みじかい<NL>じんせいだったような　きがする<NL><WORD:DE=クーデター>は　せいこうした<PAGE>はずなのに　まさか<WORD:E4=きさまら>ごときに<NL>たおされるとは　ゆめにも<NL>おもわなかった<PAGE>し---<WORD:26=しかし>これで<NL>このくにも　<WORD:F9=ひとつ>にまとまった<NL>ことになる<PAGE>こ---これからは---<NL>---ぐふっ---<NAME:A8>と---<PAGE>ごふっ---<WAIT><NAME:88>は　いきをひきとった<NL2><JUMP:345D>",
-    "kanji": "「そ---<WORD:34=ソウソウさま>のもとで<NL>軍師として　召抱えられ<NL><NAME:71>さまを　裏切るまで<PAGE>長いようで　短い<NL>人生だったような　気がする<NL><WORD:DE=クーデター>は　成功した<PAGE>はずなのに　まさか<WORD:E4=きさまら>ごときに<NL>倒されるとは　夢にも<NL>思わなかった<PAGE>し---<WORD:26=しかし>これで<NL>この国も　<WORD:F9=ひとつ>にまとまった<NL>ことになる<PAGE>こ---これからは---<NL>---ぐふっ---<NAME:A8>と---<PAGE>ごふっ---<WAIT><NAME:88>は　息を引き取った<NL2><JUMP:345D>"
+    "source": "「ソ---<WORD:34=ソウソウさま>のもとで<NL>ぐんしとして　めしかかえられ<NL><NAME:71>さまを　うらぎるまで<PAGE>ながいようで　みじかい<NL>じんせいだったような　きがする<NL><WORD:DE=クーデター>は　せいこうした<PAGE>はずなのに　まさか<WORD:E4=きさまら>ごときに<NL>たおされるとは　ゆめにも<NL>おもわなかった<PAGE>し---<WORD:26=しかし>これで<NL>このくにも　<WORD:F9=ひとつ>にまとまった<NL>ことになる<PAGE>こ---これからは---<NL>---ぐふっ---<NAME:A8>と---<PAGE>ごふっ---<PAGENI><NAME:88>は　いきをひきとった<NLNI><JUMP:345D>",
+    "kanji": "「そ---<WORD:34=ソウソウさま>のもとで<NL>軍師として　召抱えられ<NL><NAME:71>さまを　裏切るまで<PAGE>長いようで　短い<NL>人生だったような　気がする<NL><WORD:DE=クーデター>は　成功した<PAGE>はずなのに　まさか<WORD:E4=きさまら>ごときに<NL>倒されるとは　夢にも<NL>思わなかった<PAGE>し---<WORD:26=しかし>これで<NL>この国も　<WORD:F9=ひとつ>にまとまった<NL>ことになる<PAGE>こ---これからは---<NL>---ぐふっ---<NAME:A8>と---<PAGE>ごふっ---<PAGENI><NAME:88>は　息を引き取った<NLNI><JUMP:345D>"
   },
   {
     "labels": [
@@ -1683,8 +1683,8 @@
     "labels": [
       "b11_msg_246"
     ],
-    "source": "「<CALL:346A>　<CALL:346E><NL><CALL:3472>　<CALL:3476><NL><CALL:347A>　<CALL:347E><PAGE><CALL:3482><NL>ほんとうに<NL>ごくろうであった<PAGE>これで　このくにがまた<NL><WORD:F9=ひとつ>にまとまった<PAGE>もうにどと　ぶんれつ<WORD:F1=すること>の<NL>ないよう　よいせいじを<NL><WORD:F1=すること>を　ちかおう<NL2><JUMP:348E>",
-    "kanji": "「<CALL:346A>　<CALL:346E><NL><CALL:3472>　<CALL:3476><NL><CALL:347A>　<CALL:347E><PAGE><CALL:3482><NL>本当に<NL>ご苦労であった<PAGE>これで　この国がまた<NL><WORD:F9=ひとつ>にまとまった<PAGE>もう二度と　分裂<WORD:F1=すること>の<NL>ないよう　よい政治を<NL><WORD:F1=すること>を　誓おう<NL2><JUMP:348E>"
+    "source": "「<CALL:346A>　<CALL:346E><NL><CALL:3472>　<CALL:3476><NL><CALL:347A>　<CALL:347E><PAGE><CALL:3482><NL>ほんとうに<NL>ごくろうであった<PAGE>これで　このくにがまた<NL><WORD:F9=ひとつ>にまとまった<PAGE>もうにどと　ぶんれつ<WORD:F1=すること>の<NL>ないよう　よいせいじを<NL><WORD:F1=すること>を　ちかおう<NLNI><JUMP:348E>",
+    "kanji": "「<CALL:346A>　<CALL:346E><NL><CALL:3472>　<CALL:3476><NL><CALL:347A>　<CALL:347E><PAGE><CALL:3482><NL>本当に<NL>ご苦労であった<PAGE>これで　この国がまた<NL><WORD:F9=ひとつ>にまとまった<PAGE>もう二度と　分裂<WORD:F1=すること>の<NL>ないよう　よい政治を<NL><WORD:F1=すること>を　誓おう<NLNI><JUMP:348E>"
   },
   {
     "labels": [
@@ -1705,8 +1705,8 @@
     "labels": [
       "b11_msg_250"
     ],
-    "source": "「くそ---　あくうんも　つきたか<NL>ぐふっ<WAIT>おもえば　<NAME:BC>の　じんせいは<NL2>じだいが　そうさせたとはいえ<NL2>うらぎりの　じんせいであった<NL2><JUMP:31E3>",
-    "kanji": "「クソ---　悪運も　尽きたか<NL>グフッ<WAIT>思えば　<NAME:BC>の　人生は<NL2>時代が　そうさせたとはいえ<NL2>裏切りの　人生であった<NL2><JUMP:31E3>"
+    "source": "「くそ---　あくうんも　つきたか<NL>ぐふっ<PAGENI>おもえば　<NAME:BC>の　じんせいは<NLNI>じだいが　そうさせたとはいえ<NLNI>うらぎりの　じんせいであった<NLNI><JUMP:31E3>",
+    "kanji": "「クソ---　悪運も　尽きたか<NL>グフッ<PAGENI>思えば　<NAME:BC>の　人生は<NLNI>時代が　そうさせたとはいえ<NLNI>裏切りの　人生であった<NLNI><JUMP:31E3>"
   },
   {
     "labels": [
@@ -1734,8 +1734,8 @@
       "b11_msg_260",
       "b11_msg_261"
     ],
-    "source": "「<NAME:9D>さまですが---<NL>たったいま　てぜいをつれて<NL>でていかれ<WORD:97=ました><NL2><JUMP:2E81>",
-    "kanji": "「<NAME:9D>さまですが---<NL>たった今　手勢を連れて<NL>出て行かれ<WORD:97=ました><NL2><JUMP:2E81>"
+    "source": "「<NAME:9D>さまですが---<NL>たったいま　てぜいをつれて<NL>でていかれ<WORD:97=ました><NLNI><JUMP:2E81>",
+    "kanji": "「<NAME:9D>さまですが---<NL>たった今　手勢を連れて<NL>出て行かれ<WORD:97=ました><NLNI><JUMP:2E81>"
   },
   {
     "labels": [
@@ -1748,8 +1748,8 @@
     "labels": [
       "b11_msg_263"
     ],
-    "source": "「なにっ　ケイシュウを<NL><WORD:F9=ひとつ>にまとめ<NL><WORD:27=へいわ>を　とりもどすために<PAGE>たたかって　おられたのか<NL>ならば　<WORD:8A=どうか>　<WORD:21=わたし>を<NL><WORD:07=へいのはしにでも>　<WORD:06=くわえてください><WAIT><NAME:9D>が　わがぐんに　くわわった<NL2><JUMP:2EA8>",
-    "kanji": "「なにっ　荊州を<NL><WORD:F9=ひとつ>二まとめ<NL><WORD:27=へいわ>を　取り戻すために<PAGE>戦って　おられたのか<NL>ならば　<WORD:8A=どうか>　<WORD:21=わたし>を<NL><WORD:07=へいのはしにでも>　<WORD:06=くわえてください><WAIT><NAME:9D>が　我が軍に　加わった<NL2><JUMP:2EA8>"
+    "source": "「なにっ　ケイシュウを<NL><WORD:F9=ひとつ>にまとめ<NL><WORD:27=へいわ>を　とりもどすために<PAGE>たたかって　おられたのか<NL>ならば　<WORD:8A=どうか>　<WORD:21=わたし>を<NL><WORD:07=へいのはしにでも>　<WORD:06=くわえてください><PAGENI><NAME:9D>が　わがぐんに　くわわった<NLNI><JUMP:2EA8>",
+    "kanji": "「なにっ　荊州を<NL><WORD:F9=ひとつ>二まとめ<NL><WORD:27=へいわ>を　取り戻すために<PAGE>戦って　おられたのか<NL>ならば　<WORD:8A=どうか>　<WORD:21=わたし>を<NL><WORD:07=へいのはしにでも>　<WORD:06=くわえてください><PAGENI><NAME:9D>が　我が軍に　加わった<NLNI><JUMP:2EA8>"
   },
   {
     "labels": [
@@ -1762,36 +1762,36 @@
     "labels": [
       "b11_msg_265"
     ],
-    "source": "「この<WORD:1C=どうくつ>を　ぬけたいなら<NL>みぐるみ　おいていきな<NL2><JUMP:28D7>",
-    "kanji": "「この<WORD:1C=どうくつ>を　抜けたいなら<NL>身ぐるみ　置いて行きな<NL2><JUMP:28D7>"
+    "source": "「この<WORD:1C=どうくつ>を　ぬけたいなら<NL>みぐるみ　おいていきな<NLNI><JUMP:28D7>",
+    "kanji": "「この<WORD:1C=どうくつ>を　抜けたいなら<NL>身ぐるみ　置いて行きな<NLNI><JUMP:28D7>"
   },
   {
     "labels": [
       "b11_msg_266"
     ],
-    "source": "「--------<PAGE>--------<PAGE>--------<PAGE>ちょっとまった　きでんの　なまえを<NL>おきかせねがいたい<WAIT>「わしのなは<NL><NAME_F6>！！<WAIT>「<WORD:5B=これは>　とんだしつれいを<NL>いたし<WORD:97=ました><WAIT>「<WORD:21=わたし>は　<NAME_F7><WORD:7A=というもの><NL><NAME_F6><WORD:12=しょうぐん>に<NL>おつかえしたくて<PAGE>へいを　あつめており<WORD:97=ました><NL><WORD:8A=どうか>　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><END>",
-    "kanji": "「--------<PAGE>--------<PAGE>--------<PAGE>ちょっと待った　貴殿の　名前を<NL>お聞かせ願いたい<WAIT>「わしの名は<NL><NAME_F6>！！<WAIT>「<WORD:5B=これは>　とんだ失礼を<NL>いたし<WORD:97=ました><WAIT>「<WORD:21=わたし>は　<NAME_F7><WORD:7A=というもの><NL><NAME_F6><WORD:12=しょうぐん>に<NL>お仕えしたくて<PAGE>兵を　集めており<WORD:97=ました><NL><WORD:8A=どうか>　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><END>"
+    "source": "「--------<PAGE>--------<PAGE>--------<PAGE>ちょっとまった　きでんの　なまえを<NL>おきかせねがいたい<PAGENI>「わしのなは<NL><NAME_F6>！！<PAGENI>「<WORD:5B=これは>　とんだしつれいを<NL>いたし<WORD:97=ました><PAGENI>「<WORD:21=わたし>は　<NAME_F7><WORD:7A=というもの><NL><NAME_F6><WORD:12=しょうぐん>に<NL>おつかえしたくて<PAGE>へいを　あつめており<WORD:97=ました><NL><WORD:8A=どうか>　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><END>",
+    "kanji": "「--------<PAGE>--------<PAGE>--------<PAGE>ちょっと待った　貴殿の　名前を<NL>お聞かせ願いたい<PAGENI>「わしの名は<NL><NAME_F6>！！<PAGENI>「<WORD:5B=これは>　とんだ失礼を<NL>いたし<WORD:97=ました><PAGENI>「<WORD:21=わたし>は　<NAME_F7><WORD:7A=というもの><NL><NAME_F6><WORD:12=しょうぐん>に<NL>お仕えしたくて<PAGE>兵を　集めており<WORD:97=ました><NL><WORD:8A=どうか>　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><END>"
   },
   {
     "labels": [
       "b11_msg_267"
     ],
-    "source": "「<WORD:0F=リュウビぐん>の<NAME_F6><NL><WORD:12=しょうぐん>ですね<PAGE><NAME_F6><WORD:12=しょうぐん>が　この<NL><WORD:1C=どうくつ>にはいったときき<NL>はせさんじました<PAGE>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NL2><JUMP:1CE9>",
-    "kanji": "「<WORD:0F=リュウビぐん>の<NAME_F6><NL><WORD:12=しょうぐん>ですね<PAGE><NAME_F6><WORD:12=しょうぐん>が　この<NL><WORD:1C=どうくつ>に入ったと聞き<NL>馳せ参じました<PAGE>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NL2><JUMP:1CE9>"
+    "source": "「<WORD:0F=リュウビぐん>の<NAME_F6><NL><WORD:12=しょうぐん>ですね<PAGE><NAME_F6><WORD:12=しょうぐん>が　この<NL><WORD:1C=どうくつ>にはいったときき<NL>はせさんじました<PAGE>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NLNI><JUMP:1CE9>",
+    "kanji": "「<WORD:0F=リュウビぐん>の<NAME_F6><NL><WORD:12=しょうぐん>ですね<PAGE><NAME_F6><WORD:12=しょうぐん>が　この<NL><WORD:1C=どうくつ>に入ったと聞き<NL>馳せ参じました<PAGE>どうか　<WORD:07=へいのはしにでも><NL><WORD:06=くわえてください><NLNI><JUMP:1CE9>"
   },
   {
     "labels": [
       "b11_msg_268"
     ],
-    "source": "ちいさな　カギあなを<NL2>はっけんし<WORD:97=ました><END>",
-    "kanji": "小さな　鍵穴を<NL2>発見し<WORD:97=ました><END>"
+    "source": "ちいさな　カギあなを<NLNI>はっけんし<WORD:97=ました><END>",
+    "kanji": "小さな　鍵穴を<NLNI>発見し<WORD:97=ました><END>"
   },
   {
     "labels": [
       "b11_msg_269"
     ],
-    "source": "「<WORD:32=わたしのなは>　<NAME_F7><NL>ちちにかわって　<WORD:3D=ぎゃくぞく>と<NL>たたかいとう<WORD:5E=ございます><PAGE><WORD:8A=どうか>　ぐんのはしにでも<NL>おくわえ<WORD:3F=ください><NL2><JUMP:1CE9><END>",
-    "kanji": "「<WORD:32=わたしのなは>　<NAME_F7><NL>父に代って　<WORD:3D=ぎゃくぞく>と<NL>戦いとう<WORD:5E=ございます><PAGE><WORD:8A=どうか>　軍の端にでも<NL>おくわえ<WORD:3F=ください><NL2><JUMP:1CE9><END>"
+    "source": "「<WORD:32=わたしのなは>　<NAME_F7><NL>ちちにかわって　<WORD:3D=ぎゃくぞく>と<NL>たたかいとう<WORD:5E=ございます><PAGE><WORD:8A=どうか>　ぐんのはしにでも<NL>おくわえ<WORD:3F=ください><NLNI><JUMP:1CE9><END>",
+    "kanji": "「<WORD:32=わたしのなは>　<NAME_F7><NL>父に代って　<WORD:3D=ぎゃくぞく>と<NL>戦いとう<WORD:5E=ございます><PAGE><WORD:8A=どうか>　軍の端にでも<NL>おくわえ<WORD:3F=ください><NLNI><JUMP:1CE9><END>"
   },
   {
     "labels": [
@@ -1811,15 +1811,15 @@
     "labels": [
       "b11_msg_272"
     ],
-    "source": "<WORD:98=これで>　<WORD:78=ケイシュウ>にも<NL2><WORD:27=へいわ>が　おとずれ<WORD:97=ました><NL2><JUMP:2E62>",
-    "kanji": "<WORD:98=これで>　<WORD:78=ケイシュウ>にも<NL2><WORD:27=へいわ>が　訪れ<WORD:97=ました><NL2><JUMP:2E62>"
+    "source": "<WORD:98=これで>　<WORD:78=ケイシュウ>にも<NLNI><WORD:27=へいわ>が　おとずれ<WORD:97=ました><NLNI><JUMP:2E62>",
+    "kanji": "<WORD:98=これで>　<WORD:78=ケイシュウ>にも<NLNI><WORD:27=へいわ>が　訪れ<WORD:97=ました><NLNI><JUMP:2E62>"
   },
   {
     "labels": [
       "b11_msg_273"
     ],
-    "source": "「<NAME_F6>よ<NL>ごくろうであった<PAGE>おーそうじゃ　<NAME:D6>のははうえの<NL><ITEM:22=てがみ>を　あずかっておる<WAIT><NAME:D6>は　<ITEM:22=てがみ>をうけとった<WAIT>「--------<PAGE>--------<PAGE>--------<PAGE>--------<WAIT>「みよりのないみやこで<NL>さみしいおもいを<NL>しているのでしょう<PAGE><WORD:90=おねがい>で　<WORD:5E=ございます><NL><WORD:21=わたし>においとまを　くださいませ<WAIT>「<NAME:D6>よ　いってははうえを<NL>あんしんさせて　あげなさい<WAIT>「あっ-<WORD:03=ありがとうございます><END>",
-    "kanji": "「<NAME_F6>よ<NL>御苦労であった<PAGE>おーそうじゃ　<NAME:D6>のは母上の<NL><ITEM:22=てがみ>を　預っておる<WAIT><NAME:D6>は　<ITEM:22=てがみ>を受け取った<WAIT>「--------<PAGE>--------<PAGE>--------<PAGE>--------<WAIT>「身寄りのない宮子で<NL>さみしい思いを<NL>しているのでしょう<PAGE><WORD:90=おねがい>で　<WORD:5E=ございます><NL><WORD:21=わたし>においとまを　くださいませ<WAIT>「<NAME:D6>よ　いって母上を<NL>安心させて　あげなさい<WAIT>「あっ-<WORD:03=ありがとうございます><END>"
+    "source": "「<NAME_F6>よ<NL>ごくろうであった<PAGE>おーそうじゃ　<NAME:D6>のははうえの<NL><ITEM:22=てがみ>を　あずかっておる<PAGENI><NAME:D6>は　<ITEM:22=てがみ>をうけとった<PAGENI>「--------<PAGE>--------<PAGE>--------<PAGE>--------<PAGENI>「みよりのないみやこで<NL>さみしいおもいを<NL>しているのでしょう<PAGE><WORD:90=おねがい>で　<WORD:5E=ございます><NL><WORD:21=わたし>においとまを　くださいませ<PAGENI>「<NAME:D6>よ　いってははうえを<NL>あんしんさせて　あげなさい<PAGENI>「あっ-<WORD:03=ありがとうございます><END>",
+    "kanji": "「<NAME_F6>よ<NL>御苦労であった<PAGE>おーそうじゃ　<NAME:D6>のは母上の<NL><ITEM:22=てがみ>を　預っておる<PAGENI><NAME:D6>は　<ITEM:22=てがみ>を受け取った<PAGENI>「--------<PAGE>--------<PAGE>--------<PAGE>--------<PAGENI>「身寄りのない宮子で<NL>さみしい思いを<NL>しているのでしょう<PAGE><WORD:90=おねがい>で　<WORD:5E=ございます><NL><WORD:21=わたし>においとまを　くださいませ<PAGENI>「<NAME:D6>よ　いって母上を<NL>安心させて　あげなさい<PAGENI>「あっ-<WORD:03=ありがとうございます><END>"
   },
   {
     "labels": [
@@ -1854,8 +1854,8 @@
     "labels": [
       "b11_msg_279"
     ],
-    "source": "<WORD:0F=リュウビぐん>により　<WORD:54=ショク>も<NL2>ぶじ　へいていされた<NL2><JUMP:2F06>",
-    "kanji": "<WORD:0F=リュウビぐん>により　<WORD:54=ショク>も<NL2>無事　平定された<NL2><JUMP:2F06>"
+    "source": "<WORD:0F=リュウビぐん>により　<WORD:54=ショク>も<NLNI>ぶじ　へいていされた<NLNI><JUMP:2F06>",
+    "kanji": "<WORD:0F=リュウビぐん>により　<WORD:54=ショク>も<NLNI>無事　平定された<NLNI><JUMP:2F06>"
   },
   {
     "labels": [
@@ -1875,15 +1875,15 @@
     "labels": [
       "b11_msg_282"
     ],
-    "source": "「<NAME:A8>に　あってつたえろ<NL>ゴのうしろには　ギが<NL>ついているとな！<NL2><JUMP:318A>",
-    "kanji": "「<NAME:A8>に　あって伝えろ<NL>御のうしろには　義が<NL>ついているとな！<NL2><JUMP:318A>"
+    "source": "「<NAME:A8>に　あってつたえろ<NL>ゴのうしろには　ギが<NL>ついているとな！<NLNI><JUMP:318A>",
+    "kanji": "「<NAME:A8>に　あって伝えろ<NL>御のうしろには　義が<NL>ついているとな！<NLNI><JUMP:318A>"
   },
   {
     "labels": [
       "b11_msg_283"
     ],
-    "source": "「このしろをとりもどしたからといって<NL>３だいつづいた　われらのゴが<NL>やぶれたわけではない<PAGE><WORD:2C=カンオウチョウ>の　<WORD:E6=ふっこう>など<NL>させるものか！<NL2><JUMP:3169>",
-    "kanji": "「この城を取り<NL>３代続いた　われらの御が<NL>破れた訳ではない<PAGE><WORD:2C=カンオウチョウ>の　<WORD:E6=ふっこう>など<NL>させるものか！<NL2><JUMP:3169>"
+    "source": "「このしろをとりもどしたからといって<NL>３だいつづいた　われらのゴが<NL>やぶれたわけではない<PAGE><WORD:2C=カンオウチョウ>の　<WORD:E6=ふっこう>など<NL>させるものか！<NLNI><JUMP:3169>",
+    "kanji": "「この城を取り<NL>３代続いた　われらの御が<NL>破れた訳ではない<PAGE><WORD:2C=カンオウチョウ>の　<WORD:E6=ふっこう>など<NL>させるものか！<NLNI><JUMP:3169>"
   },
   {
     "labels": [
@@ -1917,47 +1917,47 @@
     "labels": [
       "b11_msg_288"
     ],
-    "source": "<WORD:0F=リュウビぐん>の　ぼうぎょりょくが<NL2>あがった<END>",
-    "kanji": "<WORD:0F=リュウビぐん>の　防御力が<NL2>上がった<END>"
+    "source": "<WORD:0F=リュウビぐん>の　ぼうぎょりょくが<NLNI>あがった<END>",
+    "kanji": "<WORD:0F=リュウビぐん>の　防御力が<NLNI>上がった<END>"
   },
   {
     "labels": [
       "b11_msg_289"
     ],
-    "source": "<NAME_F5>ぐんの　ぼうぎょりょくが<NL2>あがった<END>",
-    "kanji": "<NAME_F5>軍の　防御力が<NL2>上がった<END>"
+    "source": "<NAME_F5>ぐんの　ぼうぎょりょくが<NLNI>あがった<END>",
+    "kanji": "<NAME_F5>軍の　防御力が<NLNI>上がった<END>"
   },
   {
     "labels": [
       "b11_msg_290",
       "b11_msg_291"
     ],
-    "source": "かけいに　たいする<NL2>ぼうぎょりょくを　たかめた<END>",
-    "kanji": "火刑に　対する<NL2>防御力を　高めた<END>"
+    "source": "かけいに　たいする<NLNI>ぼうぎょりょくを　たかめた<END>",
+    "kanji": "火刑に　対する<NLNI>防御力を　高めた<END>"
   },
   {
     "labels": [
       "b11_msg_292",
       "b11_msg_293"
     ],
-    "source": "すいけいに　たいする<NL2>ぼうぎょりょくを　たかめた<END>",
-    "kanji": "水系に　対する<NL2>防御力を　高めた<END>"
+    "source": "すいけいに　たいする<NLNI>ぼうぎょりょくを　たかめた<END>",
+    "kanji": "水系に　対する<NLNI>防御力を　高めた<END>"
   },
   {
     "labels": [
       "b11_msg_294",
       "b11_msg_295"
     ],
-    "source": "てきの　しようする　<WORD:62=さくりゃく>を<NL2>むこうにした<END>",
-    "kanji": "敵の　使用する　<WORD:62=さくりゃく>を<NL2>無効にした<END>"
+    "source": "てきの　しようする　<WORD:62=さくりゃく>を<NLNI>むこうにした<END>",
+    "kanji": "敵の　使用する　<WORD:62=さくりゃく>を<NLNI>無効にした<END>"
   },
   {
     "labels": [
       "b11_msg_296",
       "b11_msg_297"
     ],
-    "source": "てきの　こうげきを<NL2>いっさい　うけつけなくなった<END>",
-    "kanji": "敵の　攻撃を<NL2>一切　受け付けなくなった<END>"
+    "source": "てきの　こうげきを<NLNI>いっさい　うけつけなくなった<END>",
+    "kanji": "敵の　攻撃を<NLNI>一切　受け付けなくなった<END>"
   },
   {
     "labels": [
@@ -1977,73 +1977,73 @@
     "labels": [
       "b11_msg_300"
     ],
-    "source": "てきしょう　<NAME_F4>に　<NL2>ぎしんあんきを　おこさせた<END>",
-    "kanji": "敵将　<NAME_F4>に　<NL2>疑心暗鬼を　起こさせた<END>"
+    "source": "てきしょう　<NAME_F4>に　<NLNI>ぎしんあんきを　おこさせた<END>",
+    "kanji": "敵将　<NAME_F4>に　<NLNI>疑心暗鬼を　起こさせた<END>"
   },
   {
     "labels": [
       "b11_msg_301"
     ],
-    "source": "<NAME_F4>は<NL2>ぎしんあんきを　おこした<END>",
-    "kanji": "<NAME_F4>は<NL2>疑心暗鬼を　起こした<END>"
+    "source": "<NAME_F4>は<NLNI>ぎしんあんきを　おこした<END>",
+    "kanji": "<NAME_F4>は<NLNI>疑心暗鬼を　起こした<END>"
   },
   {
     "labels": [
       "b11_msg_302"
     ],
-    "source": "てきしょう　<NAME_F4>　<NL2>りかんを　おこさせた<END>",
-    "kanji": "敵将　<NAME_F4>　<NL2>離間を　起こさせた<END>"
+    "source": "てきしょう　<NAME_F4>　<NLNI>りかんを　おこさせた<END>",
+    "kanji": "敵将　<NAME_F4>　<NLNI>離間を　起こさせた<END>"
   },
   {
     "labels": [
       "b11_msg_303"
     ],
-    "source": "<NAME_F4>は<NL2>りかんを　おこした<END>",
-    "kanji": "<NAME_F4>は<NL2>離間を　起こした<END>"
+    "source": "<NAME_F4>は<NLNI>りかんを　おこした<END>",
+    "kanji": "<NAME_F4>は<NLNI>離間を　起こした<END>"
   },
   {
     "labels": [
       "b11_msg_304",
       "b11_msg_305"
     ],
-    "source": "<NAME_F4>の<NL2>すばやさが　あがった<END>",
-    "kanji": "<NAME_F4>の<NL2>素早さが　上がった<END>"
+    "source": "<NAME_F4>の<NLNI>すばやさが　あがった<END>",
+    "kanji": "<NAME_F4>の<NLNI>素早さが　上がった<END>"
   },
   {
     "labels": [
       "b11_msg_306"
     ],
-    "source": "<NAME_F4>ぐんの　つかった<NL2><WORD:77=へいりょく>　すべて　ときはなった<END>",
-    "kanji": "<NAME_F4>軍の　使った<NL2><WORD:77=へいりょく>　全て　解き放った<END>"
+    "source": "<NAME_F4>ぐんの　つかった<NLNI><WORD:77=へいりょく>　すべて　ときはなった<END>",
+    "kanji": "<NAME_F4>軍の　使った<NLNI><WORD:77=へいりょく>　全て　解き放った<END>"
   },
   {
     "labels": [
       "b11_msg_307"
     ],
-    "source": "<WORD:0F=リュウビぐん>の　つかった<NL2><WORD:77=へいりょく>　すべて　ときはなった<END>",
-    "kanji": "<WORD:0F=リュウビぐん>の　使った<NL2><WORD:77=へいりょく>　全て　解き放った<END>"
+    "source": "<WORD:0F=リュウビぐん>の　つかった<NLNI><WORD:77=へいりょく>　すべて　ときはなった<END>",
+    "kanji": "<WORD:0F=リュウビぐん>の　使った<NLNI><WORD:77=へいりょく>　全て　解き放った<END>"
   },
   {
     "labels": [
       "b11_msg_308"
     ],
-    "source": "<NAME_F5>は　<NAME_F4>の<NL2>くびを　とった<END>",
-    "kanji": "<NAME_F5>は　<NAME_F4>の<NL2>首を　取った<END>"
+    "source": "<NAME_F5>は　<NAME_F4>の<NLNI>くびを　とった<END>",
+    "kanji": "<NAME_F5>は　<NAME_F4>の<NLNI>首を　取った<END>"
   },
   {
     "labels": [
       "b11_msg_309"
     ],
-    "source": "<NAME_F4>は　<NAME_F5>に<NL2>くびを　とられた<END>",
-    "kanji": "<NAME_F4>は　<NAME_F5>に<NL2>首を　取られた<END>"
+    "source": "<NAME_F4>は　<NAME_F5>に<NLNI>くびを　とられた<END>",
+    "kanji": "<NAME_F4>は　<NAME_F5>に<NLNI>首を　取られた<END>"
   },
   {
     "labels": [
       "b11_msg_310",
       "b11_msg_311"
     ],
-    "source": "<NAME_F4>の　こうげきりょくが<NL2>あがった<END>",
-    "kanji": "<NAME_F4>の　攻撃力が<NL2>上がった<END>"
+    "source": "<NAME_F4>の　こうげきりょくが<NLNI>あがった<END>",
+    "kanji": "<NAME_F4>の　攻撃力が<NLNI>上がった<END>"
   },
   {
     "labels": [
@@ -2092,36 +2092,36 @@
     "labels": [
       "b11_msg_319"
     ],
-    "source": "<NAME_F5>は　<CALL:D565=さくりゃく>を<NL2>ときはなった<END>",
-    "kanji": "<NAME_F5>は　<CALL:D565=さくりゃく>を<NL2>解き放った<END>"
+    "source": "<NAME_F5>は　<CALL:D565=さくりゃく>を<NLNI>ときはなった<END>",
+    "kanji": "<NAME_F5>は　<CALL:D565=さくりゃく>を<NLNI>解き放った<END>"
   },
   {
     "labels": [
       "b11_msg_320"
     ],
-    "source": "<NAME_F5>ぐんの　さくめんのけいの<NL2>こうりょくが　きれた<END>",
-    "kanji": "<NAME_F5>軍の　作面の計の<NL2>効力が　切れた<END>"
+    "source": "<NAME_F5>ぐんの　さくめんのけいの<NLNI>こうりょくが　きれた<END>",
+    "kanji": "<NAME_F5>軍の　作面の計の<NLNI>効力が　切れた<END>"
   },
   {
     "labels": [
       "b11_msg_321"
     ],
-    "source": "<WORD:0F=リュウビぐん>の　さくめんのけいの<NL2>こうりょくが　きれた<END>",
-    "kanji": "<WORD:0F=リュウビぐん>の　索面の計の<NL2>効力が　切れた<END>"
+    "source": "<WORD:0F=リュウビぐん>の　さくめんのけいの<NLNI>こうりょくが　きれた<END>",
+    "kanji": "<WORD:0F=リュウビぐん>の　索面の計の<NLNI>効力が　切れた<END>"
   },
   {
     "labels": [
       "b11_msg_322"
     ],
-    "source": "<NAME_F5>ぐんの　げきめんのけいの<NL2>こうりょくが　きれた<END>",
-    "kanji": "<NAME_F5>軍の　撃面の計の<NL2>効力が　切れた<END>"
+    "source": "<NAME_F5>ぐんの　げきめんのけいの<NLNI>こうりょくが　きれた<END>",
+    "kanji": "<NAME_F5>軍の　撃面の計の<NLNI>効力が　切れた<END>"
   },
   {
     "labels": [
       "b11_msg_323"
     ],
-    "source": "<WORD:0F=リュウビぐん>の　げきめんのけいの<NL2>こうりょくが　きれた<END>",
-    "kanji": "<WORD:0F=リュウビぐん>の　撃面の計の<NL2>効力が　切れた<END>"
+    "source": "<WORD:0F=リュウビぐん>の　げきめんのけいの<NLNI>こうりょくが　きれた<END>",
+    "kanji": "<WORD:0F=リュウビぐん>の　撃面の計の<NLNI>効力が　切れた<END>"
   },
   {
     "labels": [

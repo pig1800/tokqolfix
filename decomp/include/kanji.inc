@@ -426,10 +426,9 @@ TXF_PUT           = 8       ; map UI: text_put_tile (templates, item / tactic / 
 TXF_LABEL         = 9       ; map UI: a label (bank 14: the gold window, その他)
 TXF_MENU          = 10      ; the boot screens: TXR_ON = $40, the pool unusable (the set is in CHR: TXF_MENUSET)
 TXF_NAME          = 11      ; an officer record's kanji name: its glyph codes into TXR_NM (battle messages)
-TXF_LOOK          = 12      ; text_show_message after a 3rd line (map mode): V set = the next line would scroll
-TXF_MENUSET       = 13      ; the boot entry (bank 13 b13_k_set): the fixed set into the upper page, once
-TXF_OATH          = 14      ; the opening oath (bank 13 b13_k_oath): its kanji into CHR $3800, TXR_ON = TXR_SPLIT
-TXF_OATHEND       = 15      ; its end (b13_k_oathend): TXR_ON 0, the IRQ off, R1 = the scene page; KANJI_M0-M2 for FN_BLOCK_POST
+TXF_MENUSET       = 12      ; the boot entry (bank 13 b13_k_set): the fixed set into the upper page, once
+TXF_OATH          = 13      ; the opening oath (bank 13 b13_k_oath): its kanji into CHR $3800, TXR_ON = TXR_SPLIT
+TXF_OATHEND       = 14      ; its end (b13_k_oathend): TXR_ON 0, the IRQ off, R1 = the scene page; KANJI_M0-M2 for FN_BLOCK_POST
 TXR_N0            = 70      ; stage 0's count: the first switch in line 71's hblank
 TXR_ON            = $0780   ; bit 7: page 1 lower holds the renderer's tiles (map mode); bit 6:
 TXR_SPLIT         = $20     ; TXR_ON: the opening oath's fixed split (2026-11-14): R1 = CHR $3800 (its kanji

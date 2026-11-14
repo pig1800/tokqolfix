@@ -846,12 +846,17 @@ page_find:
     rts
 
 ; ----------------------------------------------------------------------
-; Control store (replaces STA $0300,X at $D2C7).  $FC advances to the next
-; page record.
+; Control store (replaces STA $0300,X at $D2C7).  A page break, $FC <PAGE>
+; or $FD <PAGENI> (the same but for the next line's indent, which the
+; engine does), advances to the next page record: page_flip then clears
+; the window after the wait.  (Since 2026-11-14 $FD is a page break: the
+; compiler splits page records at both.)
 ; ----------------------------------------------------------------------
 ctrl_store:
     sta $0300,x
     cmp #$FC
+    beq @page
+    cmp #$FD
     beq @page
     rts
 @page:

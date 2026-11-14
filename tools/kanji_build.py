@@ -76,13 +76,6 @@ FOURSCREEN_REGIONS = (
     # starts 8 above; compacted, the wipe's trampolines after it)
     (0xCE2D, 0xCE79, "067ee3dbc8f9b5ff0e7528a7fb6834e605dadf30c2b6e72529db933ff83a9b94"),
     (0xCE7A, 0xCED1, "b99a7a1e5d1244a75f6763b9fb27ce3de00389a16e855715e3cd53b0e4e4b255"),
-    # the engine's scrolls of a full window (text_show_message's "jsr
-    # text_scroll_up" after a line and at a message's end): map mode makes
-    # them page breaks (mmc3_b15.asm map_lines / map_end4; from the 3rd
-    # line on: "cmp #$01 / bcc", every line)
-    (0xD1B7, 0xD1B8, "b4eb2237d68a6a5c7b9da1353d74d901ea68dcf5727ae97a1554e5aaa0de0531"),
-    (0xD1BA, 0xD1BC, "f1195876a445b5328b0c685e0128ce24e79011f8710284ecce7e1a2a1bb35fda"),
-    (0xD1DE, 0xD1E0, "f1195876a445b5328b0c685e0128ce24e79011f8710284ecce7e1a2a1bb35fda"),
     # map-canvas step 3 (the dialogue canvas): text_init's window rows call
     # the canvas RAM code ("jsr cursor_to_ppu / jsr tile_address", both
     # "jsr scroll_map")

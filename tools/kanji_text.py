@@ -252,7 +252,7 @@ def party_name_tiles() -> set[int]:
 
 # U+3005 (iteration mark) is a 16x16 glyph too (revision 15).
 KANJI_RE = re.compile(r"[\u3005\u3400-\u9fff\uf900-\ufaff]")
-LINE_CTRL = {"<NL>", "<NL2>", "<WAIT>", "<PAGE>", "<END>", "<END_NOWAIT>"}
+LINE_CTRL = {"<NL>", "<NLNI>", "<PAGENI>", "<PAGE>", "<END>", "<END_NOWAIT>"}
 
 
 def char_to_byte(ch: str) -> int | None:
@@ -384,7 +384,7 @@ def token_width(tok: str) -> int | None:
 
 
 def reflow(tokens: list[str]) -> list[str]:
-    """Insert <NL2> before visible text would exceed 18 cells."""
+    """Insert <NLNI> before visible text would exceed 18 cells."""
     out: list[str] = []
     width = 0
     line_has = False
@@ -396,7 +396,7 @@ def reflow(tokens: list[str]) -> list[str]:
             line_has = False
             continue
         if w and line_has and width + w > 18:
-            out.append("<NL2>")
+            out.append("<NLNI>")
             width = 0
             line_has = False
         out.append(tok)
@@ -406,10 +406,13 @@ def reflow(tokens: list[str]) -> list[str]:
     return out
 
 
+PAGE_BREAKS = ("<PAGE>", "<PAGENI>")      # a new window; <PAGE> indents the next line
+
+
 def split_pages(tokens: list[str]) -> list[list[str]]:
     pages: list[list[str]] = [[]]
     for tok in tokens:
-        if tok == "<PAGE>":
+        if tok in PAGE_BREAKS:
             pages.append([])
         else:
             pages[-1].append(tok)
@@ -427,13 +430,13 @@ def page_padding(tokens: list[str], i: int) -> bytes:
         return b""
     nl = None
     for t in rest:
-        if t in ("<NL>", "<NL2>"):
+        if t in ("<NL>", "<NLNI>"):
             nl = t
             break
-        if t in ("<PAGE>", "<WAIT>"):
+        if t in ("<PAGE>", "<PAGENI>"):
             break
     if nl is None:
-        nl = "<NL>" if tokens and tokens[0] == "「" else "<NL2>"
+        nl = "<NL>" if tokens and tokens[0] == "「" else "<NLNI>"
     code = textdata.CONTROL_TOKENS[nl]
     return bytes((code, code))
 
@@ -636,7 +639,7 @@ def page_from_bytes(data: bytes, extra_used: set[int] | None = None) -> tuple[li
                         add_tiles(tmp)
             i += 3
             continue
-        if b == 0xFC:
+        if b in (0xFC, 0xFD):           # <PAGE>, <PAGENI>: a page record each
             finish()
             i += 1
             continue
@@ -682,7 +685,7 @@ def message_list_tag(rec: Record) -> str:
             return LIST_TAG_OVERRIDES[label]
     stripped = rec.text.rstrip()
     visible = re.sub(r"<[^>]*>", "", stripped).rstrip()
-    if stripped.endswith(("<END_NOWAIT>", "<WAIT>")):
+    if stripped.endswith(("<END_NOWAIT>", "<PAGENI>")):
         return "menu"
     if visible.endswith(("?", "\uff1f")):
         return "menu"
@@ -1005,15 +1008,16 @@ def page_token_width(tokens: list[str]) -> list[int]:
 def split_failing_page(tokens: list[str], page_index: int) -> list[str]:
     """Insert a page break inside the failing page.
 
-    Prefer an existing line boundary so the original line layout is kept.  If
-    the page has no line boundary (for example a short name-heavy page), split
-    at the token boundary closest to half of the page's kanji count and force
-    a new line before the page break.
+    Prefer an existing line boundary so the original line layout is kept: an
+    <NL> becomes a <PAGE> and an <NLNI> a <PAGENI>, so the next line keeps
+    its indent (or none).  If the page has no line boundary (for example a
+    short name-heavy page), split at the token boundary closest to half of
+    the page's kanji count and force a new line before the page break.
     """
     # Locate the token range for this page.
     bounds = [0]
     for i, tok in enumerate(tokens):
-        if tok == "<PAGE>":
+        if tok in PAGE_BREAKS:
             bounds.append(i + 1)
     bounds.append(len(tokens) + 1)
     start = bounds[page_index]
@@ -1024,14 +1028,14 @@ def split_failing_page(tokens: list[str], page_index: int) -> list[str]:
         tok = tokens[i]
         if KANJI_RE.match(tok):
             k += 1
-        if tok in ("<NL>", "<NL2>", "<WAIT>"):
+        if tok in ("<NL>", "<NLNI>"):
             candidates.append((i, k))
     total = k
     if candidates:
         target = total // 2
         best = min(candidates, key=lambda x: abs(x[1] - target))
         out = list(tokens)
-        out[best[0]] = "<PAGE>"
+        out[best[0]] = "<PAGE>" if out[best[0]] == "<NL>" else "<PAGENI>"
         return out
     if end - start < 2:
         raise RuntimeError("page is too dense but has no token boundary to split")
@@ -1047,11 +1051,13 @@ def split_failing_page(tokens: list[str], page_index: int) -> list[str]:
     if pos is None:
         raise RuntimeError("page is too dense but has no token boundary to split")
     i = pos[0]
-    return tokens[:i] + ["<NL2>", "<PAGE>"] + tokens[i:]
+    FALLBACK_SPLITS.append(tokens)
+    return tokens[:i] + ["<NLNI>", "<PAGE>"] + tokens[i:]
 
 
 WIDTH_ISSUES: list[str] = []
 SPLIT_COUNT = [0]
+FALLBACK_SPLITS: list[list[str]] = []    # pages split inside a line (none expected)
 
 
 def line_width_issues(rec: "Record", data: bytes) -> list[str]:
@@ -1392,6 +1398,7 @@ def build() -> int:
         "relaxed_labels": sorted(RELAXED_LABELS),
         "width_issues": len(WIDTH_ISSUES),
         "split_pages": SPLIT_COUNT[0],
+        "fallback_splits": len(FALLBACK_SPLITS),
     }
     (OUT / "kanji_width_issues.txt").write_text(chr(10).join(WIDTH_ISSUES) + chr(10), encoding="utf-8")
     (OUT / "kanji_text_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")

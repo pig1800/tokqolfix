@@ -67,9 +67,9 @@ b10_msg_001:
 | Token | Byte(s) | Meaning |
 |---|---:|---|
 | `<NL>` | `$FA` | new line, with the automatic indent |
-| `<NL2>` | `$FB` | new line, without the indent |
-| `<PAGE>` | `$FC` | page break / wait for the player |
-| `<WAIT>` | `$FD` | wait for the player without a new page |
+| `<NLNI>` | `$FB` | new line, no indent (was `<NL2>`) |
+| `<PAGE>` | `$FC` | page break: wait for the player; the next line indented (as after `<NL>`) |
+| `<PAGENI>` | `$FD` | page break: wait for the player; no indent (was `<WAIT>`).  The original game clears the window at neither (its lines scroll); the kanji build starts a new window at both |
 | `<END>` | `$FF` | end of message |
 | `<END_NOWAIT>` | `$FE` | end without waiting |
 | `<NAME_F3>` … `<NAME_F7>` | `$F3-$F7` | insert a runtime name |

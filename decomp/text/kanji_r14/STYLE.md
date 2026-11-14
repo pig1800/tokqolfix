@@ -72,8 +72,8 @@ Keep compounds and names together (`黄巾賊|討伐の|義勇軍を`).
 ## Tokens (must survive unchanged, same order)
 
 `<NAME_F3>`..`<NAME_F7>` (names inserted at run time, printed in kana),
-`<CALL:xxxx=...>`, `<JUMP:xxxx>`, `<WAIT>`, `<END>`, `<END_NOWAIT>`.
-Copy them byte for byte, including any `=annotation`.  `<WAIT>` ends a
+`<CALL:xxxx=...>`, `<JUMP:xxxx>`, `<PAGENI>`, `<END>`, `<END_NOWAIT>`.
+Copy them byte for byte, including any `=annotation`.  `<PAGENI>` ends a
 quote before narration; keep it where it is.
 
 ## Characters

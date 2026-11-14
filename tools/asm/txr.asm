@@ -49,12 +49,12 @@ txr_dispatch:                   ; (Y kept: TXF_PUT and TXF_LABEL keep it)
 txr_fnl:
     .db <(txr_mapinit-1), <(txr_restore-1), <(txr_dl-1), <(txr_rc-1), <(txr_close-1)
     .db <(txr_dlc-1), <(txr_rcc-1), <(txr_fill-1), <(txr_put-1), <(txr_label-1)
-    .db <(txr_menuinit-1), <(txr_name-1), <(txr_look-1), <(txr_menuset-1)
+    .db <(txr_menuinit-1), <(txr_name-1), <(txr_menuset-1)
     .db <(txr_oathset-1), <(txr_oathend-1)
 txr_fnh:
     .db >(txr_mapinit-1), >(txr_restore-1), >(txr_dl-1), >(txr_rc-1), >(txr_close-1)
     .db >(txr_dlc-1), >(txr_rcc-1), >(txr_fill-1), >(txr_put-1), >(txr_label-1)
-    .db >(txr_menuinit-1), >(txr_name-1), >(txr_look-1), >(txr_menuset-1)
+    .db >(txr_menuinit-1), >(txr_name-1), >(txr_menuset-1)
     .db >(txr_oathset-1), >(txr_oathend-1)
 
 ; ======================================================================
@@ -2455,119 +2455,6 @@ ui_rn:
     sta PTR+1
     clc
     rts
-
-; TXF_LOOK (2026-11-13; the user: "in map mode only, treat now-to-scroll as
-; page break"): text_show_message after a line ($D1BA, the fixed bank's
-; map_lines) that leaves text_line = k lines in the window, map mode, when
-; k is 3 or the line ended with <WAIT>.  Reads the next 4 - k lines (the
-; text bank, through txr_rr in 32-byte pieces).  V set: the last of them
-; ends with <NL>, <NL2>, <PAGE> or <WAIT> (the engine would scroll after
-; it) and none before it ends with <PAGE> (a flip clears first) or <WAIT>
-; (that later wait decides): map_lines then makes the line just ended a
-; page break, so the window never holds 4 lines with more to come, and
-; the prompt sits on an empty line as at any page.  An earlier <WAIT> is
-; taken when it can be: no extra press.  V clear: no overflow, the message
-; ends ($FE, $FF) or jumps ($F9), the text is not in the overlay's bank, or
-; no end within 4 pieces.  The byte lengths are page_from_bytes'
-; (kanji_text.py): the kanji picks' variants are cells, read through.
-; $10 = pieces left, $11 = lines left to read (txr_call saves $10/$11).
-LK_PIECES   = 4
-txr_look:
-    lda TXR_SB                  ; the caller's bank
-    cmp KANJI_TEXT_BANK
-    bne @none
-    lda #4
-    sec
-    sbc text_line
-    beq @none
-    bcs @go
-@none:
-    clv
-    rts
-@go:
-    sta $11
-    lda text_ptr_lo
-    clc
-    adc text_col
-    sta TXR_RS
-    lda text_ptr_hi
-    adc #0
-    sta TXR_RS+1
-    lda #LK_PIECES
-    sta $10
-@piece:
-    lda #1
-    sta TXR_RST
-    lda #0
-    sta TXR_RST+1
-    sta TXR_RO
-    lda #32
-    sta TXR_RN
-    lda KANJI_TEXT_BANK
-    jsr TXR_RR                  ; TXR_GBUF = 32 bytes from TXR_RS
-    ldy #0
-@byte:
-    cpy #28                     ; (a 4-byte item still inside the piece)
-    bcs @next
-    lda TXR_GBUF,y
-    cmp #$FA
-    bcs @ctl
-    cmp #$F9
-    beq @no                     ; a jump: the message goes to event code
-    ldx #3
-    cmp #$F8
-    beq @adv                    ; a call
-    ldx #1
-    cmp #$F3
-    bcs @adv                    ; $F3-$F7: a name
-    ldx #2
-    cmp #$F1
-    bcs @adv                    ; $F1-$F2: an item or name
-    cmp #$F0
-    bne @lo
-    ldx #3                      ; $F0 $FB-$FE n (the kanji controls)
-    lda TXR_GBUF+1,y
-    cmp #$FF
-    bne @adv
-    inx                         ; $F0 $FF id len
-    bne @adv
-@lo:
-    ldx #1
-    cmp #$EC
-    bcc @adv                    ; a kana or a tile
-    inx                         ; $EC-$EF pos: a kanji
-@adv:
-    iny
-    dex
-    bne @adv
-    beq @byte
-@next:
-    tya
-    clc
-    adc TXR_RS
-    sta TXR_RS
-    bcc @nohi
-    inc TXR_RS+1
-@nohi:
-    dec $10
-    bne @piece
-@no:
-    clv
-    rts
-@ctl:
-    cmp #$FE
-    bcs @no                     ; the message's end
-    dec $11
-    beq @last                   ; the line that would fill the window
-    cmp #$FC
-    bcs @no                     ; <PAGE> clears first; <WAIT>: it decides
-    iny                         ; <NL>, <NL2>: the next line
-    bne @byte
-@last:
-    bit lk_v40                  ; V set: a break before these lines
-    rts
-lk_v40:
-    .db $40
 
 ; TXF_NAME (the overlay, battle messages): TXR_TA = the name's code, as
 ; the overlay's dispatch index: 16-22 for $F4-$F7 (an officer: $F4

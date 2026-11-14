@@ -41,7 +41,7 @@ PERSON	ーシバイ	ー司馬懿	Tokenizer fragment of おーシバイ (b11_msg_
 PERSON	シバショウ	司馬昭	
 PERSON	シバシ	司馬師	
 PERSON	ソンケン	孫権	
-PERSON	グフッソンケン	グフッ孫権	Tokenizer fragment across <WAIT> in b11_msg_098 (めいどで--グフッ<WAIT>ソンケンは): keep グフッ, ソンケン = 孫権.
+PERSON	グフッソンケン	グフッ孫権	Tokenizer fragment across <PAGENI> in b11_msg_098 (めいどで--グフッ<PAGENI>ソンケンは): keep グフッ, ソンケン = 孫権.
 PERSON	ソンサク	孫策	
 PERSON	シュウユ	周瑜	
 PERSON	リクソン	陸遜	

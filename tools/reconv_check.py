@@ -23,7 +23,7 @@ KATA = set("アイウエオカガキギクグケゲコゴサザシジスズセ�
 OTHER = set("０１２３４５６７８９「！？ー-＊★／、。|/▼")
 KANJI = re.compile(r"[々㐀-鿿豈-﫿]")
 TOKEN = re.compile(r"<[^<>]*>")
-RUNTIME = re.compile(r"<(NAME_F[3-7]|CALL:[0-9A-F]{4}(?:=[^>]*)?|JUMP:[0-9A-F]{4}|WAIT|END|END_NOWAIT)>")
+RUNTIME = re.compile(r"<(NAME_F[3-7]|CALL:[0-9A-F]{4}(?:=[^>]*)?|JUMP:[0-9A-F]{4}|PAGENI|END|END_NOWAIT)>")
 
 
 def blocks(path: Path) -> list[tuple[str, str]]:

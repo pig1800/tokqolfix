@@ -231,7 +231,7 @@ dakuten/handakuten combinations of the base tile (for example `$90` = が,
 remaining controls are named tokens:
 
 ```text
-<NL> <NL2> <PAGE> <WAIT> <END> <END_NOWAIT>
+<NL> <NLNI> <PAGE> <PAGENI> <END> <END_NOWAIT>
 <NAME_F3> ... <NAME_F7>   <NAME:xx>
 <WORD:xx=...>  <PLACE:xx=...>  <ITEM:xx=...>
 <CALL:xxxx>  <JUMP:xxxx>

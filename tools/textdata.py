@@ -72,9 +72,9 @@ CALL_ANNOTATIONS = {
 # parser ignores anything after '=' (it is only an annotation for readers).
 CONTROL_TOKENS = {
     "<NL>": 0xFA,
-    "<NL2>": 0xFB,
+    "<NLNI>": 0xFB,
     "<PAGE>": 0xFC,
-    "<WAIT>": 0xFD,
+    "<PAGENI>": 0xFD,
     "<END_NOWAIT>": 0xFE,
     "<END>": 0xFF,
     "<NAME_F3>": 0xF3,

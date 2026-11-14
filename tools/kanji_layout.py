@@ -4,12 +4,12 @@
 Input: decomp/text/kanji_r14/batch_NN.txt (agent output: one line per message with
 `|` phrase boundaries, 、。 punctuation, `▼` waits, `/` forced breaks).
 Output: decomp/text/kanji_plan/bank1X_messages_kanji_r14.dtx, the compiler's
-source, with <NL>/<NL2>/<PAGE> placed by rule:
+source, with <NL>/<NLNI>/<PAGE> placed by rule:
 
 - a line holds 18 cells; the line after <NL> or <PAGE> starts with the
   engine's one-cell indent (17 left); kanji are 2 cells, kana 1;
 - dialogue (a part that the original laid out with <NL>) breaks lines with
-  <NL> so continuation lines align after 「; narration uses <NL2>;
+  <NL> so continuation lines align after 「; narration uses <NLNI>;
 - 、 and a mid-line 。 become one space; at a line end they are dropped;
   ！？ followed by more text on the same line get one space;
 - waits: the writer's ▼ (sentence ends) are kept; when more than three
@@ -91,7 +91,7 @@ def char_width(ch: str) -> int:
 class Seg:
     toks: list[str]          # visible chars and runtime tokens
     tail: str = ""           # "", "、", "。", "！", "？" (break opportunity after)
-    hard: str = ""           # "", "/", "▼", "<WAIT>" (after this segment)
+    hard: str = ""           # "", "/", "▼", "<PAGENI>" (after this segment)
 
     @property
     def width(self) -> int:
@@ -133,7 +133,7 @@ def split_body(body: str) -> tuple[list[Seg], list[str]]:
         nxt = items[k + 1] if k + 1 < len(items) else ""
         if it == "|":
             close()
-        elif it in ("/", "▼", "<WAIT>"):
+        elif it in ("/", "▼", "<PAGENI>"):
             close(hard=it)
         elif it in ("、", "。"):
             close(tail=it)
@@ -223,14 +223,14 @@ class Out:
 
 
 def original_modes(text: str) -> list[str]:
-    """Per <WAIT>-separated part of the original: 'dlg' if it breaks lines
+    """Per <PAGENI>-separated part of the original: 'dlg' if it breaks lines
     with <NL> (or opens with 「), else 'nar'."""
-    parts = text.split("<WAIT>")
+    parts = text.split("<PAGENI>")
     modes = []
     for p in parts:
         v = re.sub(r"<(NAME|WORD|PLACE|ITEM|CALL|JUMP)[^>]*>", "x", p)
-        first_nl = re.search(r"<(NL|NL2|PAGE)>", v)
-        if v.lstrip().startswith("「") or (first_nl and first_nl.group(1) in ("NL", "PAGE") and "<NL2>" not in v[:first_nl.end()]):
+        first_nl = re.search(r"<(NL|NLNI|PAGE|PAGENI)>", v)
+        if v.lstrip().startswith("「") or (first_nl and first_nl.group(1) in ("NL", "PAGE") and "<NLNI>" not in v[:first_nl.end()]):
             modes.append("dlg")
         else:
             modes.append("nar")
@@ -266,7 +266,7 @@ def layout(body: str, orig: str) -> Out:
                         out.mid_waits += 1
                 for li, line in enumerate(page):
                     if li > 0:
-                        out.toks.append("<NL>" if dlg else "<NL2>")
+                        out.toks.append("<NL>" if dlg else "<NLNI>")
                     out.toks.append(render_line(line))
                     out.lines += 1
             run = []
@@ -274,14 +274,14 @@ def layout(body: str, orig: str) -> Out:
             out.toks.append("<PAGE>")
             out.waits += 1
             cap_next = 17
-        elif hard == "<WAIT>":
-            out.toks.append("<WAIT>")
+        elif hard == "<PAGENI>":
+            out.toks.append("<PAGENI>")
             out.waits += 1
             part += 1
             cap_next = LINE
         elif hard == "/":
             dlg = mode() == "dlg"
-            out.toks.append("<NL>" if dlg else "<NL2>")
+            out.toks.append("<NL>" if dlg else "<NLNI>")
             cap_next = 17 if dlg else LINE
         else:
             cap_next = 17
@@ -296,13 +296,13 @@ def layout(body: str, orig: str) -> Out:
             flush(s.hard)
     flush("")
     # a hard break right before the end: drop the dangling separator
-    while out.toks and out.toks[-1] in ("<NL>", "<NL2>"):
+    while out.toks and out.toks[-1] in ("<NL>", "<NLNI>"):
         out.toks.pop()
     # The engine runs <JUMP> at the start of a line: keep the original's
-    # line-ending control in front of it (mostly <NL2>).
+    # line-ending control in front of it (mostly <NLNI>).
     if trailing and trailing[0].startswith("<JUMP:"):
-        m = re.search(r"(<NL>|<NL2>|<PAGE>|<WAIT>)<JUMP:", orig)
-        if m and out.toks and out.toks[-1] not in ("<PAGE>", "<WAIT>", "<NL>", "<NL2>"):
+        m = re.search(r"(<NL>|<NLNI>|<PAGE>|<PAGENI>)<JUMP:", orig)
+        if m and out.toks and out.toks[-1] not in ("<PAGE>", "<PAGENI>", "<NL>", "<NLNI>"):
             out.toks.append(m.group(1))
     out.toks += trailing
     return out
@@ -357,7 +357,7 @@ def main() -> int:
         if term.search(src) or not src.strip() or depth > 4 or label not in order:
             return body, src
         nb, ns = joined(order[label], depth + 1)
-        sep = "" if src.rstrip().endswith("<WAIT>") else ("▼" if src.rstrip().endswith("<PAGE>") else "/")
+        sep = "" if src.rstrip().endswith("<PAGENI>") else ("▼" if src.rstrip().endswith("<PAGE>") else "/")
         FALLTHROUGH.append(f"{label} -> {order[label]}")
         return body + sep + nb, src + ns
     joined_blocks = []
@@ -374,7 +374,7 @@ def main() -> int:
         res = layout(body.strip(), orig.get(labels[0], ""))
         text = "".join(res.toks)
         # width check (the compiler re-checks)
-        for li, line in enumerate(re.split(r"<NL>|<NL2>|<PAGE>|<WAIT>", text)):
+        for li, line in enumerate(re.split(r"<NL>|<NLNI>|<PAGE>|<PAGENI>", text)):
             v = TOKEN.sub(lambda m: "x" * runtime_width(m.group(0)), line)
             w = sum(char_width(c) for c in v)
             if w > LINE:

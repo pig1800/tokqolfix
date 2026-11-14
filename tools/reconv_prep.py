@@ -24,7 +24,7 @@ import textdata  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "out" / "reconv"
-RUNTIME = re.compile(r"<(NAME_F[3-7]|CALL:[0-9A-F]{4}(?:=[^>]*)?|JUMP:[0-9A-F]{4}|WAIT|END|END_NOWAIT)>")
+RUNTIME = re.compile(r"<(NAME_F[3-7]|CALL:[0-9A-F]{4}(?:=[^>]*)?|JUMP:[0-9A-F]{4}|PAGENI|END|END_NOWAIT)>")
 
 
 def table_text(kind: str, idx: int) -> str:
@@ -47,7 +47,7 @@ def expand(text: str, used: Counter, examples: dict) -> str:
         return s
     text = re.sub(r"<(WORD|PLACE|ITEM|NAME):([0-9A-F]{2})(?:=[^>]*)?>", rep, text)
     text = re.sub(r"<[0-9A-F]{2}:(.)>", r"\1", text)
-    text = text.replace("<NL>", "/").replace("<NL2>", "/").replace("<PAGE>", "▼")
+    text = text.replace("<NL>", "/").replace("<NLNI>", "/").replace("<PAGE>", "▼")
     return text
 
 
