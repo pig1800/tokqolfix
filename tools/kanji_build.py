@@ -329,7 +329,7 @@ def write_hook_constants(labels: dict[str, int], att: dict) -> None:
     lines.append(f"TXR_MENU = ${cv['txr_menu']:04X}")
     lines.append(f"TXR_TP = ${labels['txr_tp']:04X}")
     for line in inc.read_text(encoding="utf-8").splitlines():
-        m = re.match(r"^(TXR_ON|TXR_TA|TXR_TX|TXR_RX|TXF_LABEL)\s*=\s*(\S+)", line)
+        m = re.match(r"^(TXR_ON|TXR_TA|TXR_TX|TXR_RX|TXF_LABEL|TXF_MENU|TXF_MENUSET)\s*=\s*(\S+)", line)
         if m:
             lines.append(f"{m.group(1)} = {m.group(2)}")
     # The title screen in kanji (bank 13's inline block and draw_string).
@@ -627,6 +627,10 @@ def build_ui_data() -> int:
 # (columns 22-29) becomes 10 wide at 20-29 for 買いに来た.  The boot
 # menu's speed window $29 (columns 22-27) becomes 7 wide for 普通.
 MAP_UI_TEMPLATES = {0x18: (1, 12), 0x1C: (2, 10), 0x29: (3, 7)}
+# Window rows (a template's byte 0, in metatiles): the speed window $29 two
+# rows up, rows 10-17 (the user, 2026-11-14: the third record that pushed it
+# down is gone; b11_msg_147's window below it now shows with it).
+MAP_UI_ROWS = {0x29: -2}
 # The boot screens' fixed set: upper-page tiles FIX_FIRST.. (the battle set
 # there is never shown on them; of the letters from $E0 they show only L,
 # $EB, so the set may take A-D, $E0-$E3: the user, 2026-11-14).
@@ -1090,6 +1094,9 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     for win, (col, w) in MAP_UI_TEMPLATES.items():
         ptr = bank[0x2DA1 + win] | (bank[0x2DD1 + win] << 8)
         apply_patch(bank, ptr + 1, bytes((col & 0xFF, w)))
+    for win, row in MAP_UI_ROWS.items():
+        ptr = bank[0x2DA1 + win] | (bank[0x2DD1 + win] << 8)
+        apply_patch(bank, ptr, bytes((row & 0xFF,)))
 
     # NMI: after the nmi_mode branch (normal frames) and the epilogue.  No
     # byte before the game's split-screen loops changes.

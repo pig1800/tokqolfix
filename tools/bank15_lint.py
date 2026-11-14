@@ -65,7 +65,7 @@ PATCHES = [
     (0xD4C0, 0xD4C2),   # put_officer_name: jsr txr_tp (officer names)
     (0xEB74, 0xEB75),   # window $18 (gold, food): column +1, width 12
     (0xEBCF, 0xEBD0),   # window $1C (buy / sell): column +2, width 10
-    (0xED4D, 0xED4E),   # window $29 (message speed, boot menu): width 7
+    (0xED4C, 0xED4E),   # window $29 (message speed, boot menu): row -2 (2026-11-14), width 7
     (0xC4FD, 0xC509),   # return_inline_block: the return address read before the pops (IRQ-safe)
     (0xF0D8, 0xF0D8),   # enter_party_screen: lda #ATT_BANK (the attract mode in kanji)
     (0xF0DD, 0xF0DE),   # its jmp: bank 24's $8000

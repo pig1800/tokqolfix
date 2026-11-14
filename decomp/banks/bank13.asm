@@ -232,7 +232,11 @@ b13_loc_8A23:
     lda #$08
     sta text_graphics_index
     jsr load_text_graphics
+.ifdef KANJI_TARGET
+    jsr b13_k_set               ; (then the boot screens' fixed set, once)
+.else
     jsr wait_vblank
+.endif
     ldx #$00
     stx text_palette
     stx $0D
@@ -622,13 +626,19 @@ b13_k_restore:
     jsr ATT_RESTORE
     jsr return_inline_block
     .dw b13_loc_8A23-1
+; The boot entry (2026-11-14): the boot screens' fixed set into CHR, once,
+; after graphics set 8 (which writes those tiles).  Nothing writes them
+; again while the boot screens last; each screen's TXR_MENU sets the flags.
+b13_k_set:
+    jsr wait_vblank
+    ldx #TXF_MENUSET
+    jmp TXR_CALL
 ; A damaged record (2026-11-14, the user's "no band in the whole boot
-; menu"): the record check's screen gets the boot screens' fixed set before
-; b11_msg_145 (残念ですが…消えています), so its kanji are the set's tiles.
-; Only this path pays for the set: a boot with sound records does not.
+; menu"): the record check's flags (TXR_ON = $40) before b11_msg_145
+; (残念ですが…消えています), so its kanji are the set's tiles.
 b13_k_check:
-    jsr ppu_init
-    jsr TXR_MENU
+    ldx #TXF_MENU
+    jsr TXR_CALL
     lda #$84
     sta input_buttons
     jmp b13_k_check_ret

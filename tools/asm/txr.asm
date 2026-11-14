@@ -49,11 +49,11 @@ txr_dispatch:                   ; (Y kept: TXF_PUT and TXF_LABEL keep it)
 txr_fnl:
     .db <(txr_mapinit-1), <(txr_restore-1), <(txr_dl-1), <(txr_rc-1), <(txr_close-1)
     .db <(txr_dlc-1), <(txr_rcc-1), <(txr_fill-1), <(txr_put-1), <(txr_label-1)
-    .db <(txr_menuinit-1), <(txr_name-1), <(txr_look-1)
+    .db <(txr_menuinit-1), <(txr_name-1), <(txr_look-1), <(txr_menuset-1)
 txr_fnh:
     .db >(txr_mapinit-1), >(txr_restore-1), >(txr_dl-1), >(txr_rc-1), >(txr_close-1)
     .db >(txr_dlc-1), >(txr_rcc-1), >(txr_fill-1), >(txr_put-1), >(txr_label-1)
-    .db >(txr_menuinit-1), >(txr_name-1), >(txr_look-1)
+    .db >(txr_menuinit-1), >(txr_name-1), >(txr_look-1), >(txr_menuset-1)
 
 ; ======================================================================
 ; NMI code (mapped at $8000-$9FFF by the RAM stubs; any bank may be in
@@ -998,7 +998,22 @@ cvf_tdone:
 ; set's tiles there are never shown on these screens).  The UI words and
 ; the messages' kanji (the overlay's fix_put) are put with those tiles
 ; (TXR_ON = $40): no band.  The battle pool's tiles hold the set: no pool.
+; The set goes into CHR once, at the boot entry (txr_menuset; 2026-11-14:
+; nothing writes those tiles while the boot screens last, measured on every
+; flow), so a screen sets only the flags here.
 txr_menuinit:
+    lda KANJI_WIN_COL
+    and #$3F
+    ora #WINCOL_CHECKED         ; checked, not usable
+    sta KANJI_WIN_COL
+    lda #$40
+    sta TXR_ON
+    rts
+
+; TXF_MENUSET: the fixed set into upper-page tiles FIX_FIRST.. (bank 13
+; b13_k_set, at the boot entry after b13_loc_8A23's graphics set 8, which
+; writes those tiles; rendering off).
+txr_menuset:
     jsr busy_on
     ldx #0
 @g:
@@ -1025,14 +1040,7 @@ txr_menuinit:
     inx
     cpx #FIX_N
     bne @g
-    jsr busy_off
-    lda KANJI_WIN_COL
-    and #$3F
-    ora #WINCOL_CHECKED         ; checked, not usable
-    sta KANJI_WIN_COL
-    lda #$40
-    sta TXR_ON
-    rts
+    jmp busy_off
 
 ; Tile TXR_T = TXR_GBUF[Y..Y+7] in plane 0, plane 1 zero; then TXR_T + 1.
 fix_tile:

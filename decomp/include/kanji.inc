@@ -424,9 +424,10 @@ TXF_RCC           = 6       ; text_render_cell: continue (after uploads or a pau
 TXF_FILL          = 7       ; set_ppu_scroll's fill (cv_fill)
 TXF_PUT           = 8       ; map UI: text_put_tile (templates, item / tactic / place names)
 TXF_LABEL         = 9       ; map UI: a label (bank 14: the gold window, その他)
-TXF_MENU          = 10      ; the boot screens: the fixed set into the upper page (TXR_ON = $40)
+TXF_MENU          = 10      ; the boot screens: TXR_ON = $40, the pool unusable (the set is in CHR: TXF_MENUSET)
 TXF_NAME          = 11      ; an officer record's kanji name: its glyph codes into TXR_NM (battle messages)
 TXF_LOOK          = 12      ; text_show_message after a 3rd line (map mode): V set = the next line would scroll
+TXF_MENUSET       = 13      ; the boot entry (bank 13 b13_k_set): the fixed set into the upper page, once
 TXR_N0            = 70      ; stage 0's count: the first switch in line 71's hblank
 TXR_ON            = $0780   ; bit 7: page 1 lower holds the renderer's tiles (map mode); bit 6:
                             ; the UI words in kanji (map mode $C0; the boot screens' fixed set $40)

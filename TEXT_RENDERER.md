@@ -2270,13 +2270,14 @@ speed window is cancelled, show どの歴史書を始めますか again.
 - The game gets A-D back before it shows them: CHR RAM is byte-identical
   to the previous build in the map (from a record) and during the oath
   scene and the town (a new game).
-- The set upload (`txr_menuinit`, each boot screen, rendering off) takes
+- The set upload (`txr_menuinit`, each boot screen, rendering off) took
   68,583 CPU cycles (2.3 frames), 54,888 for 20 kanji: +0.46 frame a
-  screen.
+  screen.  Since the third round it runs once (below).
 
 **The record check** (bank 13 `b13_k_check`, the damaged-record path
 only): `ppu_init`, then `TXR_MENU` (the set, `TXR_ON` = `$40`), then
 b11_msg_145 as before.  A boot with sound records does not pay for it.
+(Third round: only the flags, below.)
 
 **The speed message** (`b13_k_speed`, in place of `ldx #$29` / `jsr
 text_init` at `$8B71`): `input_buttons` = `$84`, window `$1E`,
@@ -2286,11 +2287,11 @@ goes to `$8B43`: the start screen is rebuilt with どの歴史書を始めます
 and the book list, as the original did.  Both routines are reached by
 `jmp` and return by `jmp`, so the stack depth is the original's.  They sit
 in bank 13's filler after `b13_k_restore`.
-- **Layout:** the speed window (rows 12-19, columns 22-28) covers the
+- **Layout:** the speed window (rows 12-19, columns 22-28) covered the
   message window's top-right corner: its top border and the first text
   line's top row at those columns.  The message's cells there (さい) are
-  plain kana with blank top rows, so the text is whole.  The original
-  never showed the two together.
+  plain kana with blank top rows, so the text was whole.  The original
+  never showed the two together.  (Third round: the window moved up.)
 
 **Checked** (`out/test/opt/boot`, against the first commit's build):
 - Start flow from `rom_kanji.sav`: book, message and speed window,
@@ -2306,3 +2307,64 @@ in bank 13's filler after `b13_k_restore`.
   window.  The oath starts at the same frame.
 - The regression set: pixel-identical.  The original build is
   byte-identical.
+
+### The set loaded once; the speed window up (2026-11-14, third round)
+
+The user's questions: the set should already be in VRAM, so why load it
+on each screen?  And move the speed window 2 tiles up: the third record
+used to push it down, and it is gone.
+
+**One upload.**
+- Until now `TXR_MENU` wrote the whole set into CHR on every boot screen.
+  That took 2.3 frames with the screen black, though the set was still
+  there from the previous screen.
+- At the record check the set was not in VRAM yet.  The record check runs
+  before the main menu, right after `b13_loc_8A23` loads graphics set 8
+  (the battle set) over `$80-$FF`.
+- Measured (`out/test/opt/boot/setkeep.lua`): from one upload to the next,
+  0 of the set's 100 tiles changed, and nothing else wrote PPU
+  `$1800-$1E3F`.  The flows: register (the status menu and the name entry
+  included), the menu, start with the speed window cancelled, delete,
+  copy, and a damaged record.
+- `b13_loc_8A23` is the only way into the boot screens (Start on the
+  title, through `b13_k_restore`).
+
+The changes:
+- `TXF_MENUSET` (13, `txr_menuset`): the upload, called once by bank 13
+  `b13_k_set` in place of the `wait_vblank` after set 8.
+  - It runs at frames 300-302 of the standard path (68,551 cycles).
+  - `PPUMASK` is `$06` at its start and end (rendering off), and no
+    `PPUMASK` write turns rendering on during it.
+- `TXF_MENU` (each screen's `TXR_MENU`): only `TXR_ON` = `$40` and the
+  pool marked unusable.
+- `b13_k_check` (the damaged record): `TXF_MENU` through `TXR_CALL`, no
+  `ppu_init`, then b11_msg_145.
+- The later boot screens build about 2 frames sooner.  `TXR_ON` no longer
+  stays 0 for a whole frame between screens, and the menu after the name
+  entry comes 2 frames earlier.
+
+**The speed window** `$29`: its row byte (template byte 0, in metatiles)
+goes from `$FF` to `$FE` (`kanji_build.MAP_UI_ROWS`; lint range
+`$ED4C-$ED4E`).  It now spans rows 10-17, between the record list (rows
+4-9 with two records) and the message window (from row 18).  The original
+placed it at row 12, below the 3-record list's last row (11).
+
+**Checked** (`out/test/opt/boot`, against the second round's build):
+- Start with cancel, delete, register through the finished name entry,
+  copy, and a damaged record: no band, kanji right on every screen.  The
+  speed window is clear of the message window.  The other screens match,
+  sooner.
+- Standard path from power-on: the band once (the oath scene, frame 1590
+  in both).  CHR RAM is identical in the oath scene (frames 1650, 1700).
+  - The menus and the oath start match.  After the oath the game runs
+    on a shifted frame-counter phase.
+  - The frame counter `$33` and the RNG (`$AC-$AF`) step once a frame.
+    They first differ at frame 303, after the one upload.  The previous
+    builds lost those steps on every boot screen's upload instead.
+  - So the oath's later pages print a frame earlier, and 7 CHR bytes
+    differ at frame 6200.
+  - With a player at the menus the RNG state at the start of play
+    depends on the player's timing anyway.
+- The regression set: greeting, menu cycle, the battle and the title
+  pixel-identical.  The standard path from frame 2000 differs as above
+  (the new game's RNG).  The original build is byte-identical.
