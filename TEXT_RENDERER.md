@@ -2866,3 +2866,60 @@ from its five tile rows (nametable rows 5-9).
   attract code moved); the screens are identical.
 - Bank 31: 21 + 90 bytes used, the old split code's other 71 bytes free.
   Bank 24: about 970 bytes (`title_fx` and its 630 bytes of tables).
+
+
+## The window scroll and tiles `$FA-$FF` (2026-11-14)
+
+The user's report: in a battle won against 樊稠 (state `rom_kanji_1`), 稠
+drew right, but once its line scrolled up it was blank; its glyph was
+still in slot 31, and the four nametable cells were `$0A`.  The level-up
+battle's 「は城内の計を覚えた」 (計 as 言 only, 覚 blank, under Known
+limits since before 2026-11-14) had the same cause.
+
+- **Cause.**  The battle window scrolls with the original's
+  `text_scroll_up`.  Its `text_redraw_lines` copies every row from the
+  row below, two passes a line, and the rows are then copied raw to the
+  nametable (`text_draw_line`, no line-end test).  So it blanks the line
+  ends on the way, the bytes `$FA-$FF` that the engine stores in a line's
+  top row after its last cell (revision 20: only those, not every byte
+  with bit 7).  From the win, slots 30-31 (tiles `$F8-$FF`, 2026-11-13)
+  hold message kanji too.  A kanji in slot 31 lost all four tiles at the
+  scroll, one in slot 30 its right half (`$FA`, `$FB`).  The 2026-11-13
+  check of tiles `$F8-$FF` ("the line ends and tiles `$F8-$FF`") tested
+  `render_ctl`, which draws, but never scrolled such a line.
+- **Fix.**  A cell `$FA-$FF` now goes to `redraw_hi` (fixed bank, `$FB5A`,
+  24 bytes in the dead debug overlay's space), which tells the two apart
+  as `render_ctl` does:
+  - a kanji's top tile t (even) has t + 1 in the row under it;
+  - its bottom tile (odd) has t − 1 in the row over it, the cell about to
+    be written (not yet overwritten);
+  - a line end has the cleared `$0A` under it (`text_clear_line` clears
+    both rows), and nothing in a bottom row is `$FA` or above but kanji
+    tiles; so anything else is a line end: `$0A`, as before.
+  - The pairs survive the first pass's half-line shift (a kanji's top
+    tile is still over its bottom tile), and that pass has blanked every
+    line end already.
+- The patch at `$D416` keeps its 17 bytes: `lda $0319,x / cpx #$A8` (row
+  7, from the frame row: blank, as before) `/ bcs / cmp #$FA / bcc store /
+  jsr redraw_hi / bit abs` (over the blank) `/ lda #$0A`.
+  - A cell below `$FA` now takes 13 cycles instead of 18, a pass about
+    600 cycles fewer.  The scroll waits for frames right after
+    (`wait_frame_tick`, `update_frame_no_input`), and the RNG steps once a
+    frame (`read_input_state` in the scheduler), so this moves nothing;
+    measured below.
+
+**Checked** (against the build before, `b0b47cec`):
+- The user's state, A every 60 frames (win, capture, 樊稠 recruited):
+  稠 stays through every scroll to 「樊稠が我が軍に加わりました」.  Every
+  frame of one scroll: the half-line frames as the original's.
+- The level-up battle (r4/s2): 「は城内の計を覚えた」 whole after the
+  scroll (frames 1660-1710 were the only screens that changed).
+- RNG (`$AC-$AF`), frame counter, bank and `text_line`, every frame of
+  three battles (the user's state 2,000 frames, the level-up 1,750, the
+  capture 1,850): identical.
+- The regression suite: identical but the level-up battle's three fixed
+  screens.  The two boot flows that copy the user's battery save (`sp`,
+  `del`) first showed a different menu: the save had changed since the
+  last run (one record, not two).  Run again on both builds from one copy
+  of it: identical.
+- Bank 31: 24 bytes (`$FB5A-$FB71`); 188.1 KiB free as before.

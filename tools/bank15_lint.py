@@ -34,7 +34,7 @@ PATCHES = [
     (0xD2C7, 0xD2C9),   # jsr ctrl_store
     (0xD1C8, 0xD1CA),   # jsr page_flip (kanji page flip after the <PAGE> wait)
     (0xDBED, 0xDBEE),   # text_render_cell: jmp render_ctl (battle pool tiles)
-    (0xD416, 0xD426),   # text_redraw_lines: keep cells below $FA (battle pool scroll)
+    (0xD416, 0xD426),   # text_redraw_lines: cells $FA-$FF to redraw_hi (kanji tiles kept, line ends blank)
     (0xEA9C, 0xEAB3),   # window $11 template: UI-bank line CALLs (step B item 7)
     (0xEAC8, 0xEADF),   # window $12 template
     (0xEB23, 0xEB3A),   # window $16 template (battle items)
@@ -74,7 +74,7 @@ PATCHES = [
     # the dead developer debug overlay and its screens' font and tiles
     # (survey 2026-11-14, TEXT_RENDERER.md "The RAM code in bank 31");
     # $FAD4 and $FBC2 (two rts) stay
-    (0xFAD5, 0xFBC1),   # the debug overlay: title_irq at $FB00 (the title's intro), the rest free
+    (0xFAD5, 0xFBC1),   # the debug overlay: title_irq at $FB00 (the title's intro), redraw_hi, the rest free
     (0xFBC3, 0xFFD7),   # the debug screens' dead hex font and tiles: the runtime (fixed_rt.asm; RAM code until 2026-11-14)
 ]
 

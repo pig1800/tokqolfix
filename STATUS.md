@@ -89,7 +89,9 @@ is in `MEMORY_MAP.md`.
   - From the win, slots 0-5 hold the reward window's 金兵糧経験値 and 6-31
     the messages'.
   - A kanji already in a slot is used from it.
-  - The battle window scrolls as in the original.
+  - The battle window scrolls as in the original.  The scroll blanks
+    line ends (`$FA-$FF`) but keeps the tiles of slots 30-31, which
+    share those values (`redraw_hi`).
   - The UI bank draws the command, item and tactic windows (one UI-bank
     call per template line, `cv_wincb`), the reward window (`$22`) and
     the prisoner window (`$21`).
@@ -189,7 +191,3 @@ is in `MEMORY_MAP.md`.
 - Screens that have no fixed kanji yet stop at `band_trap` (above).
 - In map mode, each new kanji of a page waits for its glyph upload, so
   kanji print a little slower than kana.
-- Level-up battle (seen before 2026-11-14, not fixed): on the page
-  「は<CALL:D565=さくりゃく>を覚えた」, 計 shows only its 言 half and 覚
-  is blank.  The call's kanji tail and the page's kanji meet in the same
-  pool slots.

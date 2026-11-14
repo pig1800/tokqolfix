@@ -1106,11 +1106,16 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     # have bit 7 set like the row buffer's end codes (revision 18).
     # text_redraw_lines (the window scroll) blanks every cell with bit 7
     # set, so the battle pool's kanji vanished from scrolled lines.  Only
-    # the line-end codes ($FA-$FF) are blanked now; the original rows hold
-    # nothing else at $80 and up (revision 20).  Same 17 bytes:
-    #   lda $F4 / cmp #7 / lda #$0A / bcs store / lda $0319,x / cmp #$FA /
-    #   bcc store / lda #$0A
-    apply_patch(bank, 0xD416, bytes.fromhex("a5f4c907a90ab009bd1903c9fa9002a90a"))
+    # the line-end codes ($FA-$FF) were blanked from revision 20; since
+    # 2026-11-13 the messages' slots 30-31 (tiles $F8-$FF, after a win)
+    # have tiles there too, and a cell $FA-$FF goes to redraw_hi (fixed
+    # bank), which keeps a kanji's tiles and blanks a line end.  Row 7
+    # (from the frame row) is blank as before (X >= 7 * 24).  Same 17 bytes:
+    #   lda $0319,x / cpx #$A8 / bcs blank / cmp #$FA / bcc store /
+    #   jsr redraw_hi / .db $2C (bit abs: over the blank) / blank: lda #$0A
+    rh = labels["redraw_hi"]
+    apply_patch(bank, 0xD416, bytes.fromhex("bd1903e0a8b008c9fa9006")
+                + bytes((0x20, rh & 0xFF, rh >> 8, 0x2C, 0xA9, 0x0A)))
 
     apply_patch(bank, 0xDBED, bytes((labels["render_ctl"] & 0xFF,
                                      labels["render_ctl"] >> 8)))

@@ -1284,6 +1284,36 @@ title_irq_end:
 .if >title_irq_end != >title_irq
     .error "title_irq crosses a page (its loops must not)"
 .endif
+
+; text_redraw_lines (the window scroll: every row from the row below, two
+; passes a line), patched at $D416 (kanji_build.py): a cell $FA-$FF.  The
+; original blanks it, a line end ($FA-$FF, stored in a line's top row
+; after its last cell, over a cleared $0A bottom cell); since 2026-11-13
+; the battle messages' slots 30-31 (tiles $F8-$FF) have tiles there too.
+; A = the cell (from the row below the row being written, X: its index):
+; a kanji's top tile t (even) when the row under it holds t + 1, its
+; bottom tile (odd) when the row over it (the cell about to be written)
+; holds t - 1; else a line end: $0A.  The pairs survive the first pass's
+; half-line shift, which has blanked every line end already.  X, Y kept;
+; ppu_update_ptr_lo is the routine's row scratch (set again per row).
+redraw_hi:
+    sta ppu_update_ptr_lo
+    lsr a                       ; C = odd
+    lda ppu_update_ptr_lo
+    bcs @odd
+    adc #1                      ; (C clear) a top tile: its bottom tile below
+    cmp $0331,x
+    beq @keep
+@end:
+    lda #$0A                    ; a line end: blank, as the original
+    rts
+@odd:
+    sbc #1                      ; (C set) a bottom tile: its top tile above
+    cmp $0301,x
+    bne @end
+@keep:
+    lda ppu_update_ptr_lo
+    rts
 .if $ > $FBC2
     .error "the dead debug overlay's space is $FAD5-$FBC1"
 .endif
