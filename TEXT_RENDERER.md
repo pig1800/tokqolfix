@@ -2134,12 +2134,18 @@ one blank column, as the original's spaces.
   the row above, as the game's font draws them.  So a line covers rows
   r-1 and r: the original line plus its dakuten row, one attribute row.
 - Each phrase keeps the original phrase's attribute records, so it fades
-  in through BG palette 2 on its own attribute row as before.  The intro's
-  last line (row 25) pops in unfaded, as in the original: its attribute
-  row stays palette 1.
-- Columns are the original's: intro 5, bands 1 and 3 column 9, band 2
-  column 2 (checked to end before its portrait at column 24), the text
-  screen 3 with the user's leading blanks.
+  in through BG palette 2 on its own attribute row as before.
+- The build follows the attribute state from each screen's start.  When
+  a line is drawn its cells must be palette 2, and the lines drawn before
+  it must not be.  A line the original leaves in palette 1 gets one record
+  for its own quadrants.
+  - Only the intro's last line (row 25, ヒストリー ロールプレイング ゲーム
+    である) needs it: the original's oversight, so that line popped in
+    unfaded.  It fades now (the user's fix, 2026-11-14): `$23F1`, 6 bytes.
+- Columns: intro 5, bands 1 and 3 column 9, band 2 column 2 (checked to
+  end before its portrait at column 24), as the original.  The text
+  screen starts at column 4 (the user's hard indent, 2026-11-14; the
+  original's column 3) with the user's leading blanks.
 - The build fails if a line would leave its rows or columns.
 - The longest phrase is 55 queue bytes.
 

@@ -54,15 +54,15 @@ PORTRAITS = [
     ],
 ]
 
-# The text screen (bank 7 phrases 46-51): rows 7, 9, ..., 17, drawn from
-# column 3 as the original; the leading blanks centre the block.
+# The text screen (bank 7 phrases 46-51): rows 7, 9, ..., 17 from column 4
+# (the user's hard indent, 2026-11-14; the original drew from column 3).
 FINAL = [
-    "　膨大な資料により　２００人以上の",
-    "　　武将の能力をシミュレートし　中国",
-    "　三国志の時代を完全に再現した",
-    "　　　　　　カプコン初の本格的",
+    "膨大な資料により　２００人以上の",
+    "武将の能力をシミュレートし　中国",
+    "三国志の時代を完全に再現した",
+    "　　　　　カプコン初の本格的",
     "　　ヒストリー　ロールブレイング　ゲーム!",
-    "　　　　　ここに堂々完成",
+    "　　　　　　ここに堂々完成",
 ]
 
 

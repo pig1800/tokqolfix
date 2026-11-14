@@ -45,7 +45,7 @@ PHRASE_COUNTS = (7, 0x9756)            # phrases per portrait screen
 INTRO_ROW, INTRO_COL = 13, 5
 BAND_ROWS = (5, 13, 21)                # each band's first line (kana row)
 BAND_COLS = (9, 2, 9)
-FINAL_ROW, FINAL_COL = 7, 3
+FINAL_ROW, FINAL_COL = 7, 4
 BAND_TOP = (32, 96, 160)               # portrait tops (pixels; tile rows 4, 12, 20)
 
 
@@ -333,13 +333,63 @@ def build() -> dict:
         owner += [s + 1] * len(lines)
     assert len(all_lines) == total
 
+    # The fade: a line is drawn while BG palette 2 is black and fades in
+    # through it, so its cells must be palette 2 then, and every line drawn
+    # before on the screen must not be (it would go black).  The attribute
+    # state is followed from the screen's start (the title's attributes
+    # for the intro, $AA for the others); a line the original's records
+    # leave in palette 1 gets a record for its own quadrants (the intro's
+    # last line, row 25: the original's oversight, the user's fix of
+    # 2026-11-14).
+    def apply(attr: bytearray, recs: bytes) -> None:
+        i = 0
+        while recs[i] != 0xFF:
+            ppu, ln = recs[i] << 8 | recs[i + 1], recs[i + 2]
+            n = ln & 0x3F
+            data = bytes((recs[i + 3],)) * n if ln & 0x40 else recs[i + 3:i + 3 + n]
+            for j, v in enumerate(data):
+                attr[(ppu & 0x3F) + j] = v
+            i += 4 if ln & 0x40 else 3 + n
+
+    def quad(row: int, col: int) -> tuple[int, int]:
+        return (row // 4) * 8 + col // 4, ((row % 4) // 2) * 4 + ((col % 4) // 2) * 2
+
+    def pal(attr: bytearray, row: int, col: int) -> int:
+        a, sh = quad(row, col)
+        return (attr[a] >> sh) & 3
+
+    title_attr = bytearray(64)
+    apply(title_attr, b"".join(rec_bytes(r) for r in title_recs if is_attr(r[0])) + b"\xFF")
     phrases = []
+    fixed = []
+    attr = bytearray(64)
+    drawn: list = []
     for k, (row, col, top, bot) in enumerate(all_lines):
         if not phrase_rows[k] <= {row - 1, row}:
             raise SystemExit(f"attract: phrase {k} is on rows {sorted(phrase_rows[k])}, "
                              f"the kanji line on {row - 1}-{row}")
+        if k == 0 or owner[k] != owner[k - 1]:
+            attr = bytearray(title_attr) if owner[k] == 0 else bytearray([0xAA] * 64)
+            drawn = []
+        rec = phrase_attr[k]
+        apply(attr, rec + b"\xFF")
+        cols = range(col, col + len(bot))
+        if any(pal(attr, row, c) != 2 for c in cols):
+            new_attr = bytearray(attr)
+            for c in cols:
+                a, sh = quad(row, c)
+                new_attr[a] = (new_attr[a] & ~(3 << sh) & 0xFF) | (2 << sh)
+            ch = [i for i in range(64) if new_attr[i] != attr[i]]
+            a0, a1 = ch[0], ch[-1]
+            rec += bytes((0x23, 0xC0 + a0, a1 - a0 + 1)) + bytes(new_attr[a0:a1 + 1])
+            attr = new_attr
+            fixed.append(k)
+        for prow, pcols in drawn:
+            if any(pal(attr, prow, c) == 2 for c in pcols):
+                raise SystemExit(f"attract: phrase {k} leaves an earlier line (row {prow}) in palette 2")
+        drawn.append((row, cols))
         ts = sets[owner[k]]
-        data = (phrase_attr[k] + row_record(row - 1, col, ts.tiles(top))
+        data = (rec + row_record(row - 1, col, ts.tiles(top))
                 + row_record(row, col, ts.tiles(bot)) + b"\xFF")
         phrases.append(data)
 
@@ -412,6 +462,7 @@ def build() -> dict:
     report = {ts.name: (len(ts.kanji), len(ts.small), ts.end, ts.free()) for ts in sets}
     report["phrase_max"] = max(len(p) for p in phrases)
     report["title_attr"] = attr_tail
+    report["fade_fixed"] = fixed
     return report
 
 
