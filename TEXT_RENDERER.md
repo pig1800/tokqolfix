@@ -2888,7 +2888,7 @@ limits since before 2026-11-14) had the same cause.
   check of tiles `$F8-$FF` ("the line ends and tiles `$F8-$FF`") tested
   `render_ctl`, which draws, but never scrolled such a line.
 - **Fix.**  A cell `$FA-$FF` now goes to `redraw_hi` (fixed bank, `$FB5A`,
-  24 bytes in the dead debug overlay's space), which tells the two apart
+  27 bytes in the dead debug overlay's space), which tells the two apart
   as `render_ctl` does:
   - a kanji's top tile t (even) has t + 1 in the row under it;
   - its bottom tile (odd) has t − 1 in the row over it, the cell about to
@@ -2922,4 +2922,4 @@ limits since before 2026-11-14) had the same cause.
   `del`) first showed a different menu: the save had changed since the
   last run (one record, not two).  Run again on both builds from one copy
   of it: identical.
-- Bank 31: 24 bytes (`$FB5A-$FB71`); 188.1 KiB free as before.
+- Bank 31: 27 bytes (`$FB5A-$FB74`); 188.1 KiB free as before.
