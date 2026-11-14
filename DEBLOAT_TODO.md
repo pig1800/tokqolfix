@@ -51,6 +51,10 @@ has issues to patch first.
     scene (729 switches).  The record check's b11_msg_145 (a damaged
     record) is on the set too (second round): no boot screen uses the
     band.
+  - **Since the oath's fixed split** (2026-11-14, TEXT_RENDERER.md "The
+    opening oath: a fixed split, no band") the standard path never turns
+    the band on.  The band remains for screens outside map mode and battle
+    that these paths do not reach (history, events, endings), if any.
 - **Risk:** a message shown on a band screen that the list misses would
   show no kanji, or the wrong ones.
 

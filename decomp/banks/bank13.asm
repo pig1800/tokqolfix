@@ -656,6 +656,23 @@ b13_k_speed:
     ldx #$29
     jsr text_init
     jmp b13_k_speed_ret
+; The opening oath (2026-11-14, the user's fixed split): after the
+; portraits (rendering off) its kanji go into CHR $3800 and TXR_ON =
+; TXR_SPLIT: R1 shows them below line SPLIT_LINE, b10_msg_128 puts them as
+; fixed tiles; no band, no uploads.
+b13_k_oath:
+    ldx #TXF_OATH
+    jsr TXR_CALL
+    jmp wait_vblank
+; Its end (the NMI off): rendering off as the original, the split off, then
+; the band page's tiles the kanji took copied back from page 1 (the hack's
+; block-write mirror), so a later band screen finds the font there.
+b13_k_oathend:
+    jsr ppu_bg_sprites_off
+    ldx #TXF_OATHEND
+    jsr TXR_CALL                ; (KANJI_M0-M2: the tiles)
+    lda #FN_BLOCK_POST
+    jmp CALL_HACK
 b13_k_end:
     .incbin "build/assets/bank13_data.bin", $0D20 + (b13_k_end - boot_title_block), $02E0 - (b13_k_end - boot_title_block)
 .else
@@ -1334,7 +1351,11 @@ b13_data_96B8:
 
 b13_data_96BD:
     .incbin "build/assets/bank13_data.bin", $16BD, $0002
+.ifdef KANJI_TARGET
+    jsr b13_k_oath              ; (the oath's kanji and its split first)
+.else
     jsr wait_vblank
+.endif
     jsr ppu_nmi_on
     lda #$0A
     sta text_graphics_index
@@ -1355,7 +1376,11 @@ b13_data_96DE:
     jsr load_text_graphics
     jsr wait_vblank
     jsr ppu_nmi_off
+.ifdef KANJI_TARGET
+    jmp b13_k_oathend           ; (then the split off, the band page back)
+.else
     jmp ppu_bg_sprites_off
+.endif
 
 b13_data_96F3:
     .incbin "build/assets/bank13_data.bin", $16F3, $0007

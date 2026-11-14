@@ -708,9 +708,19 @@ KANJI_EC:
     lda ($51),y
     inc text_col
     sta KANJI_CODE_LO
-    bit TXR_ON                  ; the boot screens ($40): the fixed set
-    bmi @meta
-    bvc @meta
+    bit TXR_ON                  ; the boot screens ($40), the oath
+    bmi @meta                   ; (TXR_SPLIT): their fixed sets
+    bvs @boot
+    lda TXR_ON
+    cmp #TXR_SPLIT
+    bne @meta
+    lda #OV_FIX_N               ; the oath's entries
+    ldy #OV_FIX_N+OV_OATH_N-1
+    bne @fix
+@boot:
+    lda #0                      ; the boot set's entries
+    ldy #OV_FIX_N-1
+@fix:
     jmp fix_put
 @meta:
     lda $10                     ; the game's $10/$11 (math temps)
@@ -803,13 +813,15 @@ KANJI_EC:
     inx
     rts
 
-; The boot screens (TXR_ON = $40, 2026-11-14): the kanji KANJI_CODE_LO/HI
-; is entry k of the fixed set (boot_fix.inc, the user's set), which
-; txr_menuinit put at tiles t = OV_FIX_FIRST + 4k (TL, BL, TR, BR) when the
-; screen was built: its tiles into the text buffers at X, X after them.  No
-; upload, no band.  A kanji outside the set (the build allows none) is blank.
+; The boot screens (TXR_ON = $40) and the opening oath (TXR_SPLIT),
+; 2026-11-14: the kanji KANJI_CODE_LO/HI is entry k of the screen's fixed
+; set (boot_fix.inc, the user's sets: entries A..Y), whose tiles are
+; t = OV_FIX_FIRST + 4k (TL, BL, TR, BR; the boot set in the upper page, the
+; oath's in CHR $3800 below the split): its tiles into the text buffers at
+; X, X after them.  No upload, no band.  A kanji outside the set (the build
+; allows none) is blank.
 fix_put:
-    ldy #OV_FIX_N-1
+    sta KANJI_M0                ; the set's first entry
 @f:
     lda ov_fix_lo,y
     cmp KANJI_CODE_LO
@@ -818,8 +830,11 @@ fix_put:
     cmp KANJI_CODE_HI
     beq @got
 @n:
+    cpy KANJI_M0
+    beq @none
     dey
     bpl @f
+@none:
     lda #$0A
     sta $0300,x
     sta $0318,x
@@ -828,6 +843,8 @@ fix_put:
     bne @adv
 @got:
     tya
+    sec
+    sbc KANJI_M0                ; k
     asl a
     asl a
     adc #OV_FIX_FIRST           ; (C clear: k < 64)

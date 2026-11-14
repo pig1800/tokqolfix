@@ -50,10 +50,12 @@ txr_fnl:
     .db <(txr_mapinit-1), <(txr_restore-1), <(txr_dl-1), <(txr_rc-1), <(txr_close-1)
     .db <(txr_dlc-1), <(txr_rcc-1), <(txr_fill-1), <(txr_put-1), <(txr_label-1)
     .db <(txr_menuinit-1), <(txr_name-1), <(txr_look-1), <(txr_menuset-1)
+    .db <(txr_oathset-1), <(txr_oathend-1)
 txr_fnh:
     .db >(txr_mapinit-1), >(txr_restore-1), >(txr_dl-1), >(txr_rc-1), >(txr_close-1)
     .db >(txr_dlc-1), >(txr_rcc-1), >(txr_fill-1), >(txr_put-1), >(txr_label-1)
     .db >(txr_menuinit-1), >(txr_name-1), >(txr_look-1), >(txr_menuset-1)
+    .db >(txr_oathset-1), >(txr_oathend-1)
 
 ; ======================================================================
 ; NMI code (mapped at $8000-$9FFF by the RAM stubs; any bank may be in
@@ -286,6 +288,11 @@ cvn_band_path:
     lda ppu_mask_shadow
     and #$18
     beq cvn_brts                 ; rendering off
+    lda TXR_ON
+    cmp #TXR_SPLIT
+    bne cvn_nsplit
+    jmp cvn_split               ; the opening oath's fixed split
+cvn_nsplit:
     lda vram_queue_read
     sec
     sbc KANJI_QPOS              ; bytes the game flushed this frame
@@ -360,6 +367,33 @@ cvb_cancel:
     lda #0
     sta KANJI_IRQ_ST
     sta MMC3_IRQ_OFF
+    rts
+
+; The opening oath (TXR_ON = TXR_SPLIT, the user's fixed split, 2026-11-14):
+; R1 = the scene page for the frame's top (the portraits' tiles $80-$FF),
+; then the IRQ for line SPLIT_LINE: stage 0 reloads the counter in line 0,
+; the fixed bank's irq_split sets R1 = CHR $3800 (the oath's kanji).  The
+; screen is black around that line, so neither the PPU-address force nor a
+; wait is needed: a line or two of jitter is invisible.  FLAG_ARMED makes the
+; hack NMI's irq_arm0 a no-op in this NMI.
+cvn_split:
+    lda #MMC3_R1
+    sta MMC3_SELECT
+    lda #CHR_SCENE_HI
+    sta MMC3_DATA
+    lda #0
+    sta MMC3_IRQ_LATCH
+    sta MMC3_IRQ_RELOAD         ; stage 0 at the pre-render line's clock
+    sta MMC3_IRQ_OFF
+    sta MMC3_IRQ_ON
+    lda KANJI_NFLAGS
+    ora #FLAG_ARMED
+    sta KANJI_NFLAGS
+    lda #1
+    sta KANJI_IRQ_ST
+    lda #SPLIT_LINE
+    sta KANJI_IRQ_N
+    cli
     rts
 
 ; The staged records after the game's flush (TEXT_RENDERER.md "Upload
@@ -1041,6 +1075,71 @@ txr_menuset:
     cpx #FIX_N
     bne @g
     jmp busy_off
+
+; TXF_OATH: the opening oath's kanji (txr_ui.inc oath_clo/chi, the user's
+; set) into CHR $3800, tiles 4k..4k+3 there (TL, BL, TR, BR), written with
+; R0 = CHR_BAND_LO; R1 shows them as tiles $80 + 4k below the fixed split.
+; Then TXR_ON = TXR_SPLIT.  Bank 13 b13_k_oath, after the scene's portraits
+; and before its fade-in (rendering off).
+txr_oathset:
+    jsr busy_on
+    lda #CHR_BAND_LO
+    jsr set_r0
+    ldx #0
+@g:
+    stx TXR_G
+    lda oath_clo,x
+    sta TXR_K
+    lda oath_chi,x
+    sta TXR_K+1
+    jsr read_kanji              ; TXR_GBUF[0-31]
+    lda TXR_G
+    asl a
+    asl a
+    sta TXR_T
+    ldy #0
+    jsr fix_tile
+    ldy #8
+    jsr fix_tile
+    ldy #16
+    jsr fix_tile
+    ldy #24
+    jsr fix_tile
+    ldx TXR_G
+    inx
+    cpx #OATH_N
+    bne @g
+    jsr busy_off                ; (R0 = the scene page again)
+    lda #TXR_SPLIT
+    sta TXR_ON
+    rts
+
+; TXF_OATHEND (bank 13 b13_k_oathend, rendering and the NMI off): the split
+; off (TXR_ON first, so a pending IRQ switches nothing), R1 = the scene page,
+; no band kanji active; KANJI_M0-M2 = the band page's tiles the oath's kanji
+; took ($00 - 4 * OATH_N - 1), for the hack's FN_BLOCK_POST (page 1 -> page 2).
+txr_oathend:
+    lda #0
+    sta TXR_ON
+    sta MMC3_IRQ_OFF
+    sta KANJI_IRQ_ST
+    ldx #15
+@a:
+    sta KANJI_A,x
+    dex
+    bpl @a
+    lda #MMC3_R1
+    sta MMC3_SEL
+    sta MMC3_SELECT
+    lda #CHR_SCENE_HI
+    sta MMC3_DATA
+    lda #$10
+    sta KANJI_M0
+    lda #$00
+    sta KANJI_M1
+    lda #4*OATH_N
+    sta KANJI_M2
+    rts
 
 ; Tile TXR_T = TXR_GBUF[Y..Y+7] in plane 0, plane 1 zero; then TXR_T + 1.
 fix_tile:

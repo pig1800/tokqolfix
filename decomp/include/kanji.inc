@@ -428,8 +428,15 @@ TXF_MENU          = 10      ; the boot screens: TXR_ON = $40, the pool unusable 
 TXF_NAME          = 11      ; an officer record's kanji name: its glyph codes into TXR_NM (battle messages)
 TXF_LOOK          = 12      ; text_show_message after a 3rd line (map mode): V set = the next line would scroll
 TXF_MENUSET       = 13      ; the boot entry (bank 13 b13_k_set): the fixed set into the upper page, once
+TXF_OATH          = 14      ; the opening oath (bank 13 b13_k_oath): its kanji into CHR $3800, TXR_ON = TXR_SPLIT
+TXF_OATHEND       = 15      ; its end (b13_k_oathend): TXR_ON 0, the IRQ off, R1 = the scene page; KANJI_M0-M2 for FN_BLOCK_POST
 TXR_N0            = 70      ; stage 0's count: the first switch in line 71's hblank
 TXR_ON            = $0780   ; bit 7: page 1 lower holds the renderer's tiles (map mode); bit 6:
+TXR_SPLIT         = $20     ; TXR_ON: the opening oath's fixed split (2026-11-14): R1 = CHR $3800 (its kanji
+                            ; at tiles $80+) from line SPLIT_LINE, every frame; no band, no pool, no uploads
+SPLIT_LINE        = 130     ; the IRQ's line: the switch lands in lines 129-131 (measured 127-129 for 128),
+                            ; inside rows 16-17 (lines 128-143), blank between the portraits and the
+                            ; window; row 15's portrait tiles show the $3800 page's pixels if it lands at 127
                             ; the UI words in kanji (map mode $C0; the boot screens' fixed set $40)
 TXR_UQN           = $0781   ; staged tiles the NMI has still to upload
 TXR_UQR           = $0782   ; the NMI's offset in TXR_UQ

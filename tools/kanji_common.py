@@ -192,6 +192,11 @@ BOOT_FIXED = "始歴史書登録消名前入戻進終速普通遅本当宜残念
 # $8B43-$8CEF's.
 BOOT_MESSAGES = ("b11_msg_145", "b11_msg_146", "b11_msg_147", "b11_msg_148",
                  "b11_msg_149", "b11_msg_150", "b11_msg_151", "b11_msg_152")
+# The opening oath's fixed set (the user's, 2026-11-14): the kanji of
+# b10_msg_128, at tiles $80 + 4k of CHR $3800, which R1 shows from scanline
+# 128 (a fixed split; no band, no uploads while the scene runs).
+OATH_FIXED = "生月日異願同年死閻魔大王照覧誓逆者地獄落"
+OATH_MESSAGES = ("b10_msg_128",)
 MAP_UI_LABELS = ("金", "兵糧", "その他")
 GLOSSARY = ROOT / "decomp" / "text" / "kanji_r14" / "glossary.tsv"
 

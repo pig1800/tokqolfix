@@ -236,7 +236,7 @@ irq_handler:
     jmp CV_IRQ
 irq_band:
     lda KANJI_BAND
-    beq irq_off
+    beq irq_split
     lda nmi_busy
     bne irq_off
     lda #MMC3_R0
@@ -283,8 +283,22 @@ txr_tp:
     jmp TEXT_PUT_TILE
 @m:
     jmp TXR_TPM
+
+; The opening oath's fixed split (TXR_ON = TXR_SPLIT; armed for line
+; SPLIT_LINE by the renderer bank's cvn_split): R1 = CHR $3800, its kanji
+; at tiles $80+ for the rest of the frame.  The screen is black there.
+irq_split:
+    lda TXR_ON
+    cmp #TXR_SPLIT
+    bne irq_off
+    lda #MMC3_R1
+    sta MMC3_SELECT
+    lda #CHR_BAND_LO
+    sta MMC3_DATA
+    sta MMC3_IRQ_OFF            ; acknowledge; off until the next arm
+    jmp irq_tail
 .if $ > $C6D2
-    .error "txr_tp: past load_text_graphics' gap ($C6D1)"
+    .error "txr_tp / irq_split: past load_text_graphics' gap ($C6D1)"
 .endif
 
 ; ----------------------------------------------------------------------

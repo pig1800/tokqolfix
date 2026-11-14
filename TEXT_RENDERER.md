@@ -2368,3 +2368,84 @@ placed it at row 12, below the 3-record list's last row (11).
 - The regression set: greeting, menu cycle, the battle and the title
   pixel-identical.  The standard path from frame 2000 differs as above
   (the new game's RNG).  The original build is byte-identical.
+
+## The opening oath: a fixed split, no band (2026-11-14)
+
+The user's direction: for the opening oath (b10_msg_128), instead of the
+message-driven band, a fixed split at line 128 (the screen is black
+around it, so no wait code).  Below it, a fixed kanji page at CHR `$3800`
+replaces `$1800` (BG tiles `$80-$FF`), holding the 20 kanji
+生月日異願同年死閻魔大王照覧誓逆者地獄落.  Every other 8x8 tile the
+window needs is intact in page `$1000`.  No dynamic allocation.
+
+**Checked first:**
+- The oath's kana and frame tiles (`$12-$7A`) avoid the scene's borrowed
+  font tiles (`$42-$5B`, its portraits).  So page `$1000` has all of them,
+  as the user said.
+- The scene's pattern writes all happen with rendering off (frames
+  1579-1582: the portraits into `$1800-$1FFF` and `$1420-$15BF`).  Once it
+  shows, the only pattern writes were the band's uploads and restores.
+
+**How:**
+- **The set:** `kanji_common.OATH_FIXED`, in the user's order.  The build
+  fails if the oath shows a kanji outside it, or if it passes 32 kanji
+  (R1's page).
+- **Setup** (bank 13 `b13_k_oath`, in place of the `wait_vblank` after the
+  portraits; rendering off): `TXF_OATH` writes the kanji to CHR
+  `$3800 + 64k` (tiles 4k..4k+3 there, TL, BL, TR, BR), with R0 =
+  `CHR_BAND_LO` for the writes.  Then `TXR_ON` = `TXR_SPLIT` (`$20`).
+- **The split:**
+  - Each NMI with rendering on (bank 26 `cvn_split`, first in
+    `cvn_band_path`): R1 = `CHR_SCENE_HI` for the top, then the IRQ armed
+    for line `SPLIT_LINE`.  Stage 0 reloads the counter in line 0.  There
+    is no PPU-address force; `FLAG_ARMED` makes the hack NMI's arm a
+    no-op.
+  - The fixed bank's `irq_split` (on `irq_band`'s no-band branch, in
+    `load_text_graphics`' gap, `$C6B6-$C6CC`): R1 = `CHR_BAND_LO`.
+- **The message:** with `TXR_ON` = `$20` the overlay uses no band, no
+  pool and no requests (`message_setup`, `page_start`).  `KANJI_EC` puts
+  a kanji as its set's tiles `$80 + 4k` (`fix_put`, now over a set's
+  entry range: the boot set, then the oath's, in `boot_fix.inc`).  Pages
+  flip to a clear window, as on the band.
+- **Teardown** (`b13_k_oathend`, in place of the scene's last `jmp
+  ppu_bg_sprites_off`):
+  - rendering off as before;
+  - `TXF_OATHEND`: `TXR_ON` 0 first (a pending IRQ then switches
+    nothing), the IRQ off, R1 = the scene page, no band kanji active;
+  - the hack's block-write mirror (`FN_BLOCK_POST`) copies band-page
+    tiles `$00-$4F` (the CHR the kanji took) from page 1.  A later band
+    screen (history, events, endings: not on the measured paths) finds
+    the font there.
+
+**The line.**  The IRQ for line 128 landed in lines 127-129.  Row 15
+(lines 120-127) still holds the portraits' bottom tiles (codes `$80+`):
+black on the scene page, not on `$3800`.  A switch in line 127 showed a
+row of dots under the right portrait.  `SPLIT_LINE` is 130: the switch
+lands in lines 129-131 (735 of 735 frames on the standard path).  That is
+inside rows 16-17 (lines 128-143), which show nothing on either page, and
+13 lines above the window's border (line 144).
+
+**Checked** (`out/test/opt/boot`, against the previous build):
+- Standard path:
+  - The band is never on (before: once, 729 switches).
+  - R1 back to the scene page in vblank (lines 249-255) every frame.
+  - No pattern write while the scene shows.
+- Screens:
+  - 418 of 421 oath shots match a shot of the previous run.  The text
+    prints sooner without the uploads.
+  - The other three: the window drawn a frame later at the start, and the
+    town's first message 2 frames later.
+- Costs, rendering off:
+  - setup 54,870 cycles (frames 1583-1584);
+  - teardown 58,975 (frames 2321-2323).
+- The band page after the teardown:
+  - all 128 tiles equal page 1;
+  - against before the oath, only `$42-$5B` differ (the scene's borrowed
+    tiles, which the band page mirrors as before).
+- The scene now turns the NMI on ~2 frames later (the setup comes first).
+  So the scheduler's RNG step (`read_input_state`, once a frame with the
+  NMI on) and `$33` run 2 steps behind for frame-locked input.  With a
+  player the RNG at any later point depends on when they press A anyway.
+- The regression set: greeting, menu cycle, the battle and the title
+  pixel-identical.  The standard path from frame 2000 differs as above.
+  The original build is byte-identical.
