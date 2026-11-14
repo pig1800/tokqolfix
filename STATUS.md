@@ -147,7 +147,7 @@ kanji-store build:
 | UI bank (code, tables, the officer names' codes 1.3) | 9.5 | bank 28 |
 | Fixed bank (slot 15 free since the debloat: JAM bytes) | 16 | bank 31 |
 | Title screen and attract mode (2026-11-14: code, tile sets, phrases) | 4.2 | bank 24 |
-| **Free** | **128.3** | banks 22, 25, 29, 30 (16 each); bank 23 (14.3); bank 27 (8 + 7.3); bank 21 (12.0); bank 24 (11.8); bank 28 (6.5); bank 26 (4.3); the text banks' ends (0.1).  Also slot 15 (16) and banks 10/11 (20.7, while mapped).  DEBLOAT_TODO "Done (2026-11-14)" |
+| **Free** | **128.3** | banks 22, 25, 29, 30 (16 each); bank 23 (14.3); bank 27 (8 + 7.3); bank 21 (12.0); bank 24 (11.8); bank 28 (6.5); bank 26 (4.3); the text banks' ends (0.1).  Also slot 15 (16) and banks 10/11 (20.7, while mapped).  DEBLOAT_TODO "Done (2026-11-14)"; every region and hole by address: MEMORY_MAP.md |
 
 Before the store (`fd47464`): 29 KiB free.  The store replaced the band
 page / battle copy (33.7 KiB, banks 23-25, with three copies of the hack

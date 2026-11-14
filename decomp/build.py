@@ -166,6 +166,16 @@ def main() -> int:
                 print(result.stderr, end="", file=sys.stderr)
             if result.returncode != 0:
                 return result.returncode
+        # MEMORY_MAP.md follows the ROM (tools/memory_map.py); a failure there
+        # only warns.
+        mm = ROOT / "tools" / "memory_map.py"
+        if mm.exists():
+            result = subprocess.run([sys.executable, "-I", str(mm)], cwd=ROOT, text=True,
+                                    capture_output=True)
+            print(result.stdout, end="")
+            if result.returncode != 0:
+                print(f"warning: memory_map.py failed ({result.returncode}): {result.stderr.strip()[-300:]}",
+                      file=sys.stderr)
         print("OK: 512 KiB kanji target assembled")
         print(f"     bank 31: the original bank 15 with text-engine patches; slot 15 free")
         return 0
