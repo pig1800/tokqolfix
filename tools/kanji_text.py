@@ -642,7 +642,7 @@ def build() -> int:
         out[start:start + len(data_area)] = data_area
         # The original message text behind the stubs, up to its end (tail):
         # the pointer tables reach only the stubs, so nothing reads it
-        # (0 bytes in Mesen's CDL on five paths, DEBLOAT_TODO 3).  Free
+        # (0 bytes in Mesen's CDL on five paths).  Free
         # since the debloat (2026-11-14).
         out[start + len(data_area):info["tail"]] = bytes(info["tail"] - start - len(data_area))
         toff = TRAMPOLINE_ADDR - 0x8000

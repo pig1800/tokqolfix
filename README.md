@@ -1,7 +1,8 @@
-# Tenchi o Kurau (Japan) (Rev 1) — analysis and decompilation
+# Tenchi o Kurau (Japan) (Rev 1): decompilation and kanji edition
 
-Workspace for analyzing and modifying the Famicom game
-`Tenchi o Kurau (Japan) (Rev 1).nes`.
+A byte-identical assembler reconstruction of the Famicom game
+`Tenchi o Kurau (Japan) (Rev 1).nes`, and a 512 KiB MMC3 build of it that
+shows the game's text in kanji.
 
 The ROM is not in this repository, nor is any data taken from it.  Put
 your own copy (sha256 `40f19e17...`, below) at the repo root under that
@@ -11,16 +12,14 @@ name, then extract the game's graphics and data blocks once:
 python tools/assets.py export
 ```
 
-## Decompilation
+## Builds
 
-`decomp/` contains a byte-identical ASM reconstruction:
-
-```bat
-cd decomp
-build.cmd
+```sh
+python decomp/build.py                  # the original, 256 KiB
+python decomp/build.py --target kanji   # the kanji edition, 512 KiB
 ```
 
-Expected result:
+The original build must stay byte-identical:
 
 ```text
 size:   262160 bytes
@@ -28,77 +27,36 @@ sha256: 40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367
 OK: byte-identical to the original ROM
 ```
 
-Start with [`decomp/README.md`](decomp/README.md) for the layout, coverage,
-regeneration workflow, and glyph/text editing notes.
+The kanji edition is `decomp/build/rom_kanji.nes` (524,304 bytes: mapper
+4, NES 2.0, 16 KiB CHR RAM, four-screen nametables, battery RAM).  Its
+build also lints the fixed bank (`tools/bank15_lint.py`) and regenerates
+`MEMORY_MAP.md`.  It needs Python 3 with Pillow and fontTools.
 
-## Editable text
+## Documents
 
-Dialogue banks 10/11 are extracted to:
+- [`STATUS.md`](STATUS.md): the kanji edition as built.  It covers the
+  layout, the runtime, how to edit the text, the tools, the tests and
+  the known limits.
+- [`TEXT_RENDERER.md`](TEXT_RENDERER.md): the design log of the kanji
+  runtime (the map renderer, the kanji store, the boot screens, the oath,
+  the message engine, the RAM code's move), newest last.
+- [`MEMORY_MAP.md`](MEMORY_MAP.md): every PRG region of the current build,
+  generated.
+- [`decomp/README.md`](decomp/README.md): the reconstruction (layout,
+  regeneration from the CDL, glyph and text editing).
+- [`decomp/text/README.md`](decomp/text/README.md): the message format and
+  tokens.
+- [`assets/README.md`](assets/README.md): the exported graphics.
 
-- `decomp/text/bank10_messages.dtx`
-- `decomp/text/bank11_messages.dtx`
+## Text
 
-Edit the quoted kana strings and named control tokens (`<NL>`, `<PAGE>`,
-`<END>`, word/place/item references, and so on), then run
-`python decomp\build.py`.  The dialogue font and the `$80-$EE`
-dakuten/handakuten encoding are decoded, so most text is readable kana.
-The tool rebuilds the split low/high pointer tables and updates code
-references such as `b10_msg_index_036`.  See
-[`decomp/text/README.md`](decomp/text/README.md).
-
-## Execution plan
-
-[`PLAN.md`](PLAN.md) is the phased execution plan for the full kanji+kana
-conversion (512 KiB expansion, font pipeline, renderer, text relocation, script
-proofread, UI screens, QA), with per-task exit criteria.
-
-The current implementation state is tracked in [`STATUS.md`](STATUS.md) and
-[`CHANGELOG.md`](CHANGELOG.md).  The expanded target is built with:
-
-```bat
-python decomp\build.py --target kanji
-```
-
-It writes `decomp/build/rom_kanji.nes` (524,304 bytes, MMC3 since revision
-21) and leaves the original 256 KiB target byte-identical.  The runtime is
-ROM-resident in the text and hack banks and uses no battery RAM.  Dialogue
-kanji live on a private CHR band page (16 KiB CHR RAM) that the MMC3
-scanline IRQ switches in at the window's top border; in battle they use
-tiles the battle scene leaves blank.  See `STATUS.md` for the verified
-gates and the remaining work.
-
-## Handoff / expansion plan
-
-[`HANDOFF.md`](HANDOFF.md) is a self-contained planning handoff covering the
-verified byte-identical build, the 718-kanji inventory, the SUROM 512 KiB
-expansion path, CHR RAM limits, EverDrive N8 constraints, and a phased
-implementation plan (written before the build moved to MMC3 in revision
-21; `STATUS.md` describes the runtime as built).
-
-## Current analysis
-
-[`ANALYSIS.md`](ANALYSIS.md) contains the kanji+kana feasibility study:
-the dialogue engine, the status-screen 16×16 kanji display, font/CHR budgets,
-and the recommended implementation paths.
-
-## Main artifacts
-
-- `decomp/` — routine-oriented assembler source, build/verify script, Mesen labels
-- `assets/` — editable PNG tile/font resources plus exact binary data blocks
-- `decomp/text/` — editable `.dtx` message scripts and text format notes
-- `decomp/FUNCTIONS.md`, `decomp/BANKS.md` — routine index and bank/resource map
-- `tools/decompile.py` — CDL-seeded source generator
-- `tools/symbols.py` — routine names, comments, hardware/RAM symbols
-- `tools/assets.py` — PNG ⇄ NES tile conversion and round-trip verification
-- `tools/text.py`, `tools/textdata.py` — extract/compile/verify editable message text
-- `tools/ghidra_scripts/SeedExport.java` — Ghidra/REA function export helper
-- `out/rea/` — Ghidra function/decompilation exports used for naming
-- `tools/cdl_summary.py`, `tools/merge_cdl.py` — CDL inspection/merging
-- `tools/cdl_*.lua` — Mesen test-runner CDL capture scripts
-- `out/` — screenshots, CHR/PPU/RAM dumps, and CDL captures
+- The kanji edition's text is in `decomp/text/kanji_plan/bank10_messages_kanji_r14.dtx`
+  and `bank11_messages_kanji_r14.dtx`.  Edit those and run the kanji build.
+- The original game's kana text is in `decomp/text/bank10_messages.dtx`
+  and `bank11_messages.dtx`.  Edit those and run the original build.
 
 ## Save-file warning
 
-Mesen keys battery saves by ROM display name. Use a **copied ROM filename**
-(e.g. `out/cdlprobe/tokqol_cdl.nes`) for test-runner sessions so the original
-`D:\EMU\NES\Saves\Tenchi o Kurau (Japan) (Rev 1).sav` is not overwritten.
+Mesen keys battery saves by ROM file name.  Run tests on a copied ROM name
+(`tools/mesen_run.py` does this) so the game's own
+`Saves\Tenchi o Kurau (Japan) (Rev 1).sav` is never touched.

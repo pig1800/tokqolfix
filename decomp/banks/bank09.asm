@@ -447,7 +447,7 @@ b09_kana_127:
 b09_ui_graphics2:
 ; editable source: assets/graphics/bank09_ui_b.png (chr2)
 .ifdef KANJI_TARGET
-    ; Step B, decision 11 (INFO_SCREEN.md): the same block with every UI
+    ; Step B, decision 11 (STATUS.md "UI bank"): the same block with every UI
     ; glyph ($EF-$FA: bars, M, S, P, dot) moved to plane 1, made by
     ; tools/kanji_build.py from the PNG's build output.
     .incbin "build/kanji/bank09_ui_b_k.bin", $0000, $0200

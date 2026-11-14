@@ -2,12 +2,14 @@
 ; Tenchi o Kurau -- 512 KiB MMC3 kanji target (revision 21)
 ; ======================================================================
 ; 32 x 16 KiB PRG, 16 KiB CHR RAM, 8 KiB battery PRG RAM, mapper 4.
-; Banks 0-15 keep the original game.  Banks 16-30 hold the extended font,
-; text and tables.  Bank 31 (8 KiB banks 62/63, fixed at $C000-$FFFF in
-; MMC3 PRG mode 0) is the patched fixed bank; bank 15 holds the same
-; bytes.  Every 16 KiB game bank is mapped as two 8 KiB halves (R6/R7).
-; CHR RAM is 16 KiB in CHR mode 1: page 0 is sprites (R2-R5), page 1 the
-; scene, page 2 the private text band (only its tiles $00-$7F, R0).
+; Banks 0-14 keep the original game (9, 10, 11, 13, 14 patched); bank 15
+; is free (JAM bytes).  Banks 16-30 hold the kanji store, the text, the
+; hack, renderer, UI and attract code (MEMORY_MAP.md).  Bank 31 (8 KiB
+; banks 62/63, fixed at $C000-$FFFF in MMC3 PRG mode 0) is the patched
+; fixed bank.  Every 16 KiB game bank is mapped as two 8 KiB halves
+; (R6/R7).  CHR RAM is 16 KiB in CHR mode 1: page 0 sprites (R2-R5),
+; page 1 the scene; R0 switches BG tiles $00-$7F (the map renderer's
+; parts, the oath's split).
 ; ======================================================================
 
 KANJI_TARGET = 1

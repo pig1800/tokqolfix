@@ -1,6 +1,5 @@
 ; ======================================================================
-; Battle screen (step B item 7, INFO_SCREEN.md "Step B result: the battle
-; screen").  Included by ui.asm.
+; Battle screen (step B item 7, STATUS.md "UI bank").  Included by ui.asm.
 ;
 ; Kanji area: plane 0 of the 23 groups $A4 + 4k (k = 0-22), tiles in 8x16
 ; order (t TL, t+1 BL, t+2 TR, t+3 BR).  P0 cells show plane 0 only, so

@@ -10,20 +10,14 @@ import textdata
 
 ROOT = Path(__file__).resolve().parent.parent
 PLAN = ROOT / "decomp" / "text" / "kanji_plan"
-INDEX_TSV = ROOT / "assets" / "fonts" / "kanji_index.tsv"
+INDEX_TSV = ROOT / "decomp" / "build" / "kanji" / "kanji_index.tsv"   # (build output)
 
 # U+3005 (iteration mark) is a 16x16 glyph too (revision 15).
 KANJI_RE = re.compile(r"[\u3005\u3400-\u9fff\uf900-\ufaff]")
 
-# The dialogue sources that define the hack's inventory.  Both are the
-# corrected machine drafts; they are the editable source for the kanji target.
-# Revision 14: the Opus re-conversion laid out by tools/kanji_layout.py
-# (bank1X_messages_kanji_r14.dtx) replaces the machine drafts when present.
-_R14 = (PLAN / "bank10_messages_kanji_r14.dtx", PLAN / "bank11_messages_kanji_r14.dtx")
-DTX_FILES = _R14 if all(p.exists() for p in _R14) else (
-    PLAN / "bank10_messages_kanji_fixed.dtx",
-    PLAN / "bank11_messages_kanji_fixed.dtx",
-)
+# The dialogue sources that define the hack's inventory: the kanji text,
+# edited by hand (revision 14's re-conversion, laid out once in 2026-11).
+DTX_FILES = (PLAN / "bank10_messages_kanji_r14.dtx", PLAN / "bank11_messages_kanji_r14.dtx")
 
 
 # Print helpers ($F8 CALL) that show one of two fixed officer names: bank 13

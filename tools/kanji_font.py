@@ -14,7 +14,7 @@ from kanji_common import (FALLBACK_USED, INDEX_TSV, MAX_GLYPHS,
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "decomp" / "build" / "kanji"
-SHEET = ROOT / "assets" / "fonts" / "kanji_16x16_ext.png"
+SHEET = OUT / "kanji_16x16_ext.png"          # contact sheet (build output)
 
 
 def build() -> int:
@@ -54,7 +54,7 @@ def build() -> int:
     for ch, name in sorted(FALLBACK_USED.items(), key=lambda kv: order.get(kv[0], 0)):
         print(f"  no Izumi16 bitmap for U+{ord(ch):04X}: {name}")
         fb.append("\t".join((f"{code_of(order[ch]):04X}", ch, f"U+{ord(ch):04X}", name, str(counts.get(ch, 0)))))
-    (ROOT / "assets" / "fonts" / "kanji_fallback.tsv").write_text(chr(10).join(fb) + chr(10), encoding="utf-8")
+    (OUT / "kanji_fallback.tsv").write_text(chr(10).join(fb) + chr(10), encoding="utf-8")
     if any(name == "none" for name in FALLBACK_USED.values()):
         raise SystemExit("a kanji has no Izumi16 bitmap or composite")
     print(f"contact sheet:   {SHEET}")

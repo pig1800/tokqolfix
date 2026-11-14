@@ -106,7 +106,7 @@ PALETTE_TABLES = (0xC5EF, 0xC6D2)           # data_C5EF .. end of data_C6C2
 PALETTE_PTRS = (0xC6B2, 0xC6C2, 16)         # low / high pointer tables
 PAL_DATA = 0x9F00                           # KANJI_PAL_DATA in kanji.inc
 
-# Step B (INFO_SCREEN.md): the UI bank (ui.asm) with the info-screen
+# Step B (STATUS.md "UI bank"): the UI bank (ui.asm) with the info-screen
 # renderer, its own copy of the UI kanji glyphs and the item / tactic kanji
 # tables (ui_data.inc, generated here).
 UI_BANK = 28

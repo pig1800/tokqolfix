@@ -1,5 +1,13 @@
 # Map-mode text renderer: assessment (2026-11-12)
 
+> The design log of the kanji runtime, 2026-11-12 to 2026-11-14, newest
+> last.  `STATUS.md` describes the build as it is now; sections here may
+> describe states since replaced.  Documents cited here were removed on
+> 2026-11-14 and are in the git history: `MAP_CANVAS.md`,
+> `INFO_SCREEN.md`, `DEBLOAT_TODO.md`, `CHANGELOG.md`, `PLAN.md`.  So
+> were tools such as `qa_*.py`, `garble_*`, `band_*.lua` and
+> `palette_check.py`.
+
 The user's scheme for the last big overhaul: one dedicated renderer for
 every text cell in map mode.  It drops the band page, the dialogue canvas
 and the compile-time kana borrowing.  This document is the assessment

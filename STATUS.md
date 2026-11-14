@@ -1,279 +1,190 @@
-# Current implementation status
+# The kanji edition as built (2026-11-14)
 
-Revision 22, 2026-11-09 (branch `rev10-wip`, uncommitted working tree).
-Implemented by the planner after the revision-10 and revision-11 play
-tests; see CHANGELOG for what each revision fixed.
+The reference for the current build: layout, runtime, text editing, tools,
+tests and limits.  The reasons behind each part, and the measurements, are
+in `TEXT_RENDERER.md` (design log, newest last); every PRG region by address
+is in `MEMORY_MAP.md`.
 
 ## Builds
 
 - Original 256 KiB ROM: byte-identical,
   `40f19e179b84a4a2576d678dd97d9d1dc0925ea848841e6b030ffecfa73a8367`.
-- Kanji 512 KiB MMC3 ROM (mapper 4, NES 2.0, 16 KiB CHR RAM, CHR mode 1;
-  revision 21; text revision 22b): `3610a067ddc0d01aff830c1f7ac56ccca7059f1e23d486c674c17089376f61fc`.
-- Fixed-bank hooks in audited regions plus the rewritten reset setup
-  (`$F004-$F039`), the dead MMC1 routines (`$C460-$C47D`, `$C489-$C49D`,
-  `$C4AD-$C4B9`) and the IRQ vector.  The largest region is `$C5A6-$C6D1`: the game's
-  `load_text_graphics` rewritten in place, its palette tables moved to hack
-  bank 23 at `$9F00`.  Hack code from `$8000` in bank 23's lower 8 KiB
-  (since the kanji store, 2026-11-13; before: three copies beside glyph
-  tables in banks 23-25), with the message engine (`kanji_msg.asm`, the
-  old overlay, out of the text banks since 2026-11-14: TEXT_RENDERER.md
-  "The message engine out of the text banks").
-- The runtime that must run with any bank mapped (the IRQ's part
-  switches, the NMI's stream step, the renderer's stubs: `fixed_rt.asm`)
-  in bank 31 at `$FC00`, in the dead developer debug screens' space, since
-  2026-11-14 (battery RAM `$7900` before, copied from bank 27 at reset):
-  TEXT_RENDERER.md "The RAM code in bank 31".  No code runs from RAM.
-- Text: revision-14 Opus re-conversion (`decomp/text/kanji_r14/`), laid out by
-  `tools/kanji_layout.py` into `decomp/text/kanji_plan/bank1X_messages_kanji_r14.dtx`
-  (the compiler's source when present); text in four 8 KiB chunks
-  (8 KiB banks 36-39 = 16 KiB banks 18-19, read at R7), no metadata.
-- Kanji store (2026-11-13): every glyph once, 256 a bank in the 8 KiB banks
-  32-35 (16 KiB banks 16-17), code = bank << 8 | pos, in the text `$EC +
-  bank, pos`; 1,004 glyphs since the 2026-11-14 text refinement (832
-  distinct kanji in the messages, the rest UI, officer names and the title
-  and attract mode's 21), 20 free.
-  TEXT_RENDERER.md "The kanji store".
-- Title screen and attract mode in kanji (2026-11-14): bank 24, portraits
-  as 8x16 sprites.  TEXT_RENDERER.md "The title screen and the attract
-  mode".
-- Kanji tiles: per page, the free kana tiles least exposed to game windows
-  (unused by menus/names, then name-entry grid, submenu, officer/item
-  names).  A message printed by menu code, or jumping into it, never
-  borrows the kana of the menus that code opens (derived from the
-  original banks 13-15; build fails on a conflict).
-- Font (2026-11-12): Izumi16's embedded 16-pixel bitmaps only
-  (`JF-Dot-Izumi16.ttf`, never its outlines), anchored bottom right (column 0 and row 0 blank).  璝, which it
-  lacks, is composed from its bitmaps (`assets/fonts/kanji_fallback.tsv`;
-  TEXT_RENDERER.md "Izumi16 bitmaps").
+- Kanji edition: `python decomp/build.py --target kanji` writes
+  `decomp/build/rom_kanji.nes`.
+  - Hardware: 512 KiB PRG, MMC3 (mapper 4, NES 2.0), 16 KiB CHR RAM, 8 KiB
+    battery PRG RAM, four-screen nametables.
+  - The build lints the fixed bank and regenerates `MEMORY_MAP.md`, whose
+    header gives the current sha256.
+- Font: every kanji is JF-Dot-Izumi16's own 16-pixel bitmap (its 16 ppem
+  strike, `JF-Dot-Izumi16.ttf`; never the outlines).  The 15x15 box is
+  anchored bottom right.  璝, which the font lacks, is composed from its
+  bitmaps.
 
-## Runtime design
+## Layout (16 KiB banks)
 
-- **Idle cost (revision 15).** With no band, no request, no VRAM queue
-  traffic and no CHR-animation step, `ef08_gate` skips the hack bank;
-  `ef31_gate` skips the epilogue unless a band is shown or a split mode
-  runs.  With no band the NMI only records stale band-page tiles; the next
-  message start syncs them (`REQ_SYNC`, 1-8 frames on the test paths).
-  Town walking, no message: NMI ~3,370 cycles per frame (original
-  ~3,110; measured on SUROM).  While a message is shown the band costs
-  the scanline IRQ (~90 cycles) instead of the sprite-0 wait
-  (15,000-19,000 cycles per frame up to revision 21a).
-- **Mapper (revision 21).**  MMC3, PRG mode 0: every 16 KiB game bank is
-  two 8 KiB halves (R6/R7), bank 31 is the fixed bank.  `set_bank_lock`
-  and `restore_bank_after_nmi` keep their addresses and jump to
-  `main_prg` / `nmi_prg`.  `$EB` (the MMC1 lock, used only by those
-  routines) is the bank-select shadow `MMC3_SEL`: the main thread stores
-  it before every `$8000` write, interrupt code writes `$8000` directly
-  and leaves with `$8000 = MMC3_SEL | $80` (the NMI's last
-  `restore_bank_after_nmi` does it).  The reset writes every MMC3 register
-  from `$E000-$FFFF` before using `$C000-$DFFF`, then `cli`.
-- **Pages.** CHR page 0 sprites (R2-R5), page 1 scene, page 2 band.  Only
-  BG tiles `$00-$7F` switch (R0, 2 KiB); `$80-$FF` always show the scene
-  page (R1), so they are never copied or stale (revision 21).  Page 2's
-  lower half equals page 1's except for kanji slots.  Every game CHR write is mirrored:
-  block writes are copied page 1 -> page 2 right after they happen (main
-  thread, rendering off); queue writes are marked stale and restored in
-  vblank; kanji slots released by a message are restored the same way.
-- **Band switch (revision 21b).**  The MMC3 scanline IRQ selects page 2
-  (R0) in the window's top border row, so page 2 covers the window and
-  everything below it; the NMI selects page 1 again for the next frame.
-  The NMI arms the counter after the frame's last PPU access (it also
-  counts the A12 rises of vblank VRAM traffic): latch T + 2, T = the
-  border row's first line (`KANJI_WIN_ROW * 8 - scroll_y`, modulo 240,
-  16-208), computed for the frame about to be drawn.  Frames whose game
-  queue flushed at most 40 bytes reach the arm before the pre-render
-  line's clock; heavier frames and CHR-animation frames keep the IRQ's
-  own re-arm for the same line one frame later (vblank CHR/palette
-  writes can only make it early, onto the map above the window).  The
-  IRQ does nothing while no band is shown or in busy mode (the main
-  thread's CHR writes clock the counter too); busy, split and
-  rendering-off frames disable it.  In Mesen the counter takes one more
-  clock at line 0 on every other frame and one more when vblank ends with
-  the PPU address below `$1000`: the switch lands in border lines 0-2,
-  heavy frames up to 4 lines early, late arms up to +6.
-- **Battle pool (revision 18).**  The battle tile set leaves tiles
-  `$A4-$DF` of the scene page blank and never shows them.  When graphics
-  set 8 (battle) is loaded, the hack reads them back; all blank arms the
-  pool, and any game write into them disarms it.  A message printed then
-  (on the battle screen always, any page size, since 2026-11-13) puts
-  its kanji there (entry k of a page in
-  `$A4+4k..+3`, plane 0, scene page): no band, no IRQ.  Each slot's
-  tiles are in 8x16 order, TL, BL, TR, BR (2026-11-13; before: TL, TR,
-  BL, BR), as the battle screen's groups.  Since 2026-11-13 the battle's
-  kanji slot table (32 slots `$80-$FF`, a kanji used again from its slot,
-  the reward window fixed in `$80-$97` from the win): TEXT_RENDERER.md
-  "the battle's kanji slot table".
-  The engine's row renderer draws `$A4-$DF` as tiles (`render_ctl`).
-  Everywhere else the band page as below.
-  Revision 20: the battle window scrolls as in the original.  A page takes
-  the lowest run of slots no pool tile in the window's lines shows (the
-  first slot in `KANJI_UPLOADED+1` bits 0-3, at most 12 kanji a page); a
-  page that does not fit clears the window first.  The engine's scroll
-  copy keeps cells below `$FA` (`$D416`).
-- **Fixed-bank tables.** `$E6A9-$E6D0` (battle damage factors) and every
-  other byte outside the registered ranges are the original's (revision
-  16c); `$0100/$0101` are game RAM, the overlay's scratch is at
-  `$0132/$0133` and `$0102/$0103`.
-- **No cycles before the game's split code.**  Hooks sit after the
-  `nmi_mode` branch (`$EF0B`, normal frames only) and in the epilogue
-  (`$EF31`, after every split loop).
-- **VRAM work only in vblank.**  One unit (a glyph tile, two when the queue
-  is idle; one tile restore; the window probe) in light
-  frames (no CHR animation, <= 8 queued bytes); bulk while rendering is
-  off.  Bookkeeping runs after the frame's last PPU access.  Measured from
-  the hook entry, the latest light-frame entry (scanline 254.7) plus the
-  costliest unit ends before the pre-render line.
-- **NMI block write** (flush_palette's CHR-animation step, the only block
-  write in the NMI): the fixed-bank hook selects page 1 directly
-  (`chr1_scene`, one R0 write) and the NMI hook marks the 4 tiles stale
-  from the animation pointer.  Queued CHR writes that land on page 2 after
-  a band frame are replayed on page 1 from the queue ring.
-- **Overlay.** Posts requests and waits frame by frame; never touches the
-  PPU or a mapper register.  At a page start it keeps only the kanji of
-  the three lines still on screen and restores this page's kana tiles that
-  an earlier page used.  A message that continues an open window first
-  scrolls the previous lines out with the engine's own scroll routine.
-- **RAM.** State only in `$0131-$017F` and `$0100-$0103` (cleared at reset
-  with `$0104-$0130`); no RAM code.  Pool state lives in spare bits:
-  `KANJI_WIN_COL` bits 6-7 (armed, checked), `KANJI_PAGES_LEFT` bit 6
-  (pool message).
-
-## ROM space (2026-11-13, after the kanji store)
-
-The 256 KiB added by the 512 KiB build (banks 16-31), measured on the
-kanji-store build:
-
-| Content | KiB | Where |
-|---|---|---|
-| Kanji store (1,004 glyphs since the 2026-11-14 text refinement, room for 20 more) | 32 | banks 16-17 (8 KiB banks 32-35) |
-| Message text (758 unique messages; no metadata since 2026-11-14, 13.6 before, 52.5 before the debloat) | 30.2 | four 8 KiB chunks, banks 18-19 (1.8 free in the last) |
-| Hack code, the message engine (1.4, the old overlay: 2 KiB in each of 4 text banks before 2026-11-14), palette tables | 3.1 | bank 23 lower half |
-| Map renderer | 11.7 | bank 26 |
-| UI bank (code, tables, the officer names' codes 1.3) | 9.5 | bank 28 |
-| Fixed bank (slot 15 free since the debloat: JAM bytes; the runtime, the old RAM image, at `$FC00` since 2026-11-14) | 16 | bank 31 |
-| Title screen and attract mode (2026-11-14: code, tile sets, phrases) | 4.2 | bank 24 |
-| **Free** | **189.1 in all** | banks 15 (JAM), 20, 21, 22, 25, 27, 29, 30 (16 each); bank 23 (12.9); bank 24 (11.6); bank 28 (6.5); bank 26 (4.3); bank 19 (1.8); bank 31 (0.6); banks 10/11 (22.2, while mapped).  Battery RAM `$7900-$7BF4` (757 bytes) since the RAM code went to bank 31.  DEBLOAT_TODO "Done (2026-11-14)"; every region and hole by address: MEMORY_MAP.md |
-
-Before the store (`fd47464`): 29 KiB free.  The store replaced the band
-page / battle copy (33.7 KiB, banks 23-25, with three copies of the hack
-code, 11.6), the map renderer's copy (32, banks 16, 17b, 27a), the
-officer-name font (8, bank 17a) and the UI bank's 147 glyphs (4.6); the
-text is 0.9 KiB smaller (no 3-byte codes).
-
-Candidates for more: DEBLOAT_TODO.md "Smaller ones" (the band page's
-metadata, the rest of the metadata, the old text in banks 10/11, bank 15
-and the overlay copies are done, 2026-11-14).
-
-## Gates on the final build
-
-| Gate | Result |
+| Bank | Content |
 |---|---|
-| Original target | byte-identical |
-| Palettes (`palette_check.py`) | every load equals the original routine on the original tables (8 loads incl. the town exterior; revision 12 fails) |
-| `bank15_lint` | 19 ranges, bank 31 == bank 15, mapper 4; build fails if hook code leaves its gaps |
-| Opening logo (raster split) | frames 11-301 pixel-identical to the original, every frame compared (3-frame boot offset; 6 before revision 21) |
-| Visible garble (`garble_check.lua`, 6 input timings) | 0 frames (revision 11: 16-460 frames per run) |
-| Partner shop from the play-test state (`garble_state.lua`, 5 paths) | only the state's own garbled menu until each path redraws it (42-123 frames; revision 20: 49-130; revision 15b: 206-329 per path) |
-| Save at the record office, fade out/in (`garble_state.lua`) | 0 frames (revision 16: 40) |
-| Hack VRAM/OAM access vs vblank end (`vblank_deadline.lua`, standard path and three battle states) | 0 after the pre-render line; costliest unit 733 cycles from entry (revision 20: 776) |
-| Game's scroll/mask restore (`anim_timing.lua`) | by scanline 259, same histogram as revision 20 (the current path has no CHR-animation step; revision 11: 268) |
-| Hack PPU access while rendering (`r11_diag.lua`) | 0 |
-| Band switch scanline (`band_check.lua`) | 3,596 IRQ switches: border lines 0-2 in 3,453, +3/+6 in 61, 1-4 lines early in 82 (heavy frames) |
-| Band page vs scene page for shown tiles | 0 mismatching cells |
-| Kana written over an active kanji tile | 0 |
-| `ram_gate.lua` | 0 battery-RAM writes by the hack; 0 game writes to hack state; min SP `$16` |
-| Stack at battle entry (`taint_check.lua`, normal and boss) | min SP `$0F` (revision 20: `$0D`; revision 17: `$0B`; original `$1C`) |
-| `mask_restore` | 0 |
-| Message timeline | messages start at 608/888/1589/2363/3297 (original 607/888/1589/2359/3290; revision 20: 607/888/1593/2367/3302) |
-| `zp_check.lua` | `$10/$11` unchanged at every overlay exit (836 checks; the town's RNG differs by build; since 2026-11-14 the message engine's entry, `@msg_entry@`) |
-| Battles from three states (`garble_state.lua`: play-test, before a normal and a boss battle) and a forced level-up (`SHOP_POKE`), converted states (`out/user/m3/`) | 0 frames, window closes, shake steps and scrolling included (revision 17: 15 frames in 7 closes) |
-| Battles from three states (`taint_check.lua`) | 0 game reads of hack-changed RAM, 0 game writes to hack state |
-| Battle round from the play-test state (`taint_check.lua`, revision 16c) | 0 game reads of hack-changed RAM, 0 game writes to hack state; damage 26/22/4/9/3/7 (revision 16b: every hit killed) |
-| Menu kana under kanji (compiler) | 0 conflicts |
+| 0-8, 12 | the original game |
+| 9 | original; the UI glyphs `$EF-$FA` moved to plane 1 (the info screen's kanji) |
+| 10, 11 | the game's message tables; each kanji message is a 6-byte `$F8` far stub (JUMP-only messages 3 bytes); the old text space is free |
+| 13 | original, patched: the boot screens (fixed kanji set, the speed message, two save records), the attract entry |
+| 14 | original, patched: hooks for the battle, info and army screens, the battle shake, the reward window's template |
+| 15 | free (JAM bytes: nothing maps it) |
+| 16-17 | kanji store: 1,004 of 1,024 glyphs, 256 per 8 KiB bank (banks 32-35) |
+| 18-19 | text: 758 unique messages in four 8 KiB chunks (banks 36-39), read at R7 |
+| 23 | hack bank: the message engine (`kanji_msg.asm`), the battle pool's uploads, the palette tables |
+| 24 | title screen and attract mode (`attract.asm`) |
+| 26 | map text renderer (`txr.asm`) |
+| 28 | UI bank (`ui.asm`, `ui_battle.asm`) |
+| 31 | fixed bank: bank 15 with registered patches, and the runtime at `$FC00` (`fixed_rt.asm`) |
+| 20-22, 25, 27, 29, 30 | free |
+
+189.1 KiB free in all.
+
+## Runtime
+
+- **Bank switching.**  MMC3 PRG mode 0.  Every 16 KiB game bank is two
+  8 KiB halves (R6/R7); bank 31 is fixed at `$C000-$FFFF`.
+  - The game's `set_bank_lock` and `restore_bank_after_nmi` keep their
+    addresses and jump to `main_prg` / `nmi_prg`.
+  - `MMC3_SEL` (`$EB`) shadows the bank-select register for the main
+    thread; interrupt code restores it.
+  - `PRG_R7X` lets main-thread code borrow R7 for an 8 KiB bank (a store
+    bank or a text chunk); the NMI's restore keeps it.
+  - While a message prints, the current bank is `MSG_BANK` (`$97`): R6 =
+    the hack bank's lower half, R7 = the message's text chunk.
+  - `main_prg` takes 63 cycles and 36 bytes, as the original's switch
+    did; the RNG depends on that timing.
+- **The fixed bank** keeps every original routine at its address (save
+  states hold return addresses).  Changes are allowed only inside the
+  ranges `tools/bank15_lint.py` registers.  The runtime at `$FC00` is the
+  code that must run with any bank mapped: the IRQ's part switches, the
+  NMI's stream step and the renderer's stubs.  No code runs from RAM.
+- **Messages.**  A kanji message's entry in banks 10/11 is a stub:
+  `F8 <far_head> <chunk | $80 victory> <text address>`.  The trampoline
+  enters the message engine at `MSG_ENTRY` (`$800F`, bank 23).
+  - Kanji are `$EC-$EF` + pos in the text (store bank + position).
+  - A page holds at most 16 kanji.  Its kanji table (`REG_LO/HI` 0-15) is
+    built at run time; there is no metadata.
+- **Map mode** (the map renderer, bank 26, `TXR_ON` bit 7) draws every
+  text cell.
+  - The screen has four parts (rows 0-8, 9-14, 15-20, 21-29), shown
+    through R0 pages 4, 8, 10 and 12.  The IRQ switches pages at lines 71,
+    119 and 167.
+  - Each page holds the fixed set (frame and cursor tiles `$00-$0B`, blank
+    `$7F`), then kanji in 4-tile groups from `$0C` up, and kana from the
+    top down.
+  - Glyphs upload in the NMI, before the game's own NMI work: 3 kanji or 7
+    kana a frame.  When a part runs out of tiles, a read-back garbage
+    collector frees the ones no longer shown.
+  - The map UI's words, and item, tactic and place names, show in kanji
+    (`TXF_PUT`).  Officer names show in kanji in map mode, in battle and on
+    the info and army screens (`pon_kanji`, the UI bank's name table).
+  - Map windows never scroll: where the original would scroll, the page
+    breaks (`<NLNI>`, `<PAGENI>`).
+- **Battle.**  The kanji slot table manages 32 slots of 4 tiles in the
+  scene page (`$80 + 4s`, 8x16 order).
+  - Before the win, messages use slots 9-23; slots 0-8 hold the portrait.
+    The command windows' 15 fixed kanji live there too.
+  - From the win, slots 0-5 hold the reward window's 金兵糧経験値 and 6-31
+    the messages'.
+  - A kanji already in a slot is used from it.
+  - The battle window scrolls as in the original.
+  - The UI bank draws the command, item and tactic windows (one UI-bank
+    call per template line, `cv_wincb`), the reward window (`$22`) and
+    the prisoner window (`$21`).
+- **UI bank.**  The officer info screen and the army status screen show
+  kanji without switching CHR banks: in plane 1 of the font tiles (labels,
+  names) and in plane 0 of free scene tiles.  Each screen is built while
+  black and shown once complete, without the original's frame pacing.
+  The battle setup replays the RNG steps of the frames it skips, so every
+  roll is the original's.
+- **Boot screens** (main menu, history books, name entry): one fixed set
+  of 25 kanji at upper tiles `$80-$E3`, uploaded once at the boot entry
+  (`TXF_MENUSET`).  The message speed prompt (b11_msg_147) shows before
+  the speed window.
+- **The opening oath:** a fixed split.  The IRQ at line 130 switches R1 to
+  CHR `$3800`, which holds the oath's 20 kanji.
+- **Title and attract mode** (bank 24): each screen has its own tile set,
+  and the portraits are 8x16 sprites.
+- **Anything else.**  A message printed with neither the map renderer nor
+  the battle pool hits `band_trap`, a JAM, in place of the old band page.
+  At the JAM, A = its text chunk and X/Y = its text address;
+  `python -I tools/band_trap.py A=.. X=.. Y=..` names the message.  Each
+  screen reported this way gets its own fixed kanji, as the boot screens
+  and the oath did.
+
+## RAM
+
+| Range | Use |
+|---|---|
+| `$0102-$0103`, `$0131-$017F` | the message engine's and the battle pool's state |
+| `$0780-$07FF` | the map renderer's state (`TXR_*`; `REG_LO/HI` at `$07A0-$07DF`) |
+| `$6000-$77FF` | the game's (two save records in the kanji edition) |
+| `$7800-$78FF` | the map's attribute shadow (`MAP_ATTR`, four-screen) |
+| `$7900-$7BF4` | free (cleared at reset) |
+| `$7BF5-$7F9B` | the renderer's tables and buffers (in battle: the kanji slot table) |
+| `$7F9C-$7FFF` | the UI bank's state, `PRG_R7X` |
+
+`hack_init` clears `$0103-$017F`, `$0780-$07FF` and `$7900-$7FFF` at reset.
+
+## Editing the text
+
+- Edit `decomp/text/kanji_plan/bank10_messages_kanji_r14.dtx` and
+  `bank11_messages_kanji_r14.dtx`, then run
+  `python decomp/build.py --target kanji` (about 10 seconds).
+  - The build reports lines wider than their window and pages it had to
+    split.
+  - It fails if the text outgrows its four chunks or the store's 1,024
+    glyphs.
+- `python -I tools/scroll_scan.py` lists messages that would scroll in map
+  mode, i.e. a 4th line between page breaks.  It should report 0.
+- The name and word kanji come from three files:
+  - `kanjiwordlist.csv`: item and tactic words (cp932);
+  - `namekanjilist.csv`: officer names;
+  - `decomp/text/kanji_r14/glossary.tsv`: place names.
+- Boot-screen text must keep its kanji within the fixed set; the build
+  checks this.  New attract-mode text goes in `tools/attract_text.py`.
+
+## Tools
+
+| Tool | Use |
+|---|---|
+| `decomp/build.py` | both builds; runs `assets.py`, `text.py`, `kanji_build.py`, `bank15_lint.py`, `memory_map.py` |
+| `tools/kanji_build.py` | the kanji edition's banks; with `kanji_text.py` (text compiler), `kanji_common.py`, `kanji_font.py`, `attract_build.py`, `attract_text.py` |
+| `tools/scroll_scan.py`, `tools/band_trap.py` | text checks; naming a trapped message |
+| `tools/mesen_run.py` | runs a Lua script in Mesen's test runner on a copied ROM name |
+| `tools/lua_addrs.py` | refreshes the `-- @label@` addresses in Lua scripts from the listings; run it after a change to `hack.asm` or the fixed bank |
+| `tools/mss_to_mmc3.py`, `tools/mss_4screen.py`, `tools/mss_canvas.py` | convert save states of older builds (SUROM, two-screen, before the renderer) |
+| `tools/lua/zp_check.lua`, `ram_gate.lua`, `taint_check.lua`, `mask_restore.lua`, `anim_timing.lua` | gates: zero page kept at message exits, RAM ownership, stack, the game's mask/scroll restore |
+| `tools/lua/map_parts_*.lua`, `txr_*.lua`, `mmc3_clock_trace.lua`, `screen_trace.lua` | probes for the map renderer's IRQ lines, uploads and rows; a screen's code path |
+| `tools/decompile.py`, `gen_docs.py`, `symbols.py`, the CDL tools | regenerating the reconstruction (`decomp/README.md`) |
+
+## Testing
+
+- The regression check is a pixel comparison against the previous build.
+  The paths are: the greeting, the menu cycle, the officer switch, the
+  level-up and capture battles, the title, the standard path, the oath and
+  the five boot flows (about 3,200 screenshots).
+  - The harness is local (`out/test/opt/suite.sh`, `suite_cmp.py`) and not
+    in the repo; `out/` is ignored.
+  - The copy flow's frame 800 differs between builds by a scanline of
+    menu border.
+- Main-thread cycle changes can move a lag frame, and with it the NPCs and
+  the RNG.  Keep hot paths and boot-time code cycle-neutral, and measure
+  (Mesen's `cpu.cycleCount`) when in doubt.
+- Save states made on an older build may hold return addresses into code
+  that moved.  Convert copies of them; never edit the originals.
 
 ## Known limits
 
-- Boot is 6 frames longer and every scene load copies its CHR to the band
-  page (about 470 cycles per tile).
-- Kanji print a little slower than kana: each new kanji of a page waits
-  for its glyph upload (2-4 frames).  The first history prompt finishes at
-  frame 639 against 626 in the original.
-- The band switch follows the IRQ arm: in frames whose game queue flushed
-  more than 40 bytes (window drawn or erased) it comes 1-4 lines early,
-  onto the map above the window, where the band page shows the scene's
-  tiles; a kanji or stale tile shown there would show from page 2 for
-  that frame.  The IRQ timing is Mesen's (see Band switch).
-- Outside battle, each wait inside a kanji message flips to a fresh window
-  (the original scrolls line by line); a message that continues a window
-  also starts on a cleared window.  In battle the window scrolls; it is
-  cleared only when the next page's kanji do not fit beside the ones on
-  screen (not seen on the tested paths).
-- Battle pool limits: a battle page with more than 12 kanji uses the band
-  page, whose window closes can garble 1-3 frames (none such page exists
-  yet).  The pool is verified on four battle runs only; a battle that
-  shows tiles `$A4-$DF` would be reported by `pool_outside`.
-- The band page is not told about CHR the game writes with direct `$2007`
-  loops (the battle-entry dissolve); such tiles are not shown on the band
-  page in the tested scenes.
-- Runtime names (`<NAME_F3>`..`<NAME_F7>`: acting officer, item) print in
-  kana from the game's tables; fixed names in the text are kanji.  The two
-  fixed kana tails game code adds to a name in messages are kanji
-  (`$D549` の兵, `$D565` の計; revision 19); menus stay kana.
-- 16 KiB CHR RAM: the MMC3 CHR-RAM boards (TGROM/TNROM) have 8 KiB.  The
-  band's 2 KiB cannot live in the sprite page: the game shows sprite tiles
-  `$80-$CF` (history screen, battle) and writes sprite CHR `$0800-$0FFF`.
-  Emulator-only (NES 2.0 CHR-RAM size) until a board with more CHR RAM.
-- Save states of the SUROM builds need `tools/mss_to_mmc3.py`; battery
-  saves (`.sav`) work unchanged.
-
-## Remaining work
-
-1. Rework `qa_pages.py`/`qa_field.py`/`qa_sweep.py` for the band page (their
-   checks read page 1) and regenerate `tools/lua/town_menu.mss`.
-2. Coverage beyond the scripted path: battles, shops, castles, the officer
-   scene (`nmi_mode = $80`), save slots 2/3, random power-on RAM, a second
-   emulator.
-3. Eyeball the two relaxed messages.
-4. Phase 3/4 content and proofreading; hardware when an N8 exists.
-
-## Commands
-
-```powershell
-python decomp\build.py
-python decomp\build.py --target kanji
-
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\band_check.lua --name band
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\r11_diag.lua   --name diag
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\ram_gate.lua   --name ram
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\mask_restore.lua --name mask
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\vblank_deadline.lua --name dead
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\anim_timing.lua --name anim
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\zp_check.lua   --name zp
-python tools\garble_run.py decomp\build\rom_kanji.nes --offsets 0,5,11,19,29,40
-# from a save state: SHOP_STATE=<.mss> SHOP_PATH=b,w,a,... SHOP_OUT=<dir>
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\garble_state.lua --name gs
-python tools\mesen_run.py decomp\build\rom_kanji.nes tools\lua\taint_check.lua --name tnt
-# states: SUROM states converted by tools/mss_to_mmc3.py into out/user/m3/
-#   (r16c_rom_kanji_1, r17_pre_battle_normal, r17_pre_battle_boss, r16b_rom_kanji_1, shop_k_rom_kanji_1)
-python -I tools\mss_to_mmc3.py <SUROM state.mss> <MMC3 state.mss>
-# all gates: sh tools/run_gates.sh (GDIR=<out/test subdir> TAG=<name suffix>)
-# vblank deadline from a save state: DL_STATE=<.mss> DL_PATH=... DL_FRAMES=2500 DL_OUT=<file>
-python tools\palette_check.py
-python tools\lua_addrs.py tools\lua\band_check.lua tools\lua\vblank_deadline.lua tools\lua\zp_check.lua tools\lua\band_timing.lua
-```
-
-Outputs go to `out/test/r11/` and `out/test/r12/`.  Use a fresh `--name` per
-ROM variant.  Run `lua_addrs.py` after any change to `hack.asm` (it
-refreshes the hack addresses the gates hook).
-
-## Source of truth
-
-- Text: `decomp/text/kanji_plan/bank10_messages_kanji_r14.dtx` and
-  `bank11_messages_kanji_r14.dtx`.  Edit them and run
-  `python decomp\build.py --target kanji` (about 10 seconds; the build
-  reports lines over the window width and forced page splits).  They were
-  generated once by `tools/kanji_layout.py` from
-  `decomp/text/kanji_r14/batch_*.txt`, which now refuses to overwrite them
-  without `--force`.  The older `*_kanji_fixed.dtx` drafts are used only
-  when the r14 files are absent.
-- `JF-Dot-Izumi16.ttf` (its 16 ppem bitmap strike; `JF-Dot-Shinonome16.ttf` and `DotGothic16-Regular.ttf` are no longer used)
+- 16 KiB CHR RAM and four-screen nametables (NES 2.0).  The MMC3 CHR-RAM
+  boards have 8 KiB, so this runs in emulators, or on a board with more
+  CHR RAM.
+- Screens that have no fixed kanji yet stop at `band_trap` (above).
+- In map mode, each new kanji of a page waits for its glyph upload, so
+  kanji print a little slower than kana.
+- Level-up battle (seen before 2026-11-14, not fixed): on the page
+  「は<CALL:D565=さくりゃく>を覚えた」, 計 shows only its 言 half and 覚
+  is blank.  The call's kanji tail and the page's kanji meet in the same
+  pool slots.

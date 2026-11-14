@@ -1,5 +1,5 @@
 ; ======================================================================
-; UI bank (step B, INFO_SCREEN.md): bank-switch-free kanji on the officer
+; UI bank (step B, STATUS.md "UI bank"): bank-switch-free kanji on the officer
 ; info screen.  PRG bank UI_BANK, assembled for $8000; the fixed bank's
 ; call_ui maps it (game lock protocol) and calls $8000 with X = function.
 ;
@@ -406,7 +406,7 @@ ui_info_enter:
 ; Busy mode until UIF_INFO_DRAW's end: the game's own steps (the portrait,
 ; the two name windows, the name's CHR stream) wait with wait_vblank, whose
 ; busy path flushes the queue and the stream at once instead of one chunk
-; per frame (15 black frames before, see INFO_SCREEN.md).  Those direct
+; per frame (15 black frames before).  Those direct
 ; flushes go through the block writer: no mirror to the band page (pal_copy
 ; in battle_intro_screen cleared UI_NOMIR; the next pal_copy clears it).
 ; ======================================================================
@@ -763,7 +763,7 @@ pool_unchecked:
 ; ======================================================================
 ; UIF_ARMY: the army status screen (Select on the map), built whole while
 ; it is black (bank 14 b14_army_status_screen, after battle_intro_screen's
-; fade-out; INFO_SCREEN.md "Army status screen, built directly").  The
+; fade-out; STATUS.md "UI bank").  The
 ; game built it with battle_intro_screen's setup (two frame waits after
 ; the fade), four text-engine windows (every row queued and flushed, every
 ; name kanji a block-writer stream, the troop list's line routine copied

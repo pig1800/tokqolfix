@@ -855,7 +855,7 @@ b14_party_status_update:
 ; ----------------------------------------------------------------------
 b14_officer_info_screen:
 .ifdef KANJI_TARGET
-    ; Step B (INFO_SCREEN.md): the screen stays black until it is complete.
+    ; Step B (STATUS.md "UI bank"): the screen stays black until it is complete.
     ; The game loads the portrait (status_message without its
     ; rendering-on) and draws the two name windows; the UI bank draws the
     ; rest (kanji labels, values and bars, the equipment and tactic windows
@@ -2320,7 +2320,7 @@ b14_loc_9595:
 b14_army_status_screen:
 .ifdef KANJI_TARGET
     ; QoL: the UI bank builds the whole screen while it is black
-    ; (UIF_ARMY, INFO_SCREEN.md "Army status screen, built directly"):
+    ; (UIF_ARMY, STATUS.md "UI bank"):
     ; battle_intro_screen's fade-out as before, then its setup without the
     ; frame waits (the fade's last step, all black, is shown for 3 frames
     ; already), the CHR and the nametable written directly (no text engine

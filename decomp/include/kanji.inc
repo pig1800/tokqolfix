@@ -302,7 +302,7 @@ CV_TOP            = 18      ; the canvas's first tile row on screen
 HACK_INIT         = $800C   ; hack bank entry, reset: clear the hack state and $7900-$7FFF
 
 ; ----------------------------------------------------------------------
-; Bank-switch-free kanji on the info screen (step B, INFO_SCREEN.md).
+; Bank-switch-free kanji on the info screen (step B, STATUS.md "UI bank").
 ; The UI bank holds the screen renderer, its own copy of the UI kanji
 ; glyphs and the item / tactic kanji tables (tools/asm/ui.asm); bank 14
 ; calls it through the fixed bank's call_ui (X = function).
