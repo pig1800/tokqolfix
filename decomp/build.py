@@ -124,12 +124,14 @@ def main() -> int:
 
     got = bytearray(output.read_bytes())
     if kanji:
-        # Bank 15 needs the SUROM write_prg_bank patch.  Keep the assembler
-        # source include (it defines labels used by bank 14) and apply the
-        # byte-level patch after assembly.
-        bank15 = (BUILD_DIR / "kanji" / "bank15.bin").read_bytes()
-        assert len(bank15) == 0x4000
-        got[16 + 15 * 0x4000:16 + 16 * 0x4000] = bank15
+        # Bank 15 (the original fixed bank) is free since the debloat
+        # (2026-11-14): the patched fixed bank is bank 31 alone, and nothing
+        # maps 15 at $8000 (every set_bank argument checked: immediates,
+        # the current bank, 10/11 for messages, 2/3 for portraits, 13).  The
+        # slot holds JAM ($02) bytes: code run from it would stop the CPU.
+        # The assembler source include stays (labels used by bank 14).
+        assert len((BUILD_DIR / "kanji" / "bank15.bin").read_bytes()) == 0x4000
+        got[16 + 15 * 0x4000:16 + 16 * 0x4000] = bytes((0x02,)) * 0x4000
         output.write_bytes(got)
     got = bytes(got)
     if kanji:
@@ -165,7 +167,7 @@ def main() -> int:
             if result.returncode != 0:
                 return result.returncode
         print("OK: 512 KiB kanji target assembled")
-        print(f"     bank 31 mirrors bank 15 with text-engine patches")
+        print(f"     bank 31: the original bank 15 with text-engine patches; slot 15 free")
         return 0
 
     want = ORIGINAL.read_bytes()

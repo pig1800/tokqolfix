@@ -1,10 +1,63 @@
 # To-do: debloat (ROM space), 2026-11-13
 
 State after the kanji store (`69f99c7`, TEXT_RENDERER.md "The kanji store").
-Nothing below is done.  Each item waits for the user's go-ahead; the user
-has issues to patch first.
+**Updated 2026-11-14:** after the band page's removal the user asked to
+debloat what needs no code overhaul.  Items 1, 3 and 4 are done (below),
+and item 5 shrank with them.  Items 2 and 5 and the smaller ones remain;
+they need new runtime code.
 
-## Free now (banks 16-31, 81.4 KiB since the attract mode, 2026-11-14)
+## Done (2026-11-14)
+
+- **1. The band metadata: 38.9 KiB.**
+  - The compiler emits the page count, then per page the entry byte and
+    2 code bytes a kanji: no kana bitmap, no keep / clean lists, no tiles.
+    Metadata 52.5 -> 13.6 KiB.
+  - The overlay's record walk changed only in constants: `META_PAGES` 1,
+    `entries_offset` 0, `page_find`'s stride 2, `ctrl_store`'s page size
+    1 + 2 a kanji.
+  - The pages still come from the band-era assignment (`fit()`), so the
+    text and its page breaks are unchanged.
+  - 751 -> 747 unique messages: records that differed only in band tiles
+    now deduplicate.
+  - The text fits in banks 18-21 (21 holds 2,016 bytes).  Banks 22 and 30
+    are free, overlay copies included; `TEXT_BANKS` is 18-21, with 22 the
+    first extra.
+- **3. The old message text in banks 10/11: 20.7 KiB.**  The compiler
+  zeroes it from the end of the stubs to `BANK_INFO` `tail`.
+  - No set_bank argument in banks 13-15 is 10 or 11 except the message
+    engine's (computed from the index).
+  - JUMP targets are event or menu code, never the old text.
+  - 0 bytes read in Mesen's CDL on five paths (as measured before).
+  - Usable only while bank 10 or 11 is mapped.
+- **4. Bank 15: 16 KiB.**  The patched fixed bank is bank 31 alone.  Slot
+  15 holds JAM bytes (`$02`): code run from it would stop the CPU, as the
+  band trap does.
+  - Every set_bank argument in banks 13-15 is checked: immediates (never
+    15), the current bank, 10/11 (messages), 2/3 (`loc_CFCE`, portraits)
+    and 13.
+  - `bank15_lint.py` checks bank 31 against the original bank 15 plus the
+    registered patches, and slot 15 for the JAM bytes.
+  - A 15 -> 31 remap in `main_prg` / `nmi_prg` was tried and dropped.  Its
+    4 cycles on every bank switch moved a lag frame in map mode: NPC
+    positions differed in the menu cycle, through the per-frame RNG step.
+- **5 (partly).**  The overlay copies went from 7 (18-22, 29, 30) to 4
+  (18-21).
+- **Free now:**
+  - whole 16 KiB banks: 15, 22, 25, 29 and 30 (before: 25);
+  - bank 21: 12.0 KiB;
+  - banks 10/11: 20.7 KiB;
+  - bank 23: +2.0 KiB since the band's removal (hack code 3,530 -> 1,465
+    bytes);
+  - otherwise as in the table below.
+- **Checked:**
+  - Pixel-identical against the build before: greeting, menu cycle,
+    officer-switch, level-up and capture battles, title, the standard path
+    from frame 2000, and the oath (421 shots).
+  - Boot flows: every shot identical except two frames in which the menu
+    window's border lands one scanline apart.
+  - The RAM image and the original build are byte-identical.
+
+## Free before the debloat (banks 16-31, 81.4 KiB since the attract mode, 2026-11-14)
 
 | Where | KiB | Note |
 |---|---|---|
@@ -20,7 +73,7 @@ has issues to patch first.
 
 ## Candidates (measured)
 
-### 1. The band page's parts of the message metadata: 38.9 KiB
+### 1. The band page's parts of the message metadata: 38.9 KiB (done 2026-11-14)
 
 - Each message's metadata holds:
   - the page count and a 16-byte kana bitmap;
@@ -75,7 +128,7 @@ has issues to patch first.
 - **Cost:** the scan runs at each page start, and the overlay is
   1717 / 2048 bytes.
 
-### 3. The original message text left in banks 10 / 11: 20.7 KiB
+### 3. The original message text left in banks 10 / 11: 20.7 KiB (done 2026-11-14)
 
 - Bank 10 `$9243-$BDD2`: 11,152 bytes.
 - Bank 11 `$8CC6-$B3EF`: 10,026 bytes.
@@ -93,7 +146,7 @@ has issues to patch first.
 - **Limit:** usable only while bank 10 or 11 is mapped (at message starts),
   so for data or code that runs there.
 
-### 4. Bank 15: 16 KiB
+### 4. Bank 15: 16 KiB (done 2026-11-14)
 
 - It is the original fixed bank, kept at its place; bank 31 holds the same
   patched bytes.  In MMC3 PRG mode 0, `$C000-$FFFF` is bank 31.
@@ -107,7 +160,7 @@ has issues to patch first.
   (`kanji_text.menu_stream_tiles`, `bank15_lint`) read the original ROM
   file, not the built bank.
 
-### 5. The overlay copies: 12 of 14 KiB
+### 5. The overlay copies: 12 of 14 KiB (since 2026-11-14: 6 of 8 KiB, four copies)
 
 - There are 2 KiB at `$B800` in each text bank (18-22, 29, 30): 7 copies.
 - One copy would live in its own 8 KiB bank at R7 beside the text bank at R6.

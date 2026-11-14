@@ -11,16 +11,15 @@
 ; boot screens and the opening oath put their own kanji tiles (TXR_ON), the
 ; battle set's pool takes the rest, and any other message stops the CPU in
 ; band_trap.  The metadata's band parts (the kana bitmap, keep and clean
-; lists, each entry's four tiles) are read no more.
+; lists, each entry's four tiles) are gone too.
 ;
 ; Message metadata in the text bank:
-;   page count, 16-byte bitmap of every lower tile the message shows as
-;   kana/frame, then count * page record:
-;     nkeep, keep tiles      kanji tiles of earlier lines still on screen
-;     nclean, clean tiles    kana tiles an earlier page used as kanji
-;     entries, entries * (code_lo, code_hi, tile0, tile1, tile2, tile3)
+;   page count (bit 5: a victory message), then count * page record:
+;     entries, entries * (code_lo, code_hi)
 ;                            (entries bits 0-4; bits 5-6: the page's runtime
 ;                            officer names, 3 pool slots reserved for each)
+;   (Until 2026-11-14 also the band page's kana bitmap, keep / clean lists
+;   and four tiles per entry.)
 ;
 ; KANJI_TEXT_ADDR is free after entry: it is the main-thread scratch
 ; KANJI_M0/M1.  The page-start flag is bit 7 of KANJI_PAGES_LEFT.
@@ -31,8 +30,7 @@
 .include "../../decomp/build/kanji/fixed_hooks.inc"
 
 TEXT_MSG_LOOP = $D160       ; text_show_message line loop (sets the line address)
-META_KANA  = 1              ; offset of the kana bitmap in the metadata
-META_PAGES = 17             ; offset of the first page record
+META_PAGES = 1              ; offset of the first page record (after the count)
 PAGE_FLAG = $80                 ; in KANJI_PAGES_LEFT: page start pending
                                 ; (bit 6: PAGE_POOL, kanji.inc)
 
@@ -333,21 +331,10 @@ pool_decide:
     clc
     rts
 
-; $10/$11 = page record -> Y = offset of its entry count.
+; $10/$11 = page record -> Y = offset of its entry count (0: the record
+; starts with it since the band page's keep / clean lists went).
 entries_offset:
     ldy #0
-    lda ($10),y                 ; nkeep
-    sec
-    adc #0                      ; skip nkeep byte + keep tiles
-    tay
-    lda ($10),y                 ; nclean
-    sec
-    adc #0
-    sta KANJI_M1
-    tya
-    clc
-    adc KANJI_M1
-    tay
     rts
 
 ; ----------------------------------------------------------------------
@@ -845,7 +832,7 @@ page_find:
 @next:
     tya
     clc
-    adc #6
+    adc #2                      ; (code lo, hi)
     tay
     inc KANJI_M2
     dec KANJI_M1
@@ -889,11 +876,7 @@ ctrl_store:
     sty KANJI_M2
     lda ($10),y
     and #$1F
-    asl a
-    sta KANJI_M1
-    asl a
-    clc
-    adc KANJI_M1                ; 6 * entries
+    asl a                       ; 2 * entries
     sec
     adc KANJI_M2                ; + entries offset + 1
     clc
@@ -943,7 +926,7 @@ ctrl_store:
     rts
 
 empty_record:
-    .db 0, 0, 0
+    .db 0                       ; (no entries)
 
 ; ----------------------------------------------------------------------
 ; A = the pool slots of the page record at KANJI_PAGE_PTR + A: its entries

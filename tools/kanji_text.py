@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """Compile the proofread kanji draft into the expanded text banks.
 
-Each unique message is packed into a text bank (18-22) together with its
+Each unique message is packed into a text bank (18-21, more as needed) with its
 page records.  Bank 10/11 keep the original pointer tables and hold an
 8-byte trampoline per message:
 
     F8 3A C6 <text bank> <text addr lo/hi> <meta addr lo/hi>
 
 The F8 trampoline maps the text bank and enters the ROM-resident overlay at
-$B800.  Page records are static:
+$B800.  The metadata (since the band page's removal, 2026-11-14):
 
-    count byte, count * (code_lo, code_hi, tile0, tile1, tile2, tile3)
+    page count (bit 5: a victory message), then per page:
+    entry byte (bits 0-4 kanji, bits 5-6 runtime officer names),
+    entries * (code_lo, code_hi)
 
-The compiler assigns the four CHR tiles for every kanji from the free kana
-tiles of that page.  Runtime state is a dirty-CHR bitmap in internal RAM;
-there is no CHR scan, no allocation and no battery-RAM use.
+The pages still come from the band-era tile assignment (fit(): it split
+pages whose kanji did not fit the free kana tiles), so the text and its
+page breaks are as before; the tiles themselves are no longer emitted.
 """
 from __future__ import annotations
 
@@ -53,8 +55,9 @@ PAGE_TILE_MARGIN = 0
 # the kanji store).  $EF and $F0 were the original's place and word
 # insertions, which the compiled text does not use.
 KCTL = 0xF0
-TEXT_BANKS = [18, 19, 20, 21, 22]          # grown into 30, 29, ... as needed
-TEXT_BANKS_EXTRA = [30, 29, 25, 24]   # free banks (kanji_build: 16-17 the kanji store, 23 the hack code, 26 the renderer, 27 the RAM image, 28 the UI bank)
+TEXT_BANKS = [18, 19, 20, 21]              # grown into 22, 30, 29, ... as needed (22 left
+                                           # the base list in the 2026-11-14 debloat)
+TEXT_BANKS_EXTRA = [22, 30, 29, 25, 24]   # free banks (kanji_build: 16-17 the kanji store, 23 the hack code, 26 the renderer, 27 the RAM image, 28 the UI bank)
 TEXT_BANK_LIMIT = 0x3800     # overlay occupies $B800-$BFFF
 OVERLAY_SIZE = 0x800
 SCENE_BORROW = set(range(0x42, 0x5C))  # measured oath-scene overwrite range
@@ -1163,30 +1166,23 @@ def build() -> int:
             rec.data, rec.pages, page_tiles = fit(rec, tokens, extra, True)
 
         WIDTH_ISSUES.extend(line_width_issues(rec, rec.data))
-        full = assign_pages_full(rec.pages, extra, rec.relaxed)
+        # Page records (since the band page's removal, 2026-11-14: no kana
+        # bitmap, no keep / clean lists, no band tiles): the entry count,
+        # then each kanji's code (lo, hi).  The pages themselves still come
+        # from fit() above, so the text and its page breaks are unchanged.
         page_blobs = []
-        for page, (tiles, _r, keep, clean) in zip(rec.pages, full):
-            keep_l = sorted(t for t in keep if t < 0x80)
-            clean_l = sorted(t for t in clean if t < 0x80)
-            blob = bytearray((len(keep_l),)) + bytes(keep_l)
-            blob += bytes((len(clean_l),)) + bytes(clean_l)
+        for page in rec.pages:
             # Bits 5-6: the page's runtime officer names (up to 3), for
             # which the battle's pool reserves 3 slots each (the overlay's
             # pool_need; KNAME_F4-F7 put the names there).
-            blob.append(len(page.kanji_order) | (min(page.names, 3) << 5))
+            if len(page.kanji_order) > 0x1F:
+                raise SystemExit(f"{rec.labels[:1]}: {len(page.kanji_order)} kanji on a page")
+            blob = bytearray((len(page.kanji_order) | (min(page.names, 3) << 5),))
             for code in page.kanji_order:
-                t4 = tiles[code]
-                if any(t >= 0x80 for t in t4):
-                    raise SystemExit(f"{rec.labels[:1]}: tile >= $80 in page")
-                blob += bytes((code & 0xFF, code >> 8, *t4))
+                blob += bytes((code & 0xFF, code >> 8))
             page_blobs.append(bytes(blob))
         if len(page_blobs) > MAX_PAGES:
             raise SystemExit(f"message has {len(page_blobs)} pages > {MAX_PAGES}")
-        kana = bytearray(16)
-        for page in rec.pages:
-            for t in page.used:
-                if 0 <= t < 0x80:
-                    kana[t >> 3] |= 0x80 >> (t & 7)
         # Byte 0: the page count; bit 5 (META_WIN, kanji.inc) marks a
         # victory message: in a battle the overlay then gives the pool the
         # portrait tiles $80-$A3 (no portrait after the win).
@@ -1196,8 +1192,7 @@ def build() -> int:
         count = len(page_blobs)
         if set(rec.labels) & WIN_LABELS:
             count |= META_WIN
-        rec.meta_blob = (bytes((count,)) + bytes(kana)
-                         + b"".join(page_blobs))
+        rec.meta_blob = bytes((count,)) + b"".join(page_blobs)
 
     # Deduplicate identical message streams and page assignments.
     canon: dict[tuple[bytes, bytes], Record] = {}
@@ -1234,7 +1229,7 @@ def build() -> int:
             bank_index += 1
             off = 0
         if bank_index >= len(TEXT_BANKS):
-            raise SystemExit("text data exceeds banks 18-22")
+            raise SystemExit(f"text data exceeds banks {TEXT_BANKS}")
         b = TEXT_BANKS[bank_index]
         rec.data_bank = b
         rec.data_addr = 0x8000 + off
@@ -1311,6 +1306,11 @@ def build() -> int:
         out[info["lo"]:info["lo"] + count] = lo
         out[info["hi"]:info["hi"] + count] = hi
         out[start:start + len(data_area)] = data_area
+        # The original message text behind the stubs, up to its end (tail):
+        # the pointer tables reach only the stubs, so nothing reads it
+        # (0 bytes in Mesen's CDL on five paths, DEBLOAT_TODO 3).  Free
+        # since the debloat (2026-11-14).
+        out[start + len(data_area):info["tail"]] = bytes(info["tail"] - start - len(data_area))
         toff = TRAMPOLINE_ADDR - 0x8000
         out[toff:toff + len(trampoline)] = trampoline
         (OUT / f"bank{bank:02d}.bin").write_bytes(bytes(out))

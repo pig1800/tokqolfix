@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Fail if the kanji target changes the fixed bank outside registered sites.
 
-The fixed bank (bank 15) must keep every original byte and address except the
+The fixed bank must keep every original bank-15 byte and address except the
 registered patch ranges below (and the four-screen rewrites listed in
-kanji_build.py).  Bank 31 (the MMC3 fixed bank at
-$C000-$FFFF) must be a byte-identical copy of patched bank 15.
+kanji_build.py).  It is bank 31 (the MMC3 fixed bank at $C000-$FFFF); since
+the debloat (2026-11-14) slot 15 is free and holds JAM ($02) bytes.
 """
 from __future__ import annotations
 
@@ -15,7 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ORIGINAL = ROOT / "Tenchi o Kurau (Japan) (Rev 1).nes"
 KANJI = ROOT / "decomp" / "build" / "rom_kanji.nes"
-TEXT_BANKS = range(18, 23)
+# The text banks the compiler filled (kanji_text_report.json data_banks;
+# 18-22 before the 2026-11-14 debloat): each holds the same overlay copy.
+REPORT = Path(__file__).resolve().parent.parent / "decomp" / "build" / "kanji" / "kanji_text_report.json"
 OVERLAY_OFF = 0x3800
 OVERLAY_SIZE = 0x800
 
@@ -95,13 +97,13 @@ def main() -> int:
         print("lint: ROM is not the 512 KiB kanji target", file=sys.stderr)
         return 2
     original = ORIGINAL.read_bytes()[16 + 15 * 0x4000:16 + 16 * 0x4000]
-    got = data[16 + 15 * 0x4000:16 + 16 * 0x4000]
-    bank31 = data[16 + 31 * 0x4000:16 + 32 * 0x4000]
-    if got != bank31:
-        bad = next((i for i in range(0x4000) if got[i] != bank31[i]), 0)
-        print(f"lint: bank 31 differs from bank 15 at ${0xC000 + bad:04X}",
-              file=sys.stderr)
+    # Since the debloat (2026-11-14) the patched fixed bank is bank 31 alone;
+    # slot 15 is free (JAM bytes, $02: nothing maps it at $8000).
+    slot15 = data[16 + 15 * 0x4000:16 + 16 * 0x4000]
+    if slot15 != bytes((0x02,)) * 0x4000:
+        print("lint: slot 15 is not free (JAM bytes)", file=sys.stderr)
         return 1
+    got = data[16 + 31 * 0x4000:16 + 32 * 0x4000]
     allowed = set()
     patches = PATCHES + fourscreen_ranges()
     for a, b in patches:
@@ -111,14 +113,15 @@ def main() -> int:
         print(f"lint: {len(bad)} unexpected bank-15 changes; first at "
               f"${0xC000 + bad[0]:04X}", file=sys.stderr)
         return 1
+    import json
     overlay = None
-    for bank in TEXT_BANKS:
+    for bank in json.loads(REPORT.read_text(encoding="utf-8"))["data_banks"]:
         base = 16 + bank * 0x4000 + OVERLAY_OFF
         block = data[base:base + OVERLAY_SIZE]
         if overlay is None:
             overlay = block
         elif block != overlay:
-            print(f"lint: bank {bank} overlay differs from bank 18",
+            print(f"lint: bank {bank} overlay differs from the first text bank's",
                   file=sys.stderr)
             return 1
     if data[4] != 32 or (data[6] >> 4) | (data[7] & 0xF0) != 4:
@@ -127,8 +130,8 @@ def main() -> int:
     if not data[6] & 0x08:
         print("lint: header lacks four-screen nametables (map-canvas)", file=sys.stderr)
         return 1
-    print(f"bank15 lint: OK ({len(patches)} registered patch ranges, "
-          f"bank31 == bank15, mapper 4)")
+    print(f"bank15 lint: OK ({len(patches)} registered patch ranges in bank 31, "
+          f"slot 15 free, mapper 4)")
     return 0
 
 

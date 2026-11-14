@@ -138,16 +138,16 @@ kanji-store build:
 | Content | KiB | Where |
 |---|---|---|
 | Kanji store (1,003 glyphs since 2026-11-14, room for 21 more) | 32 | banks 16-17 (8 KiB banks 32-35) |
-| Message text (751 unique messages) | 30.2 | text banks 18-22, 30 |
-| Message metadata (17-byte header, keep / clean lists, 6 bytes a kanji) | 52.5 | after each message |
-| Overlay copies (2 KiB in each text bank) | 14 | `$B800` of 18-22, 29, 30 |
+| Message text (747 unique messages) | 30.2 | text banks 18-21 |
+| Message metadata (page count; per page an entry byte, 2 bytes a kanji; 52.5 before the 2026-11-14 debloat) | 13.6 | after each message |
+| Overlay copies (2 KiB in each text bank) | 8 | `$B800` of 18-21 |
 | Hack code, palette tables | 3.7 | bank 23 lower half |
 | Map renderer | 11.7 | bank 26 |
 | RAM image | 0.7 | bank 27 upper half |
 | UI bank (code, tables, the officer names' codes 1.3) | 9.5 | bank 28 |
-| Fixed bank (bank 15 keeps the original at its place) | 16 | bank 31 |
+| Fixed bank (slot 15 free since the debloat: JAM bytes) | 16 | bank 31 |
 | Title screen and attract mode (2026-11-14: code, tile sets, phrases) | 4.2 | bank 24 |
-| **Free** | **81.4** | bank 25 (16); bank 24 (11.8); bank 23 (12.3); bank 29 (14, the text's reserve); bank 27 (8 + 7.3); bank 28 (6.5); bank 26 (4.3); the text banks' ends (1.3) |
+| **Free** | **128.3** | banks 22, 25, 29, 30 (16 each); bank 23 (14.3); bank 27 (8 + 7.3); bank 21 (12.0); bank 24 (11.8); bank 28 (6.5); bank 26 (4.3); the text banks' ends (0.1).  Also slot 15 (16) and banks 10/11 (20.7, while mapped).  DEBLOAT_TODO "Done (2026-11-14)" |
 
 Before the store (`fd47464`): 29 KiB free.  The store replaced the band
 page / battle copy (33.7 KiB, banks 23-25, with three copies of the hack
