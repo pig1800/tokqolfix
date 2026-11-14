@@ -302,6 +302,35 @@ CV_TOP            = 18      ; the canvas's first tile row on screen
 HACK_INIT         = $800C   ; hack bank entry, reset: clear the hack state and $7900-$7FFF
 
 ; ----------------------------------------------------------------------
+; The title's logo intro at 60 frames a second (2026-11-14, the user's
+; QoL request; TEXT_RENDERER.md "The title's logo intro by IRQ").  Bank 13
+; steps the intro every 4 frames ($04: 31 .. 0) with nmi_mode = $80; the
+; original NMI drew the step with cycle-counted mid-frame writes.  Now the
+; NMI ($EF38) runs ATT_TITLE_FX (bank 24): this frame's strip positions,
+; interpolated between the steps, as IRQ events; the fixed bank's
+; title_irq makes the writes in hblank.  Battery RAM (free since the RAM
+; code went to bank 31):
+; ----------------------------------------------------------------------
+ATT_BANK          = 24      ; the title / attract bank (attract.asm)
+ATT_TITLE_FX      = $8009   ; its NMI entry for the intro
+TFX_EVENTS        = 11      ; stage 0, then at most 2 a strip (5 strips)
+TFX_S             = $7900   ; the step ($04) the NMI saw last ($FF: none; att_title_set)
+TFX_P             = $7901   ; the step's frame (1-4; 0: the intro's first NMI)
+TFX_N             = $7902   ; this frame's events
+TFX_I             = $7903   ; the next event (title_irq)
+TFX_U             = $7904   ; the intro's progress, frames left to the end (0-125)
+TFX_K             = $7905   ; title_fx: the strip
+TFX_E             = $7909   ; the first line below the strip above (42 for strip 0)
+TFX_Q             = $790A   ; scratch: the strip's top line
+TFX_X             = $790B   ; 10: the event's IRQ line
+TFX_L             = TFX_X+TFX_EVENTS   ; 10: the reload after it (0: the last)
+TFX_W1            = TFX_L+TFX_EVENTS   ; 10: delay to the $91 write (0: none)
+TFX_W2            = TFX_W1+TFX_EVENTS  ; 10: then to the $2006 write (0: none)
+TFX_A             = TFX_W2+TFX_EVENTS  ; 10: the $2006 pair: the strip's first line
+TFX_B             = TFX_A+TFX_EVENTS   ; 10
+TFX_END           = TFX_B+TFX_EVENTS
+
+; ----------------------------------------------------------------------
 ; Bank-switch-free kanji on the info screen (step B, STATUS.md "UI bank").
 ; The UI bank holds the screen renderer, its own copy of the UI kanji
 ; glyphs and the item / tactic kanji tables (tools/asm/ui.asm); bank 14

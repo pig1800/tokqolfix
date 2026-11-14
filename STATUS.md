@@ -39,7 +39,7 @@ is in `MEMORY_MAP.md`.
 | 31 | fixed bank: bank 15 with registered patches, and the runtime at `$FC00` (`fixed_rt.asm`) |
 | 20-22, 25, 27, 29, 30 | free |
 
-189.1 KiB free in all.
+188.1 KiB free in all.
 
 ## Runtime
 
@@ -106,7 +106,11 @@ is in `MEMORY_MAP.md`.
 - **The opening oath:** a fixed split.  The IRQ at line 130 switches R1 to
   CHR `$3800`, which holds the oath's 20 kanji.
 - **Title and attract mode** (bank 24): each screen has its own tile set,
-  and the portraits are 8x16 sprites.
+  and the portraits are 8x16 sprites.  The title's logo intro (its five
+  rows closing up) moves every frame (60 fps; the original stepped every
+  4 frames).  The NMI computes the strip positions (`title_fx`), and
+  scanline IRQs (`title_irq`, fixed bank) make the mid-frame writes in
+  hblank.  Bank 13's steps, Start checks and RNG are unchanged.
 - **Anything else.**  A message printed with neither the map renderer nor
   the battle pool hits `band_trap`, a JAM, in place of the old band page.
   At the JAM, A = its text chunk and X/Y = its text address;
@@ -122,7 +126,8 @@ is in `MEMORY_MAP.md`.
 | `$0780-$07FF` | the map renderer's state (`TXR_*`; `REG_LO/HI` at `$07A0-$07DF`) |
 | `$6000-$77FF` | the game's (two save records in the kanji edition) |
 | `$7800-$78FF` | the map's attribute shadow (`MAP_ATTR`, four-screen) |
-| `$7900-$7BF4` | free (cleared at reset) |
+| `$7900-$7948` | the title intro's IRQ events (`TFX_*`) |
+| `$7949-$7BF4` | free (cleared at reset) |
 | `$7BF5-$7F9B` | the renderer's tables and buffers (in battle: the kanji slot table) |
 | `$7F9C-$7FFF` | the UI bank's state, `PRG_R7X` |
 

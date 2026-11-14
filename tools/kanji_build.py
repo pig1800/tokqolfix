@@ -32,7 +32,10 @@ HOOK_RANGES = ((0xC5A6, 0xC6D1), (0xC460, 0xC47D), (0xC489, 0xC49D),
                # hex font and tiles ($FBC3-$FFD7), dead (survey 2026-11-14,
                # TEXT_RENDERER.md): free, and the runtime at $FC00
                # (fixed_rt.asm); $FAD4 and $FBC2 (two rts) stay
-               (0xFAD5, 0xFBC1), (0xFBC3, 0xFFD7))
+               (0xFAD5, 0xFBC1), (0xFBC3, 0xFFD7),
+               # the title's split loops and their tables (nmi_mode $80),
+               # replaced by title_nmi + title_irq (2026-11-14)
+               (0xEF38, 0xEF93))
 
 # QoL: copy_pointer_triplet and its divisor table (the decimal digits),
 # replaced by a stub to the UI bank (UIF_DEC); the space holds bs_wait and

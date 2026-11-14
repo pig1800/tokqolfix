@@ -2774,3 +2774,95 @@ after the `rts` at `$FAD3` / `$FBC2`.)
   bytes.  The gap and the free blocks hold the original bytes.
 - `bank15_lint.py` OK (75 ranges); the original build is byte-identical;
   `scroll_scan.py`: 0 of 765.
+
+## The title's logo intro by IRQ (2026-11-14)
+
+The user: the title's raster effect was cycle-counted because the game
+was MMC1; with the MMC3's scanline IRQ it can run at 60 frames a second
+instead of 15.
+
+**What the original does.**  The intro assembles the 天地を喰らう logo
+from its five tile rows (nametable rows 5-9).
+- Each row is shown as an 8-line strip, from its image line 42 + 8k (the
+  `$2006` pair `data_EF8A` / `data_EF8F`, fine Y 2), with blank lines
+  between.  The blank lines show the empty right-hand nametable
+  (PPUCTRL `$91`).
+- The strips start 32 lines apart and close up into the logo over 128
+  frames (frames 11-139 from power-on).
+- Bank 13 steps `$04` from 31 to 0 every 4 frames (`ldx #4`, 4
+  `wait_vblank`s per step).  The NMI's `nmi_mode $80` path (`$EF38`)
+  busy-waits through most of the frame and makes the writes after
+  counted delays (`$00`, `$02`, `$04` groups of 86 cycles, plus fine
+  delays from `$6400`).
+- So the picture changes once per step, 15 times a second.  The lowest
+  strip moves about 4 lines per step.
+- **The 15 fps comes from bank 13's step rate, not from the cycle
+  counting.**  The IRQ alone would not change it; the interpolation
+  below does.
+- Side effects of the counting: the second `$2006` write lands anywhere
+  in dots 181-311.  Before dot 256, the strip starts one pixel row
+  lower, and the right end of that line tears.  The last step's strips
+  sit 1-2 lines off the static title, which they jump to one frame
+  later.
+
+**Now.**
+- Bank 13 is untouched: the same steps, frames, Start checks and RNG.
+- The NMI's `$EF38` (`title_nmi`, 21 bytes in place) maps the attract
+  bank's first half at R6 and calls `title_fx` (`ATT_TITLE_FX`, `$8009`).
+  - It computes every frame's progress u = 4·step + 1 − f, where f is
+    the step's frame (1-4, or 0 at the intro's first NMI, which bank 13
+    shows with rendering off).  u runs 124 → 0, one per frame, and stays
+    0 through the last step.
+  - Strip k's top line is P = 42 + 8k + round((k+1)·3u/16), from tables
+    built by the assembler (`tfx_p0-4`, 5 × 126 bytes).  At u = 124 that
+    is the original's start, within a line.  At u = 0 it is exactly the
+    static title, so the end has no jump.
+- From these it builds the frame's IRQ events, and the fixed bank's
+  `title_irq` (`$FB00`, 90 bytes) makes the writes.  The IRQs arrive
+  through `irq_split` → `irq_off`; neither the map's `cv_irq` path nor
+  the oath's split goes there, so their cycles are untouched.
+  - Blank lines above strip k from line E: an IRQ at line E − 3 writes
+    `$91` near dot 85 of line E − 1.  Its window runs from line E − 2's
+    dot 257 to line E − 1's dot 256.
+  - The strip from line P: an IRQ at line P − 3 makes the `$2006` pair
+    in line P − 1's hblank (dots 257-320), then PPUCTRL back.
+  - With 1-2 blank lines, one IRQ does both.  With none, there is no
+    event: the nametable goes on.
+  - Each IRQ reloads the counter for the next event first.  Every path
+    to a write takes the same cycles.  The delay loops (5 cycles a pass)
+    sit in one page; the assembler checks it.
+- The arm: v = `$1000` (no stray A12 rise), then latch 0.  Event 0
+  ("stage 0") comes at the pre-render line's clock and reloads the
+  counter in line 0 for the first event, as the map renderer's stage 0
+  does.
+  - Two things were found by measurement.  Armed directly for the first
+    event, every other frame came one line early.  And a slow
+    `title_fx` (16-bit maths: the NMI ran to line 260 and beyond) held
+    stage 0 back past line 0's clock, so every event came a line late.
+  - With the tables the NMI arms at lines 255-258, and stage 0 reloads
+    at line 0, dot about 200, in every frame.
+- RAM: `TFX_*` at `$7900-$7948` (battery RAM, free since the RAM code
+  moved).
+
+**Checked** (against the build before, `60bb3521`):
+- 124 intro frames from power-on: every write on the line the geometry
+  gives, and the strip writes at dots 278-297.
+  - The picture changes in all 123 frames from 14 to 136.  Before, it
+    changed in 30.
+  - From frame 136, the logo is the finished one.  Frames 141 and 150
+    (the static title) are pixel-identical.
+- The regression suite:
+  - identical on the greeting, menu cycle, officer switch, both battles,
+    the standard path, the oath and four boot flows;
+  - the title test differs only in its intro frames (40-140);
+  - the delete flow's frame 786 differs by 2 pixels of menu border (the
+    build-to-build jitter of the copy flow's frame 800, identical this
+    time).
+- RNG (`$AC-$AF`), frame counter, `nmi_mode`, `$04` and the mapped bank
+  every frame, with Start at frame 70 (mid-intro, 900 frames): identical.
+- The same with no input, the title then the attract mode (5,200
+  frames): identical but one attract-mode frame.  There a copy loop's
+  scratch pointer (`$04`) stood at another byte at the frame's end (the
+  attract code moved); the screens are identical.
+- Bank 31: 21 + 90 bytes used, the old split code's other 71 bytes free.
+  Bank 24: about 970 bytes (`title_fx` and its 630 bytes of tables).

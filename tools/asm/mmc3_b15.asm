@@ -241,7 +241,7 @@ irq_handler:
     beq irq_split
     jmp cv_irq
 irq_off:
-    jmp irq_off_tail
+    jmp title_irq               ; (the title's intro; else irq_off_tail)
 
 ; Battle shake (bank 14 $ACBF, four-screen): A = the scroll_y offset ($00
 ; or $ED, the screen shifted 3 lines down), Y = the shake step.  With 4
@@ -1186,6 +1186,25 @@ nmi_r7x:
 
 
 ; ----------------------------------------------------------------------
+; The title's NMI (nmi_mode $80), in place of the original's cycle-counted
+; split loops ($EF38-$EF89; their $2006 tables $EF8A-$EF93 unused): the
+; attract bank's first half at R6 for title_fx (this frame's IRQ events),
+; then the current bank back, then the NMI's end as before.
+.base $EF38
+title_nmi:
+    lda #MMC3_R6
+    sta MMC3_SELECT
+    lda #ATT_BANK*2
+    sta MMC3_DATA
+    jsr ATT_TITLE_FX
+    lda current_prg_bank
+    jsr RESTORE_BANK_AFTER_NMI
+    jmp $EF31
+.if $ > $EF94
+    .error "title_nmi outgrew the original's split code ($EF38-$EF93)"
+.endif
+
+; ----------------------------------------------------------------------
 ; The developer debug overlay ($FAD5-$FBC1: RAM $60-$63 and $47 as hex
 ; sprites when $A6 != 0) and its screens' 1bpp hex font and tiles
 ; ($FBC3-$FFD7), dead: no caller, pointer or read on any path (the survey
@@ -1194,6 +1213,77 @@ nmi_r7x:
 ; the runtime at $FC00.
 ; ----------------------------------------------------------------------
 .base $FAD5
+.if $ > $FB00
+    .error "the dead debug overlay's space is $FAD5-$FBC1"
+.endif
+
+; The title's logo intro (attract.asm title_fx has the plan): IRQ event
+; TFX_I.  Reaches here from irq_off (KANJI_IRQ_ST = 0, not the oath's
+; split), A pushed; not the title: as irq_off was.  First the counter for
+; the next event (TFX_L: its line - this line - 1; 0: none), then the
+; event's writes after their delays: $91 (the empty table from the next
+; line's hblank copy) after TFX_W1, the strip's $2006 pair after TFX_W2.
+; Every path to the writes takes the same cycles (5 a delay pass, page
+; $FB: no branch crosses a page); title_fx's delays are measured.
+.base $FB00
+title_irq:
+    bit nmi_mode
+    bpl @off
+    txa
+    pha
+    tya
+    pha
+    ldx TFX_I
+    inc TFX_I
+    lda TFX_L,x
+    sta MMC3_IRQ_OFF            ; acknowledge
+    beq @last
+    sta MMC3_IRQ_LATCH
+    sta MMC3_IRQ_RELOAD
+    sta MMC3_IRQ_ON
+    bne @go                     ; (always)
+@last:
+    nop                         ; (as the branch above: 17 cycles)
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+@go:
+    ldy TFX_W1,x
+    beq @strip
+@w1:
+    dey
+    bne @w1
+    lda #$91
+    sta PPUCTRL                 ; the empty table from the next line on
+@strip:
+    ldy TFX_W2,x
+    beq @done
+@w2:
+    dey
+    bne @w2
+    bit PPUSTATUS               ; (the address latch: first write)
+    lda TFX_A,x
+    sta PPUADDR
+    lda TFX_B,x
+    sta PPUADDR                 ; hblank: the strip from the next line
+    lda ppu_ctrl_shadow
+    sta PPUCTRL
+@done:
+    pla
+    tay
+    pla
+    tax
+    pla
+    rti
+@off:
+    jmp irq_off_tail
+title_irq_end:
+.if >title_irq_end != >title_irq
+    .error "title_irq crosses a page (its loops must not)"
+.endif
 .if $ > $FBC2
     .error "the dead debug overlay's space is $FAD5-$FBC1"
 .endif

@@ -52,6 +52,7 @@ PATCHES = [
     (0xEED0, 0xEED2),   # jmp nmi_gate (map mode: the uploads first)
     (0xEF0B, 0xEF0F),   # jmp cv_nmi (bank 26's nmi_cvg) + nop nop
     (0xEF31, 0xEF33),   # jmp ef31_gate
+    (0xEF38, 0xEF93),   # the title's cycle-counted splits: title_nmi (the intro by IRQ, attract bank title_fx)
     (0xF004, 0xF039),   # reset: MMC3 registers + hack RAM clear (rewritten)
     (0xFFE0, 0xFFEF),   # block-writer entry, the message engine's frame wait (padding)
     (0xFFFE, 0xFFFF),   # IRQ vector: irq_handler (MMC3 scanline IRQ)
@@ -73,7 +74,7 @@ PATCHES = [
     # the dead developer debug overlay and its screens' font and tiles
     # (survey 2026-11-14, TEXT_RENDERER.md "The RAM code in bank 31");
     # $FAD4 and $FBC2 (two rts) stay
-    (0xFAD5, 0xFBC1),   # the debug overlay: free
+    (0xFAD5, 0xFBC1),   # the debug overlay: title_irq at $FB00 (the title's intro), the rest free
     (0xFBC3, 0xFFD7),   # the debug screens' dead hex font and tiles: the runtime (fixed_rt.asm; RAM code until 2026-11-14)
 ]
 

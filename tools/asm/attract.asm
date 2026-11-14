@@ -13,6 +13,9 @@
 ; $8006 att_restore: Start on the title (bank 13's b13_k_restore, NMI off):
 ;       the font and the letters back on the scene page, as the original's
 ;       title load left them for the boot screens.
+; $8009 title_fx: the title's logo intro, every NMI while nmi_mode = $80
+;       (the fixed bank's $EF38 maps this bank's first half at R6 alone):
+;       the strips' positions and the IRQ events that draw them.
 ;
 ; Every screen has its own BG tile set, uploaded while it is black: kanji
 ; from tile $00 (8x16 order TL, BL, TR, BR, from the kanji store), then
@@ -40,8 +43,6 @@
 .include "../../decomp/include/hardware.inc"
 .include "../../decomp/include/ram.inc"
 .include "../../decomp/include/kanji.inc"
-
-ATT_BANK            = 24
 
 ; Fixed-bank routines (the original's addresses).
 DRAW_STRING_PTR     = $DD17     ; draw_string after its fetch_inline_word: ($00) = the block
@@ -78,6 +79,11 @@ RAM_RR      = $0660             ; the RAM routines (the title's inline block run
     jmp att_attract             ; $8000
     jmp att_title_set           ; $8003
     jmp att_restore             ; $8006
+    jmp title_fx                ; $8009 ATT_TITLE_FX (kanji.inc)
+.if title_fx_slot != ATT_TITLE_FX + 3
+    .error "ATT_TITLE_FX is not the jump table's $8009"
+.endif
+title_fx_slot:
 
 ; ======================================================================
 ; The title (bank 13's inline block, NMI and rendering off, this bank at
@@ -86,6 +92,8 @@ RAM_RR      = $0660             ; the RAM routines (the title's inline block run
 ; draw_string then queues only the attribute records (ATT_TITLE_ATTR).
 ; ======================================================================
 att_title_set:
+    lda #$FF
+    sta TFX_S                   ; (the intro starts at its first step)
     jsr att_rr_install
     lda PPUSTATUS
     lda #$20
@@ -744,6 +752,239 @@ att_place:
     inx
     bne @off
     rts
+
+; ======================================================================
+; The title's logo intro (2026-11-14; TEXT_RENDERER.md "The title's logo
+; intro by IRQ").  The logo's five tile rows (nametable rows 5-9) are
+; shown as strips of 8 lines, each from its image line 42 + 8k, with blank
+; lines between that close up as the intro runs; the screen above line 42
+; and below strip 4 is the title as it stands.  Bank 13 steps $04 from 31
+; to 0 every 4 frames; the original NMI drew the step's strips with
+; cycle-counted waits (one picture per step, 15 a second).
+;
+; Here, every NMI: the progress u (frames to the end): u = 4 * step + 1 -
+; f, f = the step's frame 1-4, but 0 at the intro's first NMI (bank 13's
+; frame wait shows that frame with rendering off: u = 125); then 124 down
+; to 0, one a frame, and 0 through the last step.  The spread G = 3u / 16
+; lines (23.25 at u = 124: the original's 31 delay steps of 0.76 lines)
+; and strip k's top line P = 42 + 8k + (k+1) G, rounded (tfx_p0-4, made
+; by the assembler).  The blank lines above strip k start at E (42, or 8
+; below strip k-1's top).  The events (title_irq, fixed bank):
+;   - E = P: none (the strips touch: the nametable goes on);
+;   - P - E >= 3: at line E - 3, $91 (the empty right-hand table from line
+;     E on); at line P - 3, the $2006 pair in the hblank of line P - 1
+;     (the strip from line P on), then PPUCTRL back;
+;   - P - E = 1-2: both from one IRQ at line E - 3.
+; Each IRQ reloads the counter for the next event first.  The arm, after
+; the game's PPU work (v = $1000 first: no stray A12 rise before the
+; pre-render line): latch 0, so event 0 ("stage 0", no writes) comes at
+; the pre-render line's clock and reloads the counter in line 0 for the
+; first real event, as the map renderer's stage 0 does.  That needs the
+; NMI over well before the pre-render line: an NMI running into line 0
+; holds stage 0 back, its reload misses line 0's clock and every event
+; comes a line late (measured with a slower title_fx; hence the tables).
+; The delays (title_irq's loops, 5 cycles a pass) are measured in Mesen:
+; the $2006 write lands in dots 257-320, the $91 write near dot 85 of line
+; E - 1 (its window: line E - 2's dot 257 to line E - 1's dot 256).
+; ======================================================================
+TFX_WE      = 11                ; IRQ line X: the $91 write in line X + 2, near dot 85
+TFX_WS      = 20                ; IRQ line X: the $2006 write in line X + 2's hblank
+TFX_WC1     = 31                ; after the $91 write: line X + 3's hblank (1 blank line)
+TFX_WC2     = 54                ; line X + 4's hblank (2 blank lines)
+TFX_TOP     = 42                ; strip 0's top line in the finished logo (image line 42)
+
+title_fx:
+    lda #0
+    sta KANJI_IRQ_ST            ; (the title's IRQs pass irq_split to title_irq)
+    sta TFX_I
+    sta MMC3_IRQ_OFF            ; (nothing left from the frame before)
+    sta TFX_W1                  ; event 0: stage 0, no writes
+    sta TFX_W2
+    lda $04                     ; the step, and its frame f (1-4; 0 at the
+    cmp TFX_S                   ; first NMI: TFX_S = $FF from att_title_set)
+    beq @same
+    ldx TFX_S
+    sta TFX_S
+    lda #1
+    inx
+    bne @f
+    lda #0
+@f:
+    sta TFX_P
+    bpl @step                   ; (always)
+@same:
+    lda TFX_P
+    cmp #4
+    bcs @step
+    inc TFX_P
+@step:
+    lda TFX_S
+    cmp #32
+    bcc @u
+    lda #0                      ; (not a step: the finished logo)
+@u:
+    asl a
+    asl a
+    sec                         ; u = 4 * step + 1 - f
+    sbc TFX_P
+    bcc @end
+    adc #0                      ; (C set: + 1)
+    bcc @g                      ; (always: u <= 125)
+@end:
+    lda #0
+@g:
+    sta TFX_U
+    tay
+    lda #TFX_TOP
+    sta TFX_E
+    ldx #1                      ; the events: 0 is stage 0
+    lda tfx_p0,y
+    sta TFX_Q
+    lda #0
+    jsr tfx_strip
+    lda tfx_p1,y
+    sta TFX_Q
+    lda #1
+    jsr tfx_strip
+    lda tfx_p2,y
+    sta TFX_Q
+    lda #2
+    jsr tfx_strip
+    lda tfx_p3,y
+    sta TFX_Q
+    lda #3
+    jsr tfx_strip
+    lda tfx_p4,y
+    sta TFX_Q
+    lda #4
+    jsr tfx_strip
+    stx TFX_N
+    cpx #2
+    bcc @none                   ; (no event: no IRQ)
+    lda TFX_X+1                 ; stage 0's reload, consumed at line 0's
+    sta TFX_L                   ; clock: the first event's line
+    ldx #1
+@rl:
+    inx
+    cpx TFX_N
+    bcs @arm
+    lda TFX_X,x                 ; the lines to the next event, less one
+    clc
+    sbc TFX_X-1,x
+    sta TFX_L-1,x
+    bcs @rl                     ; (always: the events ascend)
+@arm:
+    lda #0
+    sta TFX_L-1,x               ; (the last event: none after it)
+    bit PPUSTATUS               ; v = $1000 (A12 high into the pre-render
+    lda #$10                    ; line), then t back for its copies
+    sta PPUADDR
+    lda #$00
+    sta PPUADDR
+    lda ppu_ctrl_shadow
+    sta PPUCTRL
+    lda scroll_x
+    sta PPUSCROLL
+    lda scroll_y
+    sta PPUSCROLL
+    lda #0                      ; stage 0 at the pre-render line's clock
+    sta MMC3_IRQ_LATCH
+    sta MMC3_IRQ_RELOAD
+    sta MMC3_IRQ_ON
+@none:
+    rts
+
+; Strip A (top line TFX_Q) into the events from X; E then 8 below it.
+; Y = TFX_U again on return.
+tfx_strip:
+    sta TFX_K
+    lda TFX_Q
+    sec
+    sbc TFX_E                   ; the blank lines above it
+    beq @next
+    ldy TFX_K
+    cmp #3
+    bcs @two
+    cmp #2                      ; 1-2: one event at line E - 3
+    lda #TFX_WC1
+    bcc @w2
+    lda #TFX_WC2
+@w2:
+    sta TFX_W2,x
+    lda TFX_E
+    sec
+    sbc #3
+    sta TFX_X,x
+    lda #TFX_WE
+    sta TFX_W1,x
+    bne @addr                   ; (always)
+@two:
+    lda TFX_E                   ; the blank start: line E - 3
+    sbc #3                      ; (C set)
+    sta TFX_X,x
+    lda #TFX_WE
+    sta TFX_W1,x
+    lda #0
+    sta TFX_W2,x
+    inx
+    lda TFX_Q                   ; the strip: line P - 3
+    sec
+    sbc #3
+    sta TFX_X,x
+    lda #0
+    sta TFX_W1,x
+    lda #TFX_WS
+    sta TFX_W2,x
+@addr:
+    lda tfx_hi,y                ; the $2006 pair: nametable row 5 + k, fine Y
+    sta TFX_A,x                 ; 2 (the original's data_EF8A / data_EF8F)
+    lda tfx_lo,y
+    sta TFX_B,x
+    inx
+@next:
+    lda TFX_Q
+    clc
+    adc #8
+    sta TFX_E
+    ldy TFX_U
+    rts
+
+tfx_hi:     .db $20, $20, $20, $21, $21
+tfx_lo:     .db $A0, $C0, $E0, $00, $20
+; P_k(u) = 42 + 8k + round((k+1) * 3u / 16), u = 0-125
+TFX_UV = 0
+tfx_p0:
+.rept 126
+    .db TFX_TOP + ((1 * 3 * TFX_UV + 8) >> 4)
+TFX_UV = TFX_UV + 1
+.endr
+TFX_UV = 0
+tfx_p1:
+.rept 126
+    .db TFX_TOP + 8 + ((2 * 3 * TFX_UV + 8) >> 4)
+TFX_UV = TFX_UV + 1
+.endr
+TFX_UV = 0
+tfx_p2:
+.rept 126
+    .db TFX_TOP + 16 + ((3 * 3 * TFX_UV + 8) >> 4)
+TFX_UV = TFX_UV + 1
+.endr
+TFX_UV = 0
+tfx_p3:
+.rept 126
+    .db TFX_TOP + 24 + ((4 * 3 * TFX_UV + 8) >> 4)
+TFX_UV = TFX_UV + 1
+.endr
+TFX_UV = 0
+tfx_p4:
+.rept 126
+    .db TFX_TOP + 32 + ((5 * 3 * TFX_UV + 8) >> 4)
+TFX_UV = TFX_UV + 1
+.endr
+.if $ > $A000
+    .error "title_fx must stay in the bank's first half (the NMI maps it alone)"
+.endif
 
 att_top:    .db 31, 95, 159                     ; band tops - 1 (OAM Y)
 att_tbase:  .db 0, 36, 72
