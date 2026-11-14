@@ -330,13 +330,17 @@ def officer_names() -> dict[int, str]:
 
 def ui_kanji() -> list[str]:
     """Every UI kanji in first-use order: labels, commands, word list, then
-    the map UI's words, labels and places, then the officer names."""
+    the map UI's words, labels and places, then the officer names, then the
+    title screen and the attract mode (attract_text.py, 2026-11-14: last, so
+    their new glyphs move no earlier code)."""
+    import attract_text
     out: list[str] = []
     text = (UI_LABELS + UI_COMMANDS + "".join(k for _, _, k in wordlist())
             + "".join(k for _, _, k in MAP_UI_WORDS) + "".join(MAP_UI_LABELS)
             + "".join(BOOT_MENU.values()) + NAME_TITLE
             + "".join(k for _, k in map_places().values())
-            + "".join(officer_names().values()))
+            + "".join(officer_names().values())
+            + attract_text.all_text())
     for ch in KANJI_RE.findall(text):
         if ch not in out:
             out.append(ch)

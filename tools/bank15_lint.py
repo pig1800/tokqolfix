@@ -67,6 +67,8 @@ PATCHES = [
     (0xEBCF, 0xEBD0),   # window $1C (buy / sell): column +2, width 10
     (0xED4D, 0xED4E),   # window $29 (message speed, boot menu): width 7
     (0xC4FD, 0xC509),   # return_inline_block: the return address read before the pops (IRQ-safe)
+    (0xF0D8, 0xF0D8),   # enter_party_screen: lda #ATT_BANK (the attract mode in kanji)
+    (0xF0DD, 0xF0DE),   # its jmp: bank 24's $8000
 ]
 
 

@@ -163,6 +163,13 @@ CV_LABELS = ("cv_irq", "cv_sm", "cv_nmi", "cv_w1", "cv_stage",
 # battery RAM from TXR_TABLES up (kanji.inc).
 TXR_BANK = 26
 TXR_TABLES = 0x7BF5
+# The title screen and the attract mode in kanji (attract.asm, attract_build.py,
+# 2026-11-14): bank 24; $8000 the attract mode (the fixed bank's
+# enter_party_screen maps it), $8003 the title's tile set (bank 13).
+ATT_BANK = 24
+ATT_ENTRY = 0x8000
+ATT_TITLE_SET = 0x8003
+ATT_RESTORE = 0x8006
 _KINC = (ROOT / "decomp" / "include" / "kanji.inc").read_text(encoding="utf-8")
 # The kanji store (2026-11-13, kanji.inc STORE_*): every glyph once, 256 a
 # bank in the 8 KiB banks STORE_8K..+3 (the 16 KiB banks STORE_16K, +1).
@@ -225,6 +232,9 @@ PATCH_SITES = {
     # return_inline_block: tsx / pla / pla / lda $0101,x / sta $F3 /
     # lda $0102,x / sta $F4 (it reads its return address after popping it)
     0xC4FD: bytes.fromhex("ba6868bd010185f3bd020185f4"),
+    # enter_party_screen: lda #7 / jsr set_bank_a / jmp b07_enter_party_screen
+    0xF0D8: bytes((0x07,)),
+    0xF0DD: bytes((0x03, 0x94)),
 }
 BSETUP_WAITS = (0xDF32, 0xE0A3, 0xE200, 0xE238)   # -> jsr bs_wait
 
@@ -294,7 +304,7 @@ def assembled_twice(listing: Path) -> list[int]:
     return sorted(twice)
 
 
-def write_hook_constants(labels: dict[str, int]) -> None:
+def write_hook_constants(labels: dict[str, int], att: dict) -> None:
     need = ("main_prg", "nmi_prg", "irq_handler", "far_head", "call_hack", "c343_hook",
             "ef08_hook", "ef08_tail", "nmi_gate", "ef31_hook", "ef31_gate", "chr1_scene", "wait_text", "scroll_text",
             "page_flip", "window_clear", "ltg_copied", "battle_shake",
@@ -322,6 +332,11 @@ def write_hook_constants(labels: dict[str, int]) -> None:
         m = re.match(r"^(TXR_ON|TXR_TA|TXR_TX|TXR_RX|TXF_LABEL)\s*=\s*(\S+)", line)
         if m:
             lines.append(f"{m.group(1)} = {m.group(2)}")
+    # The title screen in kanji (bank 13's inline block and draw_string).
+    lines.append(f"ATT_BANK = {ATT_BANK}")
+    lines.append(f"ATT_TITLE_SET = ${ATT_TITLE_SET:04X}")
+    lines.append(f"ATT_RESTORE = ${ATT_RESTORE:04X}")
+    lines.append(f"ATT_TITLE_ATTR = ${att['title_attr']:04X}")
     text = "".join(line + "\n" for line in lines)
     (OUT / "fixed_hooks.inc").write_text(text, encoding="utf-8")
 
@@ -954,6 +969,14 @@ def write_canvas_bank(image: bytes) -> None:
     write_bank(f"bank{CV_BANK:02d}.bin", bytes(data))
 
 
+def write_att_bank(image: bytes) -> None:
+    if any((OUT / f"bank{ATT_BANK:02d}.bin").read_bytes()):
+        raise SystemExit(f"bank {ATT_BANK} (the attract mode) holds other data")
+    if len(image) > 0x4000:
+        raise SystemExit(f"attract bank image is {len(image)} bytes")
+    write_bank(f"bank{ATT_BANK:02d}.bin", image + bytes(0x4000 - len(image)))
+
+
 def write_txr_bank(image: bytes) -> None:
     if any((OUT / f"bank{TXR_BANK:02d}.bin").read_bytes()):
         raise SystemExit(f"bank {TXR_BANK} (the text renderer) holds other data")
@@ -1146,6 +1169,11 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
     apply_patch(bank, 0xCD07, bytes((0x68,)) + jmp(0x20, "txr_cur"))  # pla / jsr txr_cur
     apply_patch(bank, 0xCF22, jmp(0x20, "txr_mi"))
 
+    # The attract mode in kanji (attract.asm): enter_party_screen maps bank
+    # ATT_BANK and jumps to its $8000 in place of bank 7's routine.
+    apply_patch(bank, 0xF0D8, bytes((ATT_BANK,)))
+    apply_patch(bank, 0xF0DD, bytes((ATT_ENTRY & 0xFF, ATT_ENTRY >> 8)))
+
 
     write_bank("bank15.bin", bytes(bank))
 
@@ -1195,7 +1223,10 @@ def main() -> int:
     canvas = build_canvas_ram()
     fixed = assemble("mmc3_b15")
     labels = read_labels(OUT / "mmc3_b15.lst")
-    write_hook_constants(labels)
+    sys.path.insert(0, str(ROOT / "tools"))
+    import attract_build
+    att = attract_build.build()
+    write_hook_constants(labels, att)
 
     font = build_font()
     build_store(font)
@@ -1205,6 +1236,7 @@ def main() -> int:
     ui = assemble("ui")
     build_txr_ui()
     txr = assemble("txr")
+    attract = assemble("attract")
 
     trampoline = assemble("trampoline")
     if len(trampoline) > 0x100:
@@ -1226,12 +1258,14 @@ def main() -> int:
     write_canvas_bank(canvas)
     write_ui_bank(ui)
     write_txr_bank(txr)
+    write_att_bank(attract)
 
     print(f"fixed hooks: {len(fixed)} bytes; overlay: {len(overlay)} bytes; "
           f"hack code: {(OUT / 'hack.bin').stat().st_size} bytes; "
           f"kanji store: {len(font) // 32} of 1024 glyphs; "
           f"RAM code: {len(canvas)} bytes; UI bank: {len(ui)} bytes "
-          f"({nglyphs} glyphs); text renderer: {len(txr)} bytes")
+          f"({nglyphs} glyphs); text renderer: {len(txr)} bytes; "
+          f"attract bank: {len(attract)} bytes")
     return 0
 
 

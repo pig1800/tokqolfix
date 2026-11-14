@@ -2077,3 +2077,115 @@ runs.  Cost: 6 cycles a restore when clear.
 - `vblank_deadline` (standard path): 0 hack PPU accesses after the
   pre-render line, 0 late scroll restores.
 - The original build is byte-identical.
+
+## The title screen and the attract mode (2026-11-14)
+
+The user's spec (`titlekanji.txt`, kept out of git as theirs; the text is
+`tools/attract_text.py`).  The title's ©もとみやきかく／しゅうえいしゃ and
+every line of the attract mode (the intro over the logo, the five
+portrait screens, the text screen) in kanji.  Portraits are sprites.
+
+**Code and data.**  Bank 24 (`tools/asm/attract.asm`, data from
+`tools/attract_build.py`: `attract_lo.inc`, `attract_hi.inc`), 4.3 KiB of
+it used:
+- `$8000` the attract mode.  The fixed bank's `enter_party_screen` maps
+  bank 24 and jumps there in place of bank 7's `b07_enter_party_screen`
+  (3 bytes, `$F0D8`, `$F0DD`).  Bank 7 is the original.  The port keeps
+  every step and frame count of bank 7's code: phrases, delays, fades, the
+  slide, Start (only in the delays, as the original's `b07_delay_frames`)
+  and the end in `enter_status_screen`.
+- `$8003` the title's tile set and nametable.  The title's inline block
+  (bank 13 `b13_inline_881A`) calls it in place of the letters' copy and
+  `load_battle_palette`.  The block's `draw_string` gets only the
+  original's attribute records (`ATT_TITLE_ATTR`).
+- `$8006` Start on the title: `b13_loc_88BC`'s jump goes to
+  `b13_k_restore` in bank 13's filler.  That puts the font (bank 9) and the
+  letters (bank 2) back on the scene page for the boot screens, as the
+  original's title load left them.
+- The kanji: 21 new ones joined the store (`kanji_common.ui_kanji`
+  appends `attract_text`, so no earlier code moved); the store holds 1,003
+  of 1,024.  黄忠 uses 黄 (U+9EC4), as the game's officer name (the user's
+  choice; the file had 黃).
+
+**Tile sets** (the user's rules): every screen has its own BG set,
+uploaded while it is black.
+- Kanji from tile `$00` (4 tiles each, 8x16 order, from the store through
+  `PRG_R7X`), then every 8x8 glyph the screen needs: the game's font (bank
+  9 `$BA00`, 1bpp) and the title's letters (bank 2 `$BE00`).  Tile `$FF`
+  is written blank and the nametables are filled with it.
+- The title keeps the logo at `$80-$DF`; its 8x8 glyphs continue at `$E0`.
+- The intro uses the title's set (no transition).
+- Banks 2, 3 and 9 are read by RAM routines (`RR_COPY`, `RR_PART`, copied
+  to `$0660`) that map them with `set_bank_b`, the game's NMI-safe switch.
+
+| Set | Kanji | 8x8 | Last tile | Free |
+|---|---|---|---|---|
+| Title + intro | 25 | 49 | `$F4` | 10 |
+| Portrait screen 1 | 45 | 15 | `$C2` | 60 |
+| Portrait screen 2 | 41 | 13 | `$B0` | 78 |
+| Portrait screen 3 | 35 | 13 | `$98` | 102 |
+| Portrait screen 4 | 39 | 15 | `$AA` | 84 |
+| Portrait screen 5 | 25 | 8 | `$6B` | 147 |
+| Text screen | 28 | 33 | `$90` | 110 |
+
+**Lines.**  A kanji is two columns, every other glyph one, and U+3000 is
+one blank column, as the original's spaces.
+- A line's kanji bottom row is the original line's row, and dakuten go on
+  the row above, as the game's font draws them.  So a line covers rows
+  r-1 and r: the original line plus its dakuten row, one attribute row.
+- Each phrase keeps the original phrase's attribute records, so it fades
+  in through BG palette 2 on its own attribute row as before.  The intro's
+  last line (row 25) pops in unfaded, as in the original: its attribute
+  row stays palette 1.
+- Columns are the original's: intro 5, bands 1 and 3 column 9, band 2
+  column 2 (checked to end before its portrait at column 24), the text
+  screen 3 with the user's leading blanks.
+- The build fails if a line would leave its rows or columns.
+- The longest phrase is 55 queue bytes.
+
+**Portraits as 8x16 sprites** (the user's choice over the mid-frame OAM
+DMA scheme):
+- 18 sprites a portrait, 54 at most, 6 on a line, so the NMI's own OAM DMA
+  shows them all; no scanline IRQ, no mid-frame `$2001` or DMA.
+  `PPUCTRL` bit 5 is set on these screens only and cleared when the
+  attract ends (Start included).
+- The parts (bank 12's records, 6 parts of 6 tiles from banks 2/3) go to
+  the sprite page in top/bottom pairs, tile `36 p + 12 (R >> 1) + 2 c + (R & 1)`.
+- Band 2's portrait is the H-flip, in place of the original's
+  bit-reversed copy.
+- All 13 attract portraits use colour `$20`.  Sprite palette 0 is BG
+  palette 3 after each `load_text_graphics`, so the fades treat it as the
+  original's portrait palette.  The fades get `$A4` set, so they leave the
+  OAM shadow alone.
+- The slide: x = 16 + offset for bands 1 and 3, 192 - offset for band 2,
+  offset `$F8` down to 0 in steps of 8, a column hidden while it is past
+  the screen's edge.
+
+**The band page.**  The boot screens' record prompts show the font
+through the band (page 2), and the original's title load put it there
+through the block writer's mirror.  `att_title_set` writes it to page 2
+directly.  The title and the attract never touch page 2 otherwise.
+
+**Checked** (`out/test/opt/att`):
+- Event timeline (fades, screen on/off, the title) against the original:
+  the same sequence and frame counts.  The black phases are 3-5 frames
+  where the original took 6-7; the text screen takes 3 where it took 1
+  (it uploads its set now).  The title comes 1 frame later than the
+  original (the page-2 font) and 2 earlier than the previous build.
+- All five slides are pixel-identical to the original's BG-split slides,
+  45 frames each.
+- No PPU write while rendering is on, other than `screen_fade_in`'s
+  `PPUCTRL` write, which the original makes too.  The original's mid-frame
+  writes are its split loops.
+- Start during the intro, a slide, a phrase and the text screen leads to
+  the title.  Start during a fade is ignored, as in the original (checked
+  on both).  Then Start leads to the boot screens with the font.
+- Standard path against the previous build: CHR RAM is identical at frame
+  6200 (both pages), and every boot-screen frame from 300 to 1700 has an
+  identical frame within 2.  The path runs one frame later after Start on
+  the title: the restore takes ~0.94 frame, and there are ~2.5K cycles
+  of slack before the next frame there.
+- Attract with the portraits loaded, Start, Start, into the game: the
+  same screens as the standard path; the sprites are the game's again.
+- Only banks 13a, 15b/31b, the store's last bank and bank 24 differ from
+  the previous build.  The original build is byte-identical.

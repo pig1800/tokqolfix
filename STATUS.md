@@ -23,8 +23,12 @@ tests; see CHANGELOG for what each revision fixed.
   an overlay copy, reserved for growth); no relaxed messages.
 - Kanji store (2026-11-13): every glyph once, 256 a bank in the 8 KiB banks
   32-35 (16 KiB banks 16-17), code = bank << 8 | pos, in the text `$EC +
-  bank, pos`; 982 glyphs (833 message kanji, the rest UI and officer
-  names), 42 free.  TEXT_RENDERER.md "The kanji store".
+  bank, pos`; 1,003 glyphs (833 message kanji, the rest UI, officer
+  names and, since 2026-11-14, the title and attract mode's 21), 21 free.
+  TEXT_RENDERER.md "The kanji store".
+- Title screen and attract mode in kanji (2026-11-14): bank 24, portraits
+  as 8x16 sprites.  TEXT_RENDERER.md "The title screen and the attract
+  mode".
 - Kanji tiles: per page, the free kana tiles least exposed to game windows
   (unused by menus/names, then name-entry grid, submenu, officer/item
   names).  A message printed by menu code, or jumping into it, never
@@ -133,7 +137,7 @@ kanji-store build:
 
 | Content | KiB | Where |
 |---|---|---|
-| Kanji store (982 glyphs, room for 42 more) | 32 | banks 16-17 (8 KiB banks 32-35) |
+| Kanji store (1,003 glyphs since 2026-11-14, room for 21 more) | 32 | banks 16-17 (8 KiB banks 32-35) |
 | Message text (751 unique messages) | 30.2 | text banks 18-22, 30 |
 | Message metadata (17-byte header, keep / clean lists, 6 bytes a kanji) | 52.5 | after each message |
 | Overlay copies (2 KiB in each text bank) | 14 | `$B800` of 18-22, 29, 30 |
@@ -142,7 +146,8 @@ kanji-store build:
 | RAM image | 0.7 | bank 27 upper half |
 | UI bank (code, tables, the officer names' codes 1.3) | 9.5 | bank 28 |
 | Fixed bank (bank 15 keeps the original at its place) | 16 | bank 31 |
-| **Free** | **85.6** | banks 24, 25 (32); bank 23 (12.3); bank 29 (14, the text's reserve); bank 27 (8 + 7.3); bank 28 (6.5); bank 26 (4.3); the text banks' ends (1.3) |
+| Title screen and attract mode (2026-11-14: code, tile sets, phrases) | 4.2 | bank 24 |
+| **Free** | **81.4** | bank 25 (16); bank 24 (11.8); bank 23 (12.3); bank 29 (14, the text's reserve); bank 27 (8 + 7.3); bank 28 (6.5); bank 26 (4.3); the text banks' ends (1.3) |
 
 Before the store (`ec05dfa`): 29 KiB free.  The store replaced the band
 page / battle copy (33.7 KiB, banks 23-25, with three copies of the hack

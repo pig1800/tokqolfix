@@ -4,18 +4,19 @@ State after the kanji store (`025dc84`, TEXT_RENDERER.md "The kanji store").
 Nothing below is done.  Each item waits for the user's go-ahead; the user
 has issues to patch first.
 
-## Free now (banks 16-31, 85.6 KiB)
+## Free now (banks 16-31, 81.4 KiB since the attract mode, 2026-11-14)
 
 | Where | KiB | Note |
 |---|---|---|
-| Banks 24, 25 | 32 | the old font copy's banks, blank |
+| Bank 25 | 16 | the old font copy's bank, blank |
+| Bank 24 | 11.8 | after the title screen and attract mode (4.2, 2026-11-14) |
 | Bank 23 | 12.3 | 4.3 after the hack code (lower half), the upper half 8 |
 | Bank 29 | 14 | only an overlay copy; the text builder's reserve (its 3% margin) |
 | Bank 27 | 15.3 | lower half 8 (the old map copy's), upper half 7.3 after the RAM image |
 | Bank 28 (UI) | 6.5 | |
 | Bank 26 (map renderer) | 4.3 | |
 | Text banks 18-22, 30 | 1.3 | the gaps at the banks' ends |
-| Kanji store (bank 35) | 1.3 | 42 glyph slots, kept for new kanji |
+| Kanji store (bank 35) | 0.7 | 21 glyph slots, kept for new kanji (the attract mode took 21) |
 
 ## Candidates (measured)
 
