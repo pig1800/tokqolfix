@@ -114,7 +114,9 @@ is in `MEMORY_MAP.md`.
   flip pages without a wrap (no その他 entry).  A flip writes the 8 lines'
   rows only (the names' kanji upload as usual).  Sprite arrows (tile `$04`
   of the sprite table, the left one mirrored) at columns 21 and 28 of row
-  19 show where another page lies.
+  19 show where another page lies, and the page number between them
+  (「2／5」, columns 23-25) when there is more than one.  The list holds 64
+  (`$6030-$606F`, the original's limit), so the number has one digit.
 - **Title and attract mode** (bank 24): each screen has its own tile set,
   and the portraits are 8x16 sprites.  The title's logo intro (its five
   rows closing up) moves every frame (60 fps; the original stepped every

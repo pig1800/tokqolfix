@@ -15,7 +15,8 @@
 ;     kanji), not the whole window;
 ;   - sprite arrows (tile $04 of the sprite table at $0000, free in map
 ;     mode; the left one mirrored) at columns 21 and 28 of row 19 when a
-;     page lies that way.
+;     page lies that way, and the page between them ("2／5", the font's
+;     digits and ／ at columns 23-25) when there is more than one.
 ; The page is party_scan ($6E), as the original's.  The window engine
 ; ends a window on an odd row, so it draws the frame at row 19 and
 ; UIF_LROWS writes rows 19-20 right after (one frame later).
@@ -26,6 +27,8 @@ LS_ARROW_Y   = 19*8-1       ; OAM Y: screen row 19
 LS_LEFT_X    = 21*8         ; screen column 21
 LS_RIGHT_X   = 28*8         ; screen column 28
 LS_LINES     = 8
+LS_NUM       = 3            ; the page number's first cell in the row (column 23)
+T_SLASH      = $7C          ; ／ (the font's digits are $00-$09)
 LS_COUNT     = $54          ; the window's lines: the cursor's range (text_scroll)
 LS_RESERVE   = $6030        ; the reserve list (64 records, packed: bank 14 $9579)
 LS_STATUS    = $6300        ; an officer record's state ($E0: the original's mark)
@@ -97,7 +100,7 @@ ls_arrow:
 ; ----------------------------------------------------------------------
 ui_lrows:
     jsr ls_banks
-    jsr ls_clear                ; buffer row 0: the empty row
+    jsr ls_row19                ; row 19 (buffer row 1 left empty)
     ldy LS_W                    ; buffer row 1: the frame, $0B $0D .. $6F
     dey
     lda #$6F
@@ -111,11 +114,6 @@ ui_lrows:
 @corner:
     lda #$0B
     sta $0318
-    lda #LS_LINES               ; row 19: metarow 8's lower row
-    jsr ls_addr
-    jsr ls_lower
-    lda #0
-    jsr ls_draw
     lda #LS_LINES+1             ; row 20: metarow 9's upper row
     jsr ls_addr
     lda #1
@@ -133,7 +131,8 @@ ui_lframe:
 
 ; ----------------------------------------------------------------------
 ; UIF_LFLIP: Left / Right (controller_state): the page before or after,
-; if there is one; then its 8 lines, two a frame (as the window opens).
+; if there is one; then the page number with line 0, and the other lines
+; two a frame (as the window opens).
 ; ----------------------------------------------------------------------
 ui_lflip:
     ldx party_scan
@@ -153,6 +152,7 @@ ui_lflip:
     lda #$09                    ; the cursor's sound
     jsr F_SOUND_ADD
     jsr ls_banks
+    jsr ls_row19
     lda #0
     sta LS_L
 @line:
@@ -160,12 +160,13 @@ ui_lflip:
     jsr ls_line
     inc LS_L
     lda LS_L
-    lsr a
-    bcs @line
-    jsr ls_frame
-    lda LS_L
     cmp #LS_LINES
-    bne @line
+    beq @done
+    lsr a
+    bcc @line                   ; (another line this frame)
+    jsr ls_frame
+    jmp @line
+@done:
     jmp ls_done
 @rts:
     rts
@@ -339,6 +340,27 @@ ls_draw:
     lda LS_W
     sta text_speed_count
     jmp F_DRAW_LINE
+
+; Row 19 (metarow 8's lower row) from buffer row 0: the window's empty
+; row, and with more than one page the page number between the arrows.
+; Buffer row 1 is left the empty row.
+ls_row19:
+    jsr ls_clear
+    lda LS_NP
+    cmp #2
+    bcc @draw
+    sta $0300+LS_NUM+2          ; the pages (single digits: at most 8)
+    lda #T_SLASH
+    sta $0300+LS_NUM+1
+    ldx party_scan
+    inx
+    stx $0300+LS_NUM            ; this page
+@draw:
+    lda #LS_LINES
+    jsr ls_addr
+    jsr ls_lower
+    lda #0
+    jmp ls_draw
 
 ; Buffer rows 0 and 1: an empty line of the window ($7D, $0A .., $7E).
 ls_clear:

@@ -3024,3 +3024,37 @@ previous build `a6adf80c`; the build with the user's edits is
   on the build before showed 程粛志 for 程遠志: the renderer's glyph lists
   still knew the old code of 粛.  After a screen change (the info screen
   and back) the list was right.  STATUS.md lists this under the limits.
+
+**The page number** (the user's next request, 2026-11-15): 「2／5」 on row
+19 between the arrows, in the font's digits (`$00-$09`) and ／ (`$7C`) at
+columns 23-25, through the renderer like the rest of the row.  With the
+arrows at 21 and 28 it sits half a cell left of the middle: a BG cell
+cannot be centred between them, and sprites are no way out, because only
+tiles `$04-$07` of the sprite table are free.  It shows from 2 pages up,
+as the arrows do.  A flip writes row 19 first (with line 0), so the number
+changes at once and the names follow (`ls_row19`).  The list holds at most
+64, so the page count is a single digit (8 at most).
+
+**Why 64** (assessed for the user, not changed):
+- The reserve list is 64 bytes of the saved state, `$6030-$606F`; the
+  experience follows at `$6070`.
+- Every site counts 64:
+  - the join (bank 13 `$9C50`, every recruit: talks and prisoners through
+    `call_b13_9c00`) searches 64 slots, and when they are full it says
+    b10_msg_038 「劉備軍はこれ以上仲間を持つことができない」;
+  - 外す (bank 14 `$9415`) checks the 64th slot (`$606F`) and says
+    b10_msg_092 「これ以上武将の入る場所がございません」;
+  - its insert (`$9499`) takes the first empty slot unbounded;
+  - the packing (`$9579`) and an event's removal of record `$BC` (`$AF2C`)
+    loop over 64;
+  - the list (`b14_k_list`, `ui_list.asm`) has 8 pages.
+- The save record is a copy of `$6000-$67FF` with a checksum over it, so a
+  longer list has to live in that page range.  `$6405-$64FF` looks free:
+  - it is zero in the user's late-game record;
+  - no executed code refers to it (the CDL scan: only `$6400-$6404`, boot
+    scratch);
+  - a write and read watch over three play paths (the 樊稠 battle and
+    recruit, the capture battle, the list's 加える / 外す / 解雇) saw no
+    access, and the boot path only copies the record over it.
+- The game names 216 officer records (7 generic), so a player who
+  recruits widely can pass 7 + 64.
