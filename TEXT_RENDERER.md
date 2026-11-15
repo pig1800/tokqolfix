@@ -2923,3 +2923,104 @@ limits since before 2026-11-14) had the same cause.
   last run (one record, not two).  Run again on both builds from one copy
   of it: identical.
 - Bank 31: 27 bytes (`$FB5A-$FB74`); 188.1 KiB free as before.
+
+
+## The reserve list by pages (2026-11-15)
+
+The user's QoL request (state `rom_kanji_1`, one A before 加える's list):
+- Left / Right flip the page; no その他 entry and no wrap.
+- The list window's bottom frame one row up.
+- A right arrow in sprite tile `$04` of the sprite table at `$0000`, a
+  left arrow (the same tile mirrored) at screen tile (21, 19), a right
+  arrow at (28, 19): the left one not on the first page, the right one
+  not on the last.
+- A window of 8 slots always.  The original stopped after a short page's
+  last name and closed the frame there, so rows of the longer page stayed
+  below it.
+- A flip writes the names (kanji uploads and nametable), not the whole
+  window again.
+
+**The original** (bank 14, undisassembled): `$9506` is the list for 能力
+(`$9344`), 加える (`$938F`) and 解雇 (`$94BD`).
+- Window `$20` (template `$EC1B`: "`$F8 $92EA`, `$FB`") calls `$92EA` per
+  line.  It puts officer `$6030[8·page + line]` and steps `text_col` back
+  4, so the template runs again, until a short page's end or line 8,
+  which is その他.
+- The wait is `text_wait_loop`.  Picking その他 bumped the page (mod 8, back
+  to 0 on an empty page) and drew the window again (`text_window_restore`).
+- On return: A = `$60AF` = the record, X = its entry, `$4A` = 7; B leaves
+  through `$92C5` (its message) to the caller's caller.
+- The list `$6030-$606F` is packed (`$9579`), so page p exists when
+  `$6030[8p]` is non-zero.  The user's state had 39 officers: 5 pages, the
+  last of 7.
+
+**Where the rows fall.**  The window is at columns 20-29: its top frame at
+row 2, 8 lines at rows 3-18, その他 at 19-20 and the frame at row 21.  The
+officer window below has 能力 at rows 19-20 and 加える at 21-22, so the old
+frame covered 加's top half.  The frame at row 20 shows 加える whole.  Row
+19 is then the arrows' row inside the window.
+
+**The window engine** (`text_init`) draws metarows: the first is the top
+frame and line 0's upper row, the last line 7's lower row and the frame.
+So a window always ends on an odd row; the frame cannot be at row 20 by
+the template.
+
+**Now:**
+- `b14_k_list_line` (`$92EA`, 44 bytes) puts line `$54` of 8 always: the
+  officer, or an empty line past the list.  It runs the template again
+  until line 7; the engine then draws the frame at row 19.
+- `b14_k_list` (`$9506`, 84 bytes) opens the window
+  (`text_window_restore`), then runs `text_wait_loop`'s loop
+  (`set_bank_b` 14, `text_scroll`, the frame, A / B) with Left / Right.
+  The rest is in the UI bank (`ui_list.asm`, 553 bytes, through `call_ui`):
+  - `UIF_LSTART`: page 0 (`party_scan`, the original's page byte), the
+    page count, the arrow tile queued.  The queue entry's high byte is
+    `$40`, because `$00` ends the queue (the PPU ignores bits 14-15).
+  - `UIF_LROWS`: row 19 (borders, blank) and row 20 (the frame, the
+    engine's codes `$0B $0D… $6F`); `$54` = the page's officers (the
+    cursor's range).  The engine's frame at row 19 is on screen for one
+    frame, at the end of the opening, before these rows replace it.
+  - `UIF_LFRAME`: `update_frame` with the arrows.  The tile animation,
+    `update_oam`, `hide_sprites`, the arrows after the actors
+    (`oam_write_index`), then `wait_vblank`.  Sprite palette 0, colour 1
+    (white in every map state seen).
+  - `UIF_LFLIP`: the page before or after if there is one (sound `$09`),
+    then the 8 lines, two a frame as the window opens.  Each line: buffer
+    rows 0-1 cleared to the window's empty line, the name
+    (`put_officer_name` after its lookup, `$D4A5`), then the two rows by
+    `text_draw_line`, where the renderer translates them and uploads the
+    kanji.  The rows' addresses come from the cursor as `text_init` sets
+    it (`text_x`…, the template's offsets, `cursor_to_ppu`).  Then
+    `text_restore_tiles` (the dialogue's rows and the cursor, as the
+    original's redraw), and the cursor kept within the page.
+  - `UIF_LPICK`: `$60AF`, `$4A`, X as the original.
+  - The UI functions set `current_bank_a` / `_b` to the UI bank:
+    `put_officer_name` ends in `set_bank_current`, and a yield resumes in
+    `current_bank_b`.
+- Sprite tiles `$04-$07` are blank in every map state checked (8: the
+  town office, a town, a cave, the throne room, a shop, the pre-battle
+  map, two battles).
+- `b14_k_sonota` is gone.  The label その他 stays in the renderer's
+  `MAP_UI_LABELS`, so the store's codes stay as they were.
+
+**Checked** (the build with the committed text, `cafbdd04`, against the
+previous build `a6adf80c`; the build with the user's edits is
+`0e4b427b`):
+- 加える: page 1 → 5 with Right, a sixth Right does nothing; page 5 has 7
+  names and an empty 8th line, the left arrow only.  The cursor on line 8
+  of page 4 comes to line 7 on page 5; Down wraps within the 7.  Picking
+  line 6 of page 5 gives 「張勳は隊列に加わった」.
+- 能力 from page 2 opens 李傕's info screen; 解雇 on page 3 dismisses 陳登;
+  B gives the original's 「そうですか　また　お待ちしております」.
+- The arrows are steady through flips (32 pixels each, every frame).  A
+  flip takes about 8 frames with new kanji (3 a frame).
+- After a pick, the message window covers the list's lower left corner as
+  in the original (compared frame by frame with the original pick).
+- The regression suite: identical to the previous build.  The boot flows
+  that copied the user's battery save now use a fixed copy
+  (`sav/user_1114.sav`).
+- With the user's text edits of 2026-11-15 (お主, 喘いで; 主 and 喘 new in
+  the store, 1,006 glyphs), the codes after them shift.  So the state made
+  on the build before showed 程粛志 for 程遠志: the renderer's glyph lists
+  still knew the old code of 粛.  After a screen change (the info screen
+  and back) the list was right.  STATUS.md lists this under the limits.

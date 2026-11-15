@@ -2270,18 +2270,112 @@ b14_wincb_exp_line:
 
 b14_data_9258:
 .ifdef KANJI_TARGET
-    .incbin "build/assets/bank14_data.bin", $1258, $00AA
-    ; $9302, window $20's line CALL ($92EA): the empty entry's そのた (three
-    ; tiles from $955E), その他 in map mode (b14_k_sonota); then its rts.
-    jmp b14_k_sonota
-    .dsb 13, $EA
-    .incbin "build/assets/bank14_data.bin", $1312, $00EE
+    .incbin "build/assets/bank14_data.bin", $1258, $0092
+; Window $20's line CALL (its template at $EC1B: "$F8 $92EA", then $FB),
+; the reserve list (2026-11-15, the user's QoL request; TEXT_RENDERER.md
+; "The reserve list by pages"): line $54 of 8 always, the page's officer
+; (party_scan's page) or an empty line; the template again (text_col back
+; 4, to its $FA) until line 7, after which the engine draws the frame.  The
+; original showed その他 on line 8 (to the next page) and ended the window
+; after a short page's last name.  X = the row-buffer index.
+b14_k_list_line:
+    lda party_scan
+    asl a
+    asl a
+    asl a
+    adc $54
+    tay
+    lda $6030,y
+    beq @next                   ; (past the list: empty)
+    tay
+    lda $6300,y
+    cmp #$E0
+    bne @name
+    lda #$0E                    ; (the original's mark)
+    sta $0318,x
+    inx
+@name:
+    jsr put_officer_name+4      ; Y = the record (after its lookup)
+@next:
+    lda $54
+    cmp #7
+    bcs @end
+    lda text_col
+    sec
+    sbc #4
+    sta text_col
+@end:
+    rts
+    .dsb $9344 - $, $FF
+.if $ != $9344
+    .error "window $20's line CALL outgrew $92EA-$9343"
+.endif
+    .incbin "build/assets/bank14_data.bin", $1344, $00BC
 .else
     .incbin "build/assets/bank14_data.bin", $1258, $01A8
 .endif
 
 b14_data_9400:
+.ifdef KANJI_TARGET
+    .incbin "build/assets/bank14_data.bin", $1400, $0106
+; The reserve list ($9506: 能力, 加える, 解雇; TEXT_RENDERER.md "The reserve
+; list by pages"): window $20 with 8 lines (b14_k_list_line), rows 19-20
+; and the arrows from the UI bank (ui_list.asm), then text_wait_loop's
+; loop with Left / Right: a flip writes the next page's lines.  As the
+; original: C set (B) leaves through $92C5 (its message) to the caller's
+; caller; else A = $60AF = the record, X = its entry, $4A = 7.
+b14_k_list:
+    ldx #UIF_LSTART
+    jsr CALL_UI                 ; page 0, the pages, the arrow tile
+    ldx #$20
+    jsr text_window_restore     ; the window (the frame at row 19)
+    ldx #UIF_LROWS
+    jsr CALL_UI                 ; rows 19-20, the cursor's range
+    jsr clear_text_state
+@loop:
+    lda #$0E                    ; (as text_wait_loop)
+    jsr set_bank_b
+    jsr text_scroll             ; Up / Down, the cursor
+    ldx #UIF_LFRAME
+    jsr CALL_UI                 ; the frame, the arrows
+    lda controller_state
+    bmi @pick                   ; A
+    asl a
+    bmi @cancel                 ; B
+    lda controller_state
+    and #$03
+    beq @loop
+    ldx #UIF_LFLIP
+    jsr CALL_UI                 ; Left / Right
+    jmp @loop
+@pick:
+    lda #$0A
+    jsr sound_queue_add
+    clc
+    .db $24                     ; (bit zp: over the sec)
+@cancel:
+    sec
+    php
+    jsr text_draw_cursor
+    jsr set_bank_current
+    plp
+    bcc @ok
+    pla
+    pla
+    jmp $92C5
+@ok:
+    ldx #UIF_LPICK
+    jsr CALL_UI                 ; $60AF, $4A, X
+    lda $60AF
+    rts
+    .dsb $955E - $, $FF
+.if $ != $955E
+    .error "the reserve list outgrew $9506-$955D"
+.endif
+    .incbin "build/assets/bank14_data.bin", $155E, $001B
+.else
     .incbin "build/assets/bank14_data.bin", $1400, $0179
+.endif
 
 ; ----------------------------------------------------------------------
 ; b14_sub_9579
@@ -2394,21 +2488,6 @@ b14_k_goldover:
     lda data_EDD1,x
     sta $17
     jmp text_wait_loop
-; Window $20's empty entry: その他 in map mode, そのた elsewhere.
-b14_k_sonota:
-    bit TXR_ON
-    bmi @k
-    ldy #0
-@l:
-    lda $955E,y
-    sta $0318,x
-    inx
-    iny
-    cpy #3
-    bne @l
-    rts
-@k:
-    lda #2                      ; その他
 ; A = a label (TXF_LABEL), X = the row-buffer index: the label; X after it.
 b14_k_label:
     sta TXR_TA

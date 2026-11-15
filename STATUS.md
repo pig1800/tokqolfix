@@ -1,4 +1,4 @@
-# The kanji edition as built (2026-11-14)
+# The kanji edition as built (2026-11-15)
 
 The reference for the current build: layout, runtime, text editing, tools,
 tests and limits.  The reasons behind each part, and the measurements, are
@@ -28,18 +28,18 @@ is in `MEMORY_MAP.md`.
 | 9 | original; the UI glyphs `$EF-$FA` moved to plane 1 (the info screen's kanji) |
 | 10, 11 | the game's message tables; each kanji message is a 6-byte `$F8` far stub (JUMP-only messages 3 bytes); the old text space is free |
 | 13 | original, patched: the boot screens (fixed kanji set, the speed message, two save records), the attract entry |
-| 14 | original, patched: hooks for the battle, info and army screens, the battle shake, the reward window's template |
+| 14 | original, patched: hooks for the battle, info and army screens, the battle shake, the reward window's template, the reserve list |
 | 15 | free (JAM bytes: nothing maps it) |
 | 16-17 | kanji store: 1,004 of 1,024 glyphs, 256 per 8 KiB bank (banks 32-35) |
 | 18-19 | text: 758 unique messages in four 8 KiB chunks (banks 36-39), read at R7 |
 | 23 | hack bank: the message engine (`kanji_msg.asm`), the battle pool's uploads, the palette tables |
 | 24 | title screen and attract mode (`attract.asm`) |
 | 26 | map text renderer (`txr.asm`) |
-| 28 | UI bank (`ui.asm`, `ui_battle.asm`) |
+| 28 | UI bank (`ui.asm`, `ui_battle.asm`, `ui_list.asm`) |
 | 31 | fixed bank: bank 15 with registered patches, and the runtime at `$FC00` (`fixed_rt.asm`) |
 | 20-22, 25, 27, 29, 30 | free |
 
-188.1 KiB free in all.
+187.5 KiB free in all.
 
 ## Runtime
 
@@ -107,6 +107,14 @@ is in `MEMORY_MAP.md`.
   the speed window.
 - **The opening oath:** a fixed split.  The IRQ at line 130 switches R1 to
   CHR `$3800`, which holds the oath's 20 kanji.
+- **The reserve list** (window `$20`: 能力, 加える, 解雇; bank 14
+  `b14_k_list`, UI bank `ui_list.asm`): 8 officers a page in a window of
+  8 lines (screen rows 3-18), an arrow row (19) and the bottom frame
+  (20), so the officer window's 加える below stays whole.  Left / Right
+  flip pages without a wrap (no その他 entry).  A flip writes the 8 lines'
+  rows only (the names' kanji upload as usual).  Sprite arrows (tile `$04`
+  of the sprite table, the left one mirrored) at columns 21 and 28 of row
+  19 show where another page lies.
 - **Title and attract mode** (bank 24): each screen has its own tile set,
   and the portraits are 8x16 sprites.  The title's logo intro (its five
   rows closing up) moves every frame (60 fps; the original stepped every
@@ -128,8 +136,9 @@ is in `MEMORY_MAP.md`.
 | `$0780-$07FF` | the map renderer's state (`TXR_*`; `REG_LO/HI` at `$07A0-$07DF`) |
 | `$6000-$77FF` | the game's (two save records in the kanji edition) |
 | `$7800-$78FF` | the map's attribute shadow (`MAP_ATTR`, four-screen) |
-| `$7900-$7948` | the title intro's IRQ events (`TFX_*`) |
-| `$7949-$7BF4` | free (cleared at reset) |
+| `$7900-$794C` | the title intro's IRQ events (`TFX_*`) |
+| `$794D-$7953` | the reserve list (`LS_*`) |
+| `$7954-$7BF4` | free (cleared at reset) |
 | `$7BF5-$7F9B` | the renderer's tables and buffers (in battle: the kanji slot table) |
 | `$7F9C-$7FFF` | the UI bank's state, `PRG_R7X` |
 
@@ -189,5 +198,9 @@ is in `MEMORY_MAP.md`.
   boards have 8 KiB, so this runs in emulators, or on a board with more
   CHR RAM.
 - Screens that have no fixed kanji yet stop at `band_trap` (above).
+- A text edit that adds or drops a kanji shifts the store's codes, which
+  follow frequency.  A save state made before such a rebuild then shows
+  wrong kanji in map windows for glyphs it had in CHR, until a screen
+  change resets the renderer (seen 2026-11-15: 程遠志 as 程粛志).
 - In map mode, each new kanji of a page waits for its glyph upload, so
   kanji print a little slower than kana.

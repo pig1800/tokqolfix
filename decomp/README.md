@@ -149,9 +149,9 @@ last regeneration).
 
 **Hand edits a regeneration must keep.**  The kanji edition's changes to
 the game banks are hand edits that `decompile.py` does not produce:
-- every `.ifdef KANJI_TARGET` / `.ifndef KANJI_TARGET` block (2026-11-14:
+- every `.ifdef KANJI_TARGET` / `.ifndef KANJI_TARGET` block (2026-11-15:
   bank 9 one, banks 10 and 11 one each, bank 13 eighteen, bank 14
-  twenty-three);
+  twenty-four);
 - `SAVE_SLOTS` in bank 13 (2 in the kanji edition, 3 in the original).
 
 Regenerate into a scratch copy and merge the result with `git diff`, never

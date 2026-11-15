@@ -114,7 +114,8 @@ ui_fns:
     .dw ui_info_enter-1, ui_bstart-1, ui_wincb-1, ui_sm-1, ui_info_busy-1
     .dw ui_bsetup-1, ui_bsetup_end-1, ui_dec-1, ui_div-1, ui_wipe-1
     .dw ui_wipe_rows-1, ui_rowev-1, ui_pchoose-1, ui_ptiles-1, ui_rwload-1
-    .dw ui_nameg-1
+    .dw ui_nameg-1, ui_lstart-1, ui_lrows-1, ui_lframe-1, ui_lflip-1
+    .dw ui_lpick-1
 
 ; ======================================================================
 ; UIF_NAMEG (the fixed bank's pon_kanji: put_officer_name with $AA set,
@@ -2327,5 +2328,6 @@ info_runs:
     .db $FF
 
 .include "ui_battle.asm"
+.include "ui_list.asm"
 
 .include "../../decomp/build/kanji/ui_data.inc"

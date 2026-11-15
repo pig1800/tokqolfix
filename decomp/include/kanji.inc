@@ -322,13 +322,32 @@ TFX_U             = $7904   ; the intro's progress, frames left to the end (0-12
 TFX_K             = $7905   ; title_fx: the strip
 TFX_E             = $7909   ; the first line below the strip above (42 for strip 0)
 TFX_Q             = $790A   ; scratch: the strip's top line
-TFX_X             = $790B   ; 10: the event's IRQ line
-TFX_L             = TFX_X+TFX_EVENTS   ; 10: the reload after it (0: the last)
-TFX_W1            = TFX_L+TFX_EVENTS   ; 10: delay to the $91 write (0: none)
-TFX_W2            = TFX_W1+TFX_EVENTS  ; 10: then to the $2006 write (0: none)
-TFX_A             = TFX_W2+TFX_EVENTS  ; 10: the $2006 pair: the strip's first line
-TFX_B             = TFX_A+TFX_EVENTS   ; 10
-TFX_END           = TFX_B+TFX_EVENTS
+TFX_X             = $790B   ; 11: the event's IRQ line
+TFX_L             = TFX_X+TFX_EVENTS   ; 11: the reload after it (0: the last)
+TFX_W1            = TFX_L+TFX_EVENTS   ; 11: delay to the $91 write (0: none)
+TFX_W2            = TFX_W1+TFX_EVENTS  ; 11: then to the $2006 write (0: none)
+TFX_A             = TFX_W2+TFX_EVENTS  ; 11: the $2006 pair: the strip's first line
+TFX_B             = TFX_A+TFX_EVENTS   ; 11
+TFX_END           = TFX_B+TFX_EVENTS   ; ($794D)
+
+; ----------------------------------------------------------------------
+; The officers' reserve list, window $20 (2026-11-15, the user's QoL
+; request; TEXT_RENDERER.md "The reserve list by pages"): bank 14's
+; b14_k_list and the UI bank's ui_list.asm.  8 officers a page in a fixed
+; window of 8 lines, Left / Right flip pages (no wrap), sprite arrows.
+; Battery RAM after the title's TFX_* (free outside the title):
+; ----------------------------------------------------------------------
+LS_NP             = TFX_END   ; the pages (1-8); the page itself is party_scan ($6E), as the original's
+LS_K              = LS_NP+1   ; ls_line: the line (0-7)
+LS_L              = LS_NP+2   ; ui_lflip: the next line to draw
+LS_J              = LS_NP+3   ; ls_addr: the metarow
+LS_W              = LS_NP+4   ; text_speed_count (the window's width) kept
+LS_BA             = LS_NP+5   ; current_bank_a kept
+LS_BB             = LS_NP+6   ; current_bank_b kept
+LS_END            = LS_NP+7   ; ($7954)
+.if LS_END > $7BF5
+    .error "the reserve list's RAM runs into the renderer's tables"
+.endif
 
 ; ----------------------------------------------------------------------
 ; Bank-switch-free kanji on the info screen (step B, STATUS.md "UI bank").
@@ -370,6 +389,13 @@ UIF_NAMEG         = 19      ; put_officer_name's kanji path (mmc3_b15
                             ; pon_kanji): kanji NG_K of record NG_REC to
                             ; plane 1 of $A9-$A9+3 through the VRAM queue;
                             ; V set: none
+UIF_LSTART        = 20      ; the reserve list (bank 14 b14_k_list): page 0,
+                            ; the page count, the arrow tile queued
+UIF_LROWS         = 21      ; its window drawn: rows 19-20 (the arrows' row,
+                            ; the bottom frame), $54 = the page's officers
+UIF_LFRAME        = 22      ; its frame: update_frame with the arrows
+UIF_LFLIP         = 23      ; Left / Right: the page's 8 lines again
+UIF_LPICK         = 24      ; picked: $60AF, $4A, X = the entry (as the original)
 ; The fixed-bank trampolines of UIF_WIPE_ROWS and UIF_ROWEV (sub_CE2D's
 ; and sub_CE7A's space; mmc3_b15.asm checks these): bank 14 mapped while
 ; the game's routines run and while they yield, the UI bank again on return.
