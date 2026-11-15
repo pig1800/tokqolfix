@@ -16,7 +16,9 @@
 ;   - sprite arrows (tile $04 of the sprite table at $0000, free in map
 ;     mode; the left one mirrored) at columns 21 and 28 of row 19 when a
 ;     page lies that way, and the page between them ("2／5", the font's
-;     digits and ／ at columns 23-25) when there is more than one.
+;     digits and ／ at columns 23-25; "12／16" at 22-26 from 10 pages) when
+;     there is more than one.
+; The list holds 125 (LS_RESERVE, kanji.inc; 2026-11-15): 16 pages.
 ; The page is party_scan ($6E), as the original's.  The window engine
 ; ends a window on an odd row, so it draws the frame at row 19 and
 ; UIF_LROWS writes rows 19-20 right after (one frame later).
@@ -30,7 +32,7 @@ LS_LINES     = 8
 LS_NUM       = 3            ; the page number's first cell in the row (column 23)
 T_SLASH      = $7C          ; ／ (the font's digits are $00-$09)
 LS_COUNT     = $54          ; the window's lines: the cursor's range (text_scroll)
-LS_RESERVE   = $6030        ; the reserve list (64 records, packed: bank 14 $9579)
+LS_PAGES     = (LS_CAP + LS_LINES - 1) / LS_LINES   ; 16 (LS_RESERVE, LS_CAP: kanji.inc)
 LS_STATUS    = $6300        ; an officer record's state ($E0: the original's mark)
 LS_TPL       = $16          ; the window's template pointer (text_init)
 PON_RECORD   = $D4A5        ; put_officer_name with Y = the record (after its lookup)
@@ -64,7 +66,7 @@ ui_lstart:
     lda LS_RESERVE,y
     beq @end
     inx
-    cpx #8
+    cpx #LS_PAGES
     bne @page
 @end:
     txa
@@ -342,25 +344,53 @@ ls_draw:
     jmp F_DRAW_LINE
 
 ; Row 19 (metarow 8's lower row) from buffer row 0: the window's empty
-; row, and with more than one page the page number between the arrows.
-; Buffer row 1 is left the empty row.
+; row, and with more than one page the page number between the arrows:
+; "2／5" in cells LS_NUM to LS_NUM+2, from 10 pages "12／16" (" 2／16")
+; one cell on and one wider.  Buffer row 1 is left the empty row.
 ls_row19:
     jsr ls_clear
     lda LS_NP
     cmp #2
     bcc @draw
-    sta $0300+LS_NUM+2          ; the pages (single digits: at most 8)
-    lda #T_SLASH
-    sta $0300+LS_NUM+1
-    ldx party_scan
+    ldx #LS_NUM+2               ; the pages' last digit
+    cmp #10
+    bcc @one
     inx
-    stx $0300+LS_NUM            ; this page
+@one:
+    jsr ls_num                  ; the pages
+    lda #T_SLASH
+    sta $0300,x
+    dex
+    lda party_scan
+    clc
+    adc #1
+    jsr ls_num                  ; this page
 @draw:
     lda #LS_LINES
     jsr ls_addr
     jsr ls_lower
     lda #0
     jmp ls_draw
+
+; A (1-99) into buffer row 0, its last digit at cell X (the font's digits
+; $00-$09); X = the cell before it.
+ls_num:
+    ldy #0
+@t:
+    cmp #10
+    bcc @u
+    sbc #10
+    iny
+    bne @t                      ; (always)
+@u:
+    sta $0300,x
+    dex
+    tya
+    beq @rts
+    sta $0300,x
+    dex
+@rts:
+    rts
 
 ; Buffer rows 0 and 1: an empty line of the window ($7D, $0A .., $7E).
 ls_clear:

@@ -3035,7 +3035,8 @@ as the arrows do.  A flip writes row 19 first (with line 0), so the number
 changes at once and the names follow (`ls_row19`).  The list holds at most
 64, so the page count is a single digit (8 at most).
 
-**Why 64** (assessed for the user, not changed):
+**Why 64** (assessed for the user; changed the same day, "The reserve
+list holds 125" below):
 - The reserve list is 64 bytes of the saved state, `$6030-$606F`; the
   experience follows at `$6070`.
 - Every site counts 64:
@@ -3248,3 +3249,118 @@ page's groups as bits), the portrait buffer `IS_PB` at `$79A0-$7BDF`.  A
 flip's scratch: the image at `$0600` and its lists at `$0200` (the OAM
 shadow, all hidden on this screen; busy mode keeps the NMI's DMA off it;
 it is hidden again at the end).  The UI bank has 1.0 KiB left.
+
+## The reserve list holds 125 (2026-11-15)
+
+The user's request, after the assessment above ("Why 64"): check
+thoroughly that the memory is really free (an earlier hack variable had
+sat in RAM the game used, and the game glitched), and make room for 125:
+the game has 132 officers to recruit, 7 of them in the party.  The user's
+latest state had 64 in reserve, the original's limit.
+
+**Is `$6405-$64FF` free?**  Yes, by every check below.  `$6400-$6404` are
+the title's and the attract mode's split timings: written by bank 13
+`$88DD-$8904` (boot) and bank 7 `$9491-$94A0`, read by the NMI's split
+code `$EF64` (`ldy $6400,x`, X 0-4), `$EFA8` and `$EFB5` (X 0-1).
+- **Absolute operands, the original ROM.**  Every byte offset of all 16
+  banks, not only the decoded code: an absolute, X- or Y-indexed
+  (index 0-255) or `jmp (abs)` operand that can reach `$6405-$64FF`.
+  Of the 96 byte patterns, only the three split reads above are
+  instructions.  The others are graphics, map, music, text and table
+  data, operand bytes of other instructions, or the two inline argument
+  bytes after `jsr $D10D`.
+- **Indirect stores.**  Every `sta (zp),y` / `sta (zp,x)` at every
+  offset of the code banks (7, 8, 13, 14, 15), each read in context.
+  The real ones:
+  - copies of the whole state: the save (bank 13 `$9F63`, state to
+    record, the checksum over `$6008-$67FF`), the load and the record
+    check (`$8BB2`, `$8CD4`, `$8CFC`, record to state);
+  - fills: the new game's clear of `$6000-$67FF` with 0 (`$8C0B`, so a
+    new game's list is empty), page `$63` with `$80` (`$9587`);
+  - 3-byte sums at inline addresses (`$6070`, `$6076`, `$6079`,
+    `$61F8`, `$60D0`+Y, `$6160`+Y);
+  - internal RAM (`$0180`, `$0500`, `$0540`/`$0550`, the sound driver's
+    `$0700`);
+  - a debug memory editor in bank 13 (`$93BB-$9586`: an address in
+    `$6000-$67FF` and a value edited with sprites).  Nothing calls it or
+    points at it.
+- **Pointer high bytes.**  Every `lda/ldx/ldy/ora/adc #$60-$67` at every
+  offset of the code banks: no pointer gets `$63` or `$64`; `#$64` is
+  the number 100 there.
+- **Code the decomp has not decoded.**  A recursive disassembly from the
+  listing's code, the vectors and every word in data that points at
+  plausible code found 3,566 more instructions (and noise); none
+  writes there.
+- **The hack.**  Every assembled listing (`ui`, `txr`, `hack`, `attract`,
+  `mmc3_b15`, ...) and the raw scan of the 512 KiB ROM: no operand
+  reaches `$6400-$64FF`, and the only immediates `$60-$67` are a count
+  and a PPU address step.  The patched game banks add no reference
+  (`main_kanji.lst` against `main.lst`).  The hack's battery RAM is
+  `$7800-$7FFF`.
+- **The user's data.**  85 Mesen states of this game in `SaveStates`
+  (original and kanji builds, from the title to the latest, which has 64
+  in reserve): `$6405-$64FF` is 0 in all of them, and in both records of
+  the battery save.
+- **Watching.**  Every CPU read and write of `$6400-$64FF` over 12 runs
+  of 25,000 frames, random keys after a scripted start: the user's latest
+  state (four seeds), the office, the map, the 樊稠 battle and recruit,
+  the capture battle, the level-up battle, the boot and loading the
+  user's save, and the original ROM from the user's original-build
+  states.  Six ran on the previous build, four on this one, two on the
+  original.  Only the boot's `$6400-$6404` writes, the record copies
+  and (this build) the join's store into `LS_RESERVE` touched the page.
+
+**The change.**  `LS_RESERVE = $6410`, `LS_CAP = 125` (kanji.inc):
+`$6410-$648C`, then `$648D-$648F` stay 0, so a full list still ends.
+`$6030-$606F`, the original's list, stays 0 after the move.  The sites,
+all of them from the scans above:
+- the join, bank 13 `$9C50`: `jmp b13_k_join` (bank 13's filler at
+  `$8D93`): the first free entry of 125, else b10_msg_038 as before
+  (`b13_k_join_full`, `$9C5C`); `$9C68` stores into `LS_RESERVE`;
+- the office's menu, bank 14 `$92CE`: `jsr ls_office` (the old list
+  moved, then the original's `lda $5B / cmp #$02` for its branch, 外す);
+  `$92D4` checks `LS_RESERVE` (nobody in reserve);
+- 加える `$93A4`, 外す `$9415` (full when entry 124 is taken), `$9499`,
+  `$94B1`, 解雇 `$94F0`, `$94FA`: the same instructions on
+  `LS_RESERVE`;
+- the packing `$9579`, rewritten in its 37 bytes for 125.  The original
+  lost an officer after two empty entries in a row, which its callers
+  never made;
+- the event that takes officer `$BC` away, `$AF2A`: `ls_find` (the old
+  list moved, then the search of 125), the same 14 bytes;
+- the list (`ui_list.asm`): 16 pages, the page number in two digits from
+  10 pages (「12／16」 at columns 22-26; below 10 as before);
+- the info screen's flips from 能力 count to `LS_CAP`.
+
+`ls_office`, `ls_find` and `ls_migrate` are in the fixed bank after
+`ui_rsetup` (`$FF47-$FF7B`); kanji_build.py exports their addresses and
+`LS_*` to bank 13 and 14 (`fixed_hooks.inc`).
+
+**Old games and states.**  A game saved, or a Mesen state made, before
+the change has its list at `$6030-$606F` and `$6410-$648F` all 0 (the
+new game's clear).  The first site to touch the list (the office's menu,
+a join, the `$BC` event; the info flips start from the office) moves it.
+The move copies 64 and clears the old place; it runs only while
+`$6030` is not 0.
+
+**Tested.**
+- py65 on the built ROM: the move (39, 64, a second call), `ls_find`
+  (entries 0-124, absent), `ls_office`'s flags, the packing (300
+  random lists with runs of empty entries), the join with 0, 39, 124
+  and 125 in the list and with an old full list.
+- In Mesen:
+  - rl/s1 (39 in the old place): the list moves when the office opens;
+    its 5 pages equal the previous build's;
+  - 125 poked in: 16 pages, 「1／16」 to 「16／16」 (5 on the last);
+    外す says 「これ以上武将の入る場所がございません」;
+  - the info screen from 能力: Left from the first shows the 125th;
+    every window still 6004 cycles;
+  - bt1/s1: 樊稠 joins after the moved list, and the screens equal the
+    previous build's; with 124 he is the 125th; with 125 the prisoner
+    window says 「劉備軍はこれ以上仲間を持つことができない」;
+  - 外す (文醜 into entry 40), 加える and 解雇 leave the same lists as the
+    previous build, in the new place, with the same screens.
+- The event at `$AF2A` was not reached in play; `ls_find` and the
+  packing it calls are the py65-tested routines.
+- The regression set against the previous build: gy 7, cyy 16, vsy 330,
+  ti 6, stdx 211 screenshots, none different.

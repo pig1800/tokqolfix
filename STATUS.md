@@ -39,7 +39,7 @@ is in `MEMORY_MAP.md`.
 | 31 | fixed bank: bank 15 with registered patches, and the runtime at `$FC00` (`fixed_rt.asm`) |
 | 20-22, 25, 27, 29, 30 | free |
 
-182.5 KiB free in all (the UI bank has 1.0 KiB left).
+182.4 KiB free in all (the UI bank has 1.0 KiB left, the fixed bank 0.4 KiB).
 
 ## Runtime
 
@@ -126,8 +126,22 @@ is in `MEMORY_MAP.md`.
   rows only (the names' kanji upload as usual).  Sprite arrows (tile `$04`
   of the sprite table, the left one mirrored) at columns 21 and 28 of row
   19 show where another page lies, and the page number between them
-  (「2／5」, columns 23-25) when there is more than one.  The list holds 64
-  (`$6030-$606F`, the original's limit), so the number has one digit.
+  (「2／5」, columns 23-25; 「12／16」, columns 22-26, from 10 pages) when
+  there is more than one.
+- **The reserve list holds 125** (2026-11-15; the original's 64): the
+  game has 132 officers to recruit, 7 of them in the party.  The list is
+  at `$6410-$648C` (`LS_RESERVE`, kanji.inc), in the saved state's page
+  `$64`, which nothing else uses (checked: TEXT_RENDERER.md "The reserve
+  list holds 125"), so the save records keep it.  Every site of the
+  original's list is patched: the join (talks and prisoners, bank 13),
+  加える, 外す, 解雇 and the packing (bank 14), the event that takes
+  officer `$BC` away, the list (16 pages) and the info screen's flips.
+  A game saved, or a state made, before the change has its list at
+  `$6030-$606F`: the first of the office's menu, a join or that event
+  moves it (`ls_migrate`, fixed bank) and clears the old place.  When
+  125 are in reserve, a join says 「劉備軍はこれ以上仲間を持つことができない」
+  and 外す 「これ以上武将の入る場所がございません」, as the original did
+  at 64.
 - **Title and attract mode** (bank 24): each screen has its own tile set,
   and the portraits are 8x16 sprites.  The title's logo intro (its five
   rows closing up) moves every frame (60 fps; the original stepped every
@@ -148,6 +162,7 @@ is in `MEMORY_MAP.md`.
 | `$0102-$0103`, `$0131-$017F` | the message engine's and the battle pool's state |
 | `$0780-$07FF` | the map renderer's state (`TXR_*`; `REG_LO/HI` at `$07A0-$07DF`) |
 | `$6000-$77FF` | the game's (two save records in the kanji edition) |
+| `$6410-$648C` | in it: the reserve list (125, `LS_RESERVE`; `$648D-$648F` stay 0); `$6030-$606F`, the original's list, stays 0 |
 | `$7800-$78FF` | the map's attribute shadow (`MAP_ATTR`, four-screen) |
 | `$7900-$794C` | the title intro's IRQ events (`TFX_*`) |
 | `$794D-$7953` | the reserve list (`LS_*`) |

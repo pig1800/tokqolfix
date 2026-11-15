@@ -552,3 +552,58 @@ ui_rsetup:
     sta current_bank_a
     txa
     jmp SET_BANK_LOCK
+
+; ----------------------------------------------------------------------
+; The reserve list at LS_RESERVE (125; kanji.inc, 2026-11-15).  Each site
+; that can be the first to touch the list after a game saved, or a state
+; made, before the move calls ls_migrate first: the office's menu (bank 14
+; $92CE: 能力, 加える, 外す, 解雇), the join (bank 13 b13_k_join: talks and
+; prisoners) and the event that takes record $BC away (bank 14 $AF2A).
+; ----------------------------------------------------------------------
+; Bank 14 $92CE (the office's menu, in place of lda $5B / cmp #$02): the
+; old list moved, then the same compare for its beq (外す).
+ls_office:
+    jsr ls_migrate
+    lda $5B
+    cmp #$02
+    rts
+
+; Bank 14 $AF2A (record $BC leaves, in place of its search of the 64): X =
+; the entry of record A, C clear; C set: not in the list.
+ls_find:
+    jsr ls_migrate
+    ldx #LS_CAP-1
+@f:
+    cmp LS_RESERVE,x
+    beq @y
+    dex
+    bpl @f
+    sec
+    rts
+@y:
+    clc
+    rts
+
+; The original's list (LS_OLD, 64, 0 after the last) into LS_RESERVE, and
+; LS_OLD cleared, if it holds anyone.  A, X, Y kept.  A list moved this way
+; holds 64 at most, so it overwrites nothing: a state or a game from before
+; the move has LS_RESERVE all 0 (the new game's clear of $6000-$67FF).
+ls_migrate:
+    pha
+    lda LS_OLD
+    beq @rts
+    txa
+    pha
+    ldx #63
+@m:
+    lda LS_OLD,x
+    sta LS_RESERVE,x
+    lda #0
+    sta LS_OLD,x
+    dex
+    bpl @m
+    pla
+    tax
+@rts:
+    pla
+    rts

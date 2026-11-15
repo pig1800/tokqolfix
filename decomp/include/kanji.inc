@@ -421,6 +421,16 @@ UIF_INFO_WAIT     = 25      ; the info screen's wait (loc_D44C): A / B end it,
                             ; Left / Right show the officer before / after
 UI_RSETUP         = $FEEF   ; fixed_rt.asm ui_rsetup: reserve record A into actor 7
                             ; (the office's 能力), for the info screen's flips
+; The reserve list (2026-11-15, the user's request; TEXT_RENDERER.md "The
+; reserve list holds 125"): 125 records, packed, 0 after the last, in the
+; saved state's page $64 (nothing else in the game or the hack reads or
+; writes $6405-$64FF; $6400-$6404 are the title's split timings).  The
+; original's 64 at $6030-$606F (LS_OLD) move there once (fixed_rt.asm
+; ls_migrate) and that range stays 0.  $648D-$648F stay 0 (an end mark
+; after a full list).
+LS_RESERVE        = $6410
+LS_CAP            = 125     ; the user's count: 132 recruitable, 7 in the party
+LS_OLD            = $6030
 ; The fixed-bank trampolines of UIF_WIPE_ROWS and UIF_ROWEV (sub_CE2D's
 ; and sub_CE7A's space; mmc3_b15.asm checks these): bank 14 mapped while
 ; the game's routines run and while they yield, the UI bank again on return.

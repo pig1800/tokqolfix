@@ -303,7 +303,7 @@ def write_hook_constants(labels: dict[str, int], att: dict) -> None:
     # The UI functions and flags (kanji.inc) for bank 14's step-B sites.
     inc = ROOT / "decomp" / "include" / "kanji.inc"
     for line in inc.read_text(encoding="utf-8").splitlines():
-        m = re.match(r"^(UIF_[A-Z_]+|UI_RAM|UI_NOMIR)\s*=\s*(\S+)", line)
+        m = re.match(r"^(UIF_[A-Z_]+|UI_RAM|UI_NOMIR|LS_RESERVE|LS_CAP|LS_OLD)\s*=\s*(\S+)", line)
         if m:
             lines.append(f"{m.group(1)} = {m.group(2)}")
     # The runtime's (fixed_rt.asm): the battle window CALL (bank 14's
@@ -313,6 +313,11 @@ def write_hook_constants(labels: dict[str, int], att: dict) -> None:
     lines.append(f"TXR_CALL = ${labels['txr_call']:04X}")
     lines.append(f"TXR_MENU = ${labels['txr_menu']:04X}")
     lines.append(f"TXR_TP = ${labels['txr_tp']:04X}")
+    # The reserve list's (fixed_rt.asm, 2026-11-15): bank 13's join, bank
+    # 14's office and event.
+    lines.append(f"LS_OFFICE = ${labels['ls_office']:04X}")
+    lines.append(f"LS_FIND = ${labels['ls_find']:04X}")
+    lines.append(f"LS_MIGRATE = ${labels['ls_migrate']:04X}")
     for line in inc.read_text(encoding="utf-8").splitlines():
         m = re.match(r"^(TXR_ON|TXR_TA|TXR_TX|TXR_RX|TXF_LABEL|TXF_MENU|TXF_MENUSET|TXF_OATH|TXF_OATHEND)\s*=\s*(\S+)", line)
         if m:

@@ -2271,7 +2271,15 @@ b14_wincb_exp_line:
 
 b14_data_9258:
 .ifdef KANJI_TARGET
-    .incbin "build/assets/bank14_data.bin", $1258, $0092
+    .incbin "build/assets/bank14_data.bin", $1258, $0076
+; The office's menu (2026-11-15, the reserve list of 125 at LS_RESERVE):
+; the old list moved first, for every choice ($5B: 能力, 加える, 外す, 解雇),
+; then its compare (外す skips the empty check) and the check on the new list.
+    jsr LS_OFFICE               ; (was lda $5B / cmp #$02)
+    nop
+    .incbin "build/assets/bank14_data.bin", $12D2, $0002
+    ldx LS_RESERVE              ; (was ldx $6030: nobody in reserve)
+    .incbin "build/assets/bank14_data.bin", $12D7, $0013
 ; Window $20's line CALL (its template at $EC1B: "$F8 $92EA", then $FB),
 ; the reserve list (2026-11-15, the user's QoL request; TEXT_RENDERER.md
 ; "The reserve list by pages"): line $54 of 8 always, the page's officer
@@ -2286,7 +2294,7 @@ b14_k_list_line:
     asl a
     adc $54
     tay
-    lda $6030,y
+    lda LS_RESERVE,y
     beq @next                   ; (past the list: empty)
     tay
     lda $6300,y
@@ -2311,14 +2319,26 @@ b14_k_list_line:
 .if $ != $9344
     .error "window $20's line CALL outgrew $92EA-$9343"
 .endif
-    .incbin "build/assets/bank14_data.bin", $1344, $00BC
+    .incbin "build/assets/bank14_data.bin", $1344, $0060
+    sta LS_RESERVE,x            ; 加える: the officer taken out of the list
+    .incbin "build/assets/bank14_data.bin", $13A7, $0059
 .else
     .incbin "build/assets/bank14_data.bin", $1258, $01A8
 .endif
 
 b14_data_9400:
 .ifdef KANJI_TARGET
-    .incbin "build/assets/bank14_data.bin", $1400, $0106
+    .incbin "build/assets/bank14_data.bin", $1400, $0015
+    lda LS_RESERVE+LS_CAP-1     ; 外す: refused when the last entry is taken
+    .incbin "build/assets/bank14_data.bin", $1418, $0081
+    lda LS_RESERVE,x            ; 外す: the first free entry (one there is)
+    .incbin "build/assets/bank14_data.bin", $149C, $0015
+    sta LS_RESERVE,x            ; 外す: the officer into it
+    .incbin "build/assets/bank14_data.bin", $14B4, $003C
+    ldy LS_RESERVE,x            ; 解雇: the officer picked
+    .incbin "build/assets/bank14_data.bin", $14F3, $0007
+    sta LS_RESERVE,x            ; 解雇: taken out of the list
+    .incbin "build/assets/bank14_data.bin", $14FD, $0009
 ; The reserve list ($9506: 能力, 加える, 解雇; TEXT_RENDERER.md "The reserve
 ; list by pages"): window $20 with 8 lines (b14_k_list_line), rows 19-20
 ; and the arrows from the UI bank (ui_list.asm), then text_wait_loop's
@@ -2383,6 +2403,35 @@ b14_k_list:
 ;   called by: $AF3D
 ; ----------------------------------------------------------------------
 b14_sub_9579:
+.ifdef KANJI_TARGET
+    ; The list of 125 (2026-11-15, LS_RESERVE) packed: every officer moved
+    ; down over the empty entries, 0 after.  (The original's loop lost an
+    ; officer after two empty entries in a row; its callers empty one.)
+    ldx #0
+    ldy #0
+@l:
+    lda LS_RESERVE,y
+    beq @skip
+    sta LS_RESERVE,x
+    inx
+@skip:
+    iny
+    cpy #LS_CAP
+    bne @l
+    lda #0
+@z:
+    cpx #LS_CAP
+    beq @rts
+    sta LS_RESERVE,x
+    inx
+    bne @z                      ; (always)
+@rts:
+    rts
+    .dsb $959E - $, $FF
+.if $ != $959E
+    .error "bank 14's packing outgrew $9579-$959D"
+.endif
+.else
     lda #$00
     tax
     tay
@@ -2407,6 +2456,7 @@ b14_loc_9595:
     cpx #$40
     bcc b14_loc_9595
     rts
+.endif
 ; ----------------------------------------------------------------------
 ; b14_army_status_screen
 ;   Select on the map: the leader's portrait and kanji name,
@@ -6263,6 +6313,16 @@ b14_loc_AF20:
     beq b14_loc_AF43
     dex
     bpl b14_loc_AF20
+.ifdef KANJI_TARGET
+    ; (2026-11-15) in the list of 125 (LS_RESERVE), the old list moved first
+    lda #$BC
+    jsr LS_FIND
+    bcs b14_loc_AF5F
+    .dsb 7, $EA
+.if $ != $AF38
+    .error "bank 14's event at $AF2A: b14_loc_AF38 moved"
+.endif
+.else
     ldx #$3F
 b14_loc_AF2C:
     lda $6030,x
@@ -6271,9 +6331,14 @@ b14_loc_AF2C:
     dex
     bpl b14_loc_AF2C
     bmi b14_loc_AF5F
+.endif
 b14_loc_AF38:
     lda #$00
+.ifdef KANJI_TARGET
+    sta LS_RESERVE,x
+.else
     sta $6030,x
+.endif
     jsr b14_sub_9579
     jmp b14_loc_AF5F
 b14_loc_AF43:

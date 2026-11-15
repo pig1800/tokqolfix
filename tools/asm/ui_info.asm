@@ -5,7 +5,7 @@
 ;
 ; Left / Right show the officer before / after, round: from the map's
 ; ぶしょう the party order ($6090-$6096, every member its list shows), from
-; the town office's 能力 the reserve list ($6030-$606F, the officer shown
+; the town office's 能力 the reserve list (LS_RESERVE, the officer shown
 ; as actor 7), in battle the enemy slots 5-9 (actors 7-11) still alive
 ; ($609C bit 7).  A flip plays the cursor's sound ($09, as the reserve
 ; list's pages) and does what opening the screen for that officer does
@@ -235,10 +235,10 @@ is_next:
     clc
     rts
 @reserve:
-    ldx #$FF                    ; the reserve list (packed, 0 ends; 64 at most)
+    ldx #$FF                    ; the reserve list (packed, 0 ends; LS_CAP at most)
 @rn:
     inx
-    cpx #64
+    cpx #LS_CAP
     beq @rcount
     lda LS_RESERVE,x
     bne @rn
