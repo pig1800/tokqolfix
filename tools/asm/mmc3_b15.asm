@@ -1340,3 +1340,6 @@ redraw_hi:
 .if txr_rr_gap != $FDDE || txr_dlx != $FE15 || txr_rcx != $FE41 || txr_menu != $FEE7 || rt_end != $FEEF
     .error "fixed_rt.asm: the stubs moved"
 .endif
+.if ui_rsetup != UI_RSETUP
+    .error "fixed_rt.asm: ui_rsetup is not at UI_RSETUP (kanji.inc)"
+.endif

@@ -102,8 +102,9 @@ is in `MEMORY_MAP.md`.
   The battle setup replays the RNG steps of the frames it skips, so every
   roll is the original's.
 - **The info screen's Left / Right** (`ui_info.asm`): the officer before
-  / after, with the cursor's sound; on the map the party order, in battle
-  the enemies still alive.  A flip re-sends only the kanji that changed
+  / after, with the cursor's sound: from ぶしょう the party order, from the
+  town office's 能力 the reserve list (each officer set up as 能力 does,
+  `ui_rsetup` in the fixed bank), in battle the enemies still alive.  A flip re-sends only the kanji that changed
   (a cache of 27 plane-1 and 22 plane-0 groups; a new kanji goes to a
   group the shown page does not use), then writes the officer's 254 cells
   at once.  The data go in "windows": the vblank and the black lines

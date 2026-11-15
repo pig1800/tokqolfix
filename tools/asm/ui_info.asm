@@ -3,13 +3,15 @@
 ; TEXT_RENDERER.md "The info screen's page flip"), included by ui.asm
 ; after ui_data.inc (ui_info_lo.asm: the parts that map other banks).
 ;
-; Left / Right show the officer before / after: on the map path the party
-; order ($6090-$6096, every member the ぶしょう list shows), on the battle
-; path the enemy slots 5-9 (actors 7-11) that are still alive ($609C bit
-; 7), round in both.  A flip plays the cursor's sound ($09, as the reserve
+; Left / Right show the officer before / after, round: from the map's
+; ぶしょう the party order ($6090-$6096, every member its list shows), from
+; the town office's 能力 the reserve list ($6030-$606F, the officer shown
+; as actor 7), in battle the enemy slots 5-9 (actors 7-11) still alive
+; ($609C bit 7).  A flip plays the cursor's sound ($09, as the reserve
 ; list's pages) and does what opening the screen for that officer does
-; (compact_items_actor; on the map b14_party_status_update's S.P), then
-; writes only what changes:
+; (compact_items_actor; the party: b14_party_status_update's S.P; the
+; reserve: 能力's setup of actor 7, fixed_rt.asm ui_rsetup), then writes
+; only what changes:
 ;   - a page is an image of the 254 cells that depend on the officer (the
 ;     names, the five stat lines, 兵士数's digits, the six tactic lines,
 ;     the three equipment lines; IMG) and its glyphs;
@@ -101,6 +103,8 @@ is_flip:
     jsr is_next
     bcs @rts                    ; nobody else
     pha
+    tya
+    pha
     lda #$09                    ; the cursor's sound
     jsr SOUND_ADD
     jsr ppu_begin               ; busy: the NMIs leave the PPU and the OAM shadow
@@ -108,11 +112,18 @@ is_flip:
     and #$FB
     sta IS_CTL                  ; (is_unmap7: the NMI on again)
     pla
+    bne @res
+    pla
     sta text_actor
     jsr COMPACT_ITEMS           ; as the screen's entry does
     lda UI_PATH
     bne @battle
-    jsr is_sp
+    jsr is_sp                   ; (the party: b14_party_status_update's)
+    jmp @battle
+@res:
+    pla
+    jsr UI_RSETUP               ; the office's 能力: the record into actor 7
+    jsr COMPACT_ITEMS           ; (actor 7: text_actor already)
 @battle:
     lda #0
     sta IS_INIT
@@ -165,12 +176,16 @@ is_parts:
     rts
 
 ; ----------------------------------------------------------------------
-; is_next: A = the officer before / after text_actor, C clear; C set:
-; none.
+; is_next: A = the officer before / after text_actor, C clear, Y = 0; or
+; Y = 1 and A = the reserve record before / after $60AF (the town
+; office's 能力 shows a reserve officer as actor 7); C set: none.
 ; ----------------------------------------------------------------------
 is_next:
     lda UI_PATH
     bne @enemy
+    lda text_actor
+    cmp #7
+    bcs @reserve
     ldx #6                      ; the map: the party order
 @find:
     lda $6090,x
@@ -216,6 +231,49 @@ is_next:
 @egot:
     txa
 @got:
+    ldy #0
+    clc
+    rts
+@reserve:
+    ldx #$FF                    ; the reserve list (packed, 0 ends; 64 at most)
+@rn:
+    inx
+    cpx #64
+    beq @rcount
+    lda LS_RESERVE,x
+    bne @rn
+@rcount:
+    stx ZP_N                    ; its entries
+    cpx #2
+    bcc @none
+    ldx #0
+@rfind:
+    lda LS_RESERVE,x
+    cmp $60AF
+    beq @rat
+    inx
+    cpx ZP_N
+    bne @rfind
+@none:
+    sec
+    rts
+@rat:
+    lda controller_state
+    and #$02
+    beq @rnext
+    dex
+    bpl @rgot
+    ldx ZP_N
+    dex
+    bpl @rgot                   ; (always)
+@rnext:
+    inx
+    cpx ZP_N
+    bcc @rgot
+    ldx #0
+@rgot:
+    lda LS_RESERVE,x
+    ldy #1
     clc
     rts
 ; X one back (Left) or on (Right); the map's -1 wraps to 6 through 255

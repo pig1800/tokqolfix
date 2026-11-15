@@ -419,6 +419,8 @@ UIF_LFLIP         = 23      ; Left / Right: the page's 8 lines again
 UIF_LPICK         = 24      ; picked: $60AF, $4A, X = the entry (as the original)
 UIF_INFO_WAIT     = 25      ; the info screen's wait (loc_D44C): A / B end it,
                             ; Left / Right show the officer before / after
+UI_RSETUP         = $FEEF   ; fixed_rt.asm ui_rsetup: reserve record A into actor 7
+                            ; (the office's 能力), for the info screen's flips
 ; The fixed-bank trampolines of UIF_WIPE_ROWS and UIF_ROWEV (sub_CE2D's
 ; and sub_CE7A's space; mmc3_b15.asm checks these): bank 14 mapped while
 ; the game's routines run and while they yield, the UI bank again on return.

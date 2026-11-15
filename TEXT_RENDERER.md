@@ -3130,13 +3130,24 @@ enemies still alive.  "Minimal update": the next name into plane 1 of
 faster one".  (`ui_info.asm`, `ui_info_lo.asm`; bank 14's screen ends in
 `UIF_INFO_WAIT`, loc_D44C's wait with Left / Right.)
 
-**Which officers.**  The map: the party order `$6090-$6096` (the list's
-entries; a member with `$609C` bit 7 clear gets its ＊ as the entry draws
-it), round.  The battle: actors 7-11 (slots 5-9) with `$609C` bit 7, round;
-nobody else, nothing happens (no sound).  A flip does what opening the
-screen for that officer does: `compact_items_actor`, and on the map
+**Which officers.**  The screen has three entrances.  The map's ぶしょう:
+the party order `$6090-$6096` (the list's entries; a member with `$609C`
+bit 7 clear gets its ＊ as the entry draws it), round.  The town office's
+話す → 能力 (added the same day, the user's report): the reserve list
+`$6030-$606F` (packed, 0 ends), round, the officer shown as actor 7.  The
+battle: actors 7-11 (slots 5-9) with `$609C` bit 7, round.  Nobody else:
+nothing happens (no sound).  The paths are told apart by `UI_PATH` (the
+battle) and `text_actor` ≥ 7 on the map (能力).  A flip does what opening the
+screen for that officer does: `compact_items_actor`; for the party
 `b14_party_status_update`'s S.P (`$61FB`: 知力 × `$61F8` >> 8 − `$61FE`,
-0 when 知力 < 武力).  The sound is the cursor's `$09`, as the reserve
+0 when 知力 < 武力); for 能力 the office's setup of actor 7 (bank 14
+`$934C-$9386`: present unless the record is marked `$E0`, 武力 and 知力
+from the record, the rest 0, the troop maximum `$B4BB`, the tactics
+`$B791`), replayed by `ui_rsetup` in the fixed bank (`$FEEF`, the free
+tail after the runtime): bank 14 must be every current bank there, since
+the record reader `$E371` and `$B4BB`'s inline block return to
+`current_bank_a`.  The inline block uses `$0600`, so the setup runs
+before the image is built.  The sound is the cursor's `$09`, as the reserve
 list's pages.
 
 **A page** is an image of the 254 cells that depend on the officer (the
@@ -3215,6 +3226,13 @@ strategist (15 glyphs, 3 windows) takes 39,000 and one frame more.
   into the portrait.
 - asm6f does not keep a symbol assigned inside a `.rept` inside a macro;
   the unrolled copies are top-level `.rept` blocks.
+
+**能力, tested** (rl/s1, 39 reserve officers): 宋勇 → 宋仁 → 鄧茂 and back,
+and Left from the first to the last (顔良); each flipped page equals the
+same officer opened from the list, and the office screen after B equals
+the previous build's.  A flip prepares in about 22,000 cycles (the setup
+included); the first one there (new tactic kanji) took 38,000 and a frame
+more.
 
 **The battle exit** streams a battle name again when it has a kanji in a
 plane-1 group the screen wrote: `$10-$4F` always, `$50 + 4j` when a flip

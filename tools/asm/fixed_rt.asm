@@ -499,3 +499,56 @@ txr_menu:
     jmp LOC_C139
 
 rt_end:
+
+; ----------------------------------------------------------------------
+; ui_rsetup (the UI bank's info-screen flip, ui_info.asm, from the town
+; office's 能力): reserve record A into actor 7 as 能力 does before its
+; info screen (bank 14 $934C-$9386, replayed: present unless the record is
+; marked $E0, 武力 and 知力 from the record, the rest 0, the troop maximum
+; $B4BB, the tactics $B791), with bank 14 mapped as every current bank
+; (the record reader $E371 and $B4BB's inline block return to
+; current_bank_a).  The UI bank's banks back after.  $0600-$06FF lost
+; (the inline block).
+; ----------------------------------------------------------------------
+REC_BYTE    = $E371             ; A = byte A of officer Y's record
+ui_rsetup:
+    sta $60AF
+    lda current_bank_a
+    pha
+    lda current_bank_b
+    pha
+    lda current_prg_bank
+    pha
+    jsr SET_BANK_14
+    ldy $60AF
+    ldx #$80
+    lda $6300,y
+    cmp #$E0
+    bne @in
+    ldx #$00
+@in:
+    stx $60A3
+    lda #$00
+    jsr REC_BYTE
+    sta $61A3
+    ldy $60AF
+    lda #$01
+    jsr REC_BYTE
+    sta $61AF
+    lda #$00
+    sta $60C7
+    sta $60BB
+    sta $61FB
+    sta $61FC
+    sta $61FD
+    jsr $B4BB
+    ldx #$07
+    jsr $B791
+    pla
+    tax
+    pla
+    sta current_bank_b
+    pla
+    sta current_bank_a
+    txa
+    jmp SET_BANK_LOCK
