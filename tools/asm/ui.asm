@@ -602,10 +602,10 @@ ui_binfo_enter:
 ; ======================================================================
 ; UIF_BINFO_EXIT: the battle wrapper, after the info screen (rendering off:
 ; ppu_bg_sprites_off).  Busy mode throughout:
-; - every battle slot whose name (read from the battle nametable at the
-;   slot's position, data_E17C / data_E186) has a kanji in a plane-1 group
-;   this screen used is streamed again by put_officer_name to the same
-;   tiles ($A9 = its first tile).  In busy mode its wait_vblank flushes at
+; - every battle slot (beaten or not) whose name (read from the battle
+;   nametable at the slot's position, data_E17C / data_E186) has a kanji
+;   in a plane-1 group this screen used is streamed again by
+;   put_officer_name to the same tiles ($A9 = its first tile).  In busy mode its wait_vblank flushes at
 ;   once, so the stream costs no frame.  The block writer does not mirror
 ;   it (UI_NOMIR);
 ; - plane 0 and 1 of the pool $A4-$DF are cleared: no message is shown
@@ -686,8 +686,9 @@ slot_name_dirty:
     adc #2
     tay
 @actor:
-    lda $609C,y                 ; present (as battle_setup_names asks)
-    bpl @no
+    ; No alive test ($609C bit 7): a slot beaten during the battle keeps
+    ; its name on screen, so it is streamed too.  A slot never drawn shows
+    ; $0A at its position (not a name tile).
     lda ppu_ctrl_shadow         ; +1 (a queued vertical run may have left +32)
     and #$FB
     sta PPUCTRL

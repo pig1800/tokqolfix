@@ -3058,3 +3058,63 @@ changes at once and the names follow (`ls_row19`).  The list holds at most
     access, and the boot path only copies the record over it.
 - The game names 216 officer records (7 generic), so a player who
   recruits widely can pass 7 + 64.
+
+## Battle troop gauges, and the names after 武将 (2026-11-15)
+
+**The gauges as the original draws them** (checked for the user; not
+changed):
+- `b14_battle_gauge_scale` (`$ADB5`) runs once a battle, from
+  `b14_battle_build_lineup` (`$9C4A`, the battle start).  It takes the
+  largest maximum troops (`$6160`) of battle slots 0-4 (the party) and
+  picks a scale and a colour:
+
+  | Party's largest maximum | Troops per pixel | Full bar (64 px) | Colour |
+  |---|---|---|---|
+  | below 500 | 10 | 640 | `$25` pink |
+  | 500-2000 | 40 | 2560 | `$27` orange |
+  | 2001-5000 | 100 | 6400 | `$38` pale yellow |
+  | 5001-10000 | 200 | 12800 | `$31` pale blue |
+  | 10001-15000 | 300 | 19200 | `$21` blue |
+  | 15001 and up | 400 | 25600 | `$2A` green |
+
+- The colour goes to BG palette 2 colour 2 (`$03EA`).  All ten gauges sit
+  in P2 cells (columns 8-23 of rows 0-17), so they share it.  Nothing
+  else writes it in the battle; the 武将 info screen saves and restores
+  it.  The colour therefore marks the battle's scale, not a unit's state.
+- `battle_draw_slot_troops` (`$E200`): pixels = troops / scale, rounded
+  up, in 8 tiles of 8 (`$EE` full, `$E0-$E6` party partials filling from
+  the left, `$E7-$ED` enemy partials from the right).  Beyond 64 pixels
+  the bar stays full.  The same scale serves the enemies, so an enemy
+  with more than a full bar does not move until it drops below one.  The
+  party's strongest at full troops fills 20-78% of the bar (each full bar
+  is 1.28 times its tier's top), 59-100% in the last tier.
+- **An original bug:** only the low byte of the pixel count (`$00`) is
+  used, so from 256 pixels the bar wraps.  At scale 10 an enemy with
+  2551-2560 troops shows an empty bar, and 2561-3190 show 1-63 pixels;
+  the next wraps come at scale 40 from 10201 troops and at scale 100 from
+  25501.  Measured (an enemy poked to 2650 troops in bt1/s1): 2617 troops
+  drew 6 pixels, 2577 drew 2, 2509 a full bar.
+- The kanji edition only sets colour 3 = colour 2 (decision 6): the gauge
+  tiles keep plane 1, and plane 0 of `$E0-$EF` holds command kanji groups
+  15-18.
+
+**What a colour per unit could use** (for a layered bar, "a new colour
+after one bar is gone"):
+- Each gauge has attribute cells of its own: rows 4, 7, 10, 13, 16 fall
+  in 16-pixel rows 2, 3, 5, 6, 8, and columns 8-23 of rows 0-17 hold
+  nothing else.  So each gauge can pick its palette.
+- Only P1 (white: the names and the counts) and P2 show plane 1 alone.
+  P0 shows plane 0 (the kanji); P3 (the portrait) mixes both.  So two
+  gauge colours at most on screen: P2's and white.
+- A bar showing the next layer under the current one needs two planes.
+  The battle's tiles have no tile with both planes free but `$0A` and
+  `$C0`.
+
+**The names after 武将 (fixed):** the exit of the info screen
+(`ui_binfo_exit`, `slot_name_dirty`) streamed again only the slots still
+alive (`$609C` bit 7).  A slot beaten earlier keeps its name on screen,
+so it kept the info screen's kanji there (bt1/s1: 樊稠 showed as 兵士 and
+a beaten 兵士 as 数備).  The alive test is gone; a slot never drawn shows
+`$0A` at its position and is still skipped.  The same path in bt1/s1 is
+identical to the previous build in RNG and frame timing; only the names
+differ.
