@@ -669,21 +669,6 @@ b13_k_oathend:
     jsr ppu_bg_sprites_off
     ldx #TXF_OATHEND
     jmp TXR_CALL
-; The join (2026-11-15, the user's request: the reserve list holds 125,
-; kanji.inc LS_RESERVE): the old list moved first (a game or a state from
-; before), then the first free entry; none: b10_msg_038 as before.
-b13_k_join:
-    jsr LS_MIGRATE
-    ldy #$00
-@f:
-    lda LS_RESERVE,y
-    beq @free
-    iny
-    cpy #LS_CAP
-    bne @f
-    jmp b13_k_join_full
-@free:
-    jmp b13_loc_9C63
 b13_k_end:
     .incbin "build/assets/bank13_data.bin", $0D20 + (b13_k_end - boot_title_block), $02E0 - (b13_k_end - boot_title_block)
 .else
@@ -1549,22 +1534,20 @@ b13_loc_9C1C:
     sta $60D2,y                 ; Party member stats.
     jmp b13_loc_9C71
 b13_loc_9C50:
-.ifdef KANJI_TARGET
-    jmp b13_k_join              ; (the reserve list of 125, kanji.inc LS_RESERVE)
-    .dsb $9C5C - $, $FF
-.if $ != $9C5C
-    .error "bank 13's join: b13_k_join_full moved"
-.endif
-b13_k_join_full:
-.else
     ldy #$00
 b13_loc_9C52:
+.ifdef KANJI_TARGET
+    lda LS_RESERVE,y            ; (the reserve list of 125, kanji.inc)
+    beq b13_loc_9C63
+    iny
+    cpy #LS_CAP
+.else
     lda $6030,y
     beq b13_loc_9C63
     iny
     cpy #$40
-    bne b13_loc_9C52
 .endif
+    bne b13_loc_9C52
     jsr text_print_inline       ; inline pointer/data follows the JSR
 
 b13_data_9C5F:

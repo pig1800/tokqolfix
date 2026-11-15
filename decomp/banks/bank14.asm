@@ -2271,14 +2271,8 @@ b14_wincb_exp_line:
 
 b14_data_9258:
 .ifdef KANJI_TARGET
-    .incbin "build/assets/bank14_data.bin", $1258, $0076
-; The office's menu (2026-11-15, the reserve list of 125 at LS_RESERVE):
-; the old list moved first, for every choice ($5B: 能力, 加える, 外す, 解雇),
-; then its compare (外す skips the empty check) and the check on the new list.
-    jsr LS_OFFICE               ; (was lda $5B / cmp #$02)
-    nop
-    .incbin "build/assets/bank14_data.bin", $12D2, $0002
-    ldx LS_RESERVE              ; (was ldx $6030: nobody in reserve)
+    .incbin "build/assets/bank14_data.bin", $1258, $007C
+    ldx LS_RESERVE              ; the office: nobody in reserve (2026-11-15, the list of 125)
     .incbin "build/assets/bank14_data.bin", $12D7, $0013
 ; Window $20's line CALL (its template at $EC1B: "$F8 $92EA", then $FB),
 ; the reserve list (2026-11-15, the user's QoL request; TEXT_RENDERER.md
@@ -6314,24 +6308,19 @@ b14_loc_AF20:
     dex
     bpl b14_loc_AF20
 .ifdef KANJI_TARGET
-    ; (2026-11-15) in the list of 125 (LS_RESERVE), the old list moved first
-    lda #$BC
-    jsr LS_FIND
-    bcs b14_loc_AF5F
-    .dsb 7, $EA
-.if $ != $AF38
-    .error "bank 14's event at $AF2A: b14_loc_AF38 moved"
-.endif
+    ldx #LS_CAP-1               ; (2026-11-15: the list of 125)
+b14_loc_AF2C:
+    lda LS_RESERVE,x
 .else
     ldx #$3F
 b14_loc_AF2C:
     lda $6030,x
+.endif
     cmp #$BC
     beq b14_loc_AF38
     dex
     bpl b14_loc_AF2C
     bmi b14_loc_AF5F
-.endif
 b14_loc_AF38:
     lda #$00
 .ifdef KANJI_TARGET

@@ -39,7 +39,7 @@ is in `MEMORY_MAP.md`.
 | 31 | fixed bank: bank 15 with registered patches, and the runtime at `$FC00` (`fixed_rt.asm`) |
 | 20-22, 25, 27, 29, 30 | free |
 
-182.4 KiB free in all (the UI bank has 1.0 KiB left, the fixed bank 0.4 KiB).
+182.4 KiB free in all (the UI bank has 1.0 KiB left, the fixed bank 0.5 KiB).
 
 ## Runtime
 
@@ -136,10 +136,10 @@ is in `MEMORY_MAP.md`.
   original's list is patched: the join (talks and prisoners, bank 13),
   加える, 外す, 解雇 and the packing (bank 14), the event that takes
   officer `$BC` away, the list (16 pages) and the info screen's flips.
-  A game saved, or a state made, before the change has its list at
-  `$6030-$606F`: the first of the office's menu, a join or that event
-  moves it (`ls_migrate`, fixed bank) and clears the old place.  When
-  125 are in reserve, a join says 「劉備軍はこれ以上仲間を持つことができない」
+  The game does not read `$6030-$606F` any more: a battery save or a
+  Mesen state from before needs `python -I tools/reserve_move.py <in>
+  <out>` (the user's main save and the test states are converted; the
+  user's own older states are given up).  When 125 are in reserve, a join says 「劉備軍はこれ以上仲間を持つことができない」
   and 外す 「これ以上武将の入る場所がございません」, as the original did
   at 64.
 - **Title and attract mode** (bank 24): each screen has its own tile set,

@@ -3312,55 +3312,59 @@ code `$EF64` (`ldy $6400,x`, X 0-4), `$EFA8` and `$EFB5` (X 0-1).
 
 **The change.**  `LS_RESERVE = $6410`, `LS_CAP = 125` (kanji.inc):
 `$6410-$648C`, then `$648D-$648F` stay 0, so a full list still ends.
-`$6030-$606F`, the original's list, stays 0 after the move.  The sites,
-all of them from the scans above:
-- the join, bank 13 `$9C50`: `jmp b13_k_join` (bank 13's filler at
-  `$8D93`): the first free entry of 125, else b10_msg_038 as before
-  (`b13_k_join_full`, `$9C5C`); `$9C68` stores into `LS_RESERVE`;
-- the office's menu, bank 14 `$92CE`: `jsr ls_office` (the old list
-  moved, then the original's `lda $5B / cmp #$02` for its branch, 外す);
-  `$92D4` checks `LS_RESERVE` (nobody in reserve);
+Nothing reads `$6030-$606F`, the original's list, any more.  The sites,
+all of them from the scans above, patched in place (the same
+instructions on `LS_RESERVE` and `LS_CAP`; kanji_build.py exports both to
+banks 13 and 14 through `fixed_hooks.inc`):
+- the join, bank 13 `$9C50-$9C5B` (the first free entry of 125, else
+  b10_msg_038 as before) and its store at `$9C68`;
+- the office's check for nobody in reserve, bank 14 `$92D4`;
 - 加える `$93A4`, 外す `$9415` (full when entry 124 is taken), `$9499`,
-  `$94B1`, 解雇 `$94F0`, `$94FA`: the same instructions on
-  `LS_RESERVE`;
+  `$94B1`, 解雇 `$94F0`, `$94FA`;
 - the packing `$9579`, rewritten in its 37 bytes for 125.  The original
   lost an officer after two empty entries in a row, which its callers
   never made;
-- the event that takes officer `$BC` away, `$AF2A`: `ls_find` (the old
-  list moved, then the search of 125), the same 14 bytes;
+- the event that takes officer `$BC` away, `$AF2A-$AF3C`: the search
+  from entry 124 down (`ldx #124` still works with `bpl`);
 - the list (`ui_list.asm`): 16 pages, the page number in two digits from
   10 pages (「12／16」 at columns 22-26; below 10 as before);
 - the info screen's flips from 能力 count to `LS_CAP`.
+The fixed bank is not changed.
 
-`ls_office`, `ls_find` and `ls_migrate` are in the fixed bank after
-`ui_rsetup` (`$FF47-$FF7B`); kanji_build.py exports their addresses and
-`LS_*` to bank 13 and 14 (`fixed_hooks.inc`).
+**Old games and states** (the user's decision, after a first version
+that moved the list in the game on first use: no such code in the
+game).  A battery save or a Mesen state from before has its list at
+`$6030-$606F`; `tools/reserve_move.py <in> <out>` moves it, in the live
+state and in each save record (the record's checksum, the 16-bit sum of
+its bytes 8-`$7FF`, stays right: moving bytes keeps the sum; the tool
+checks it).  It refuses a copy whose `$6410-$648F` is not all 0.
+Converted: the user's main save (`Saves/rom_kanji.sav`, 64 in the live
+state and in record 1; the old file kept in `out/user/main_backup`) and
+every test state and test save with a list (11 states in `out/user`,
+the boot suite's three saves).  The user's own older states are given
+up; the original ROM's states are left as they are.
 
-**Old games and states.**  A game saved, or a Mesen state made, before
-the change has its list at `$6030-$606F` and `$6410-$648F` all 0 (the
-new game's clear).  The first site to touch the list (the office's menu,
-a join, the `$BC` event; the info flips start from the office) moves it.
-The move copies 64 and clears the old place; it runs only while
-`$6030` is not 0.
-
-**Tested.**
-- py65 on the built ROM: the move (39, 64, a second call), `ls_find`
-  (entries 0-124, absent), `ls_office`'s flags, the packing (300
-  random lists with runs of empty entries), the join with 0, 39, 124
-  and 125 in the list and with an old full list.
+**Tested** (the converted states on this build against the previous
+build on the states from before):
+- py65 on the built ROM: the packing (300 random lists with runs of
+  empty entries), the join with 0, 39, 64, 124 and 125 in the list, the
+  `$BC` event's search (entries 0, 63, 64, 124, absent), every patched
+  operand.
+- The user's main save, converted: the boot and the load (its checksum
+  accepted) look the same as the old save on the previous build (41
+  screenshots), with the 64 at `$6410`.
 - In Mesen:
-  - rl/s1 (39 in the old place): the list moves when the office opens;
-    its 5 pages equal the previous build's;
+  - rl/s1 (39): its 5 pages equal the previous build's;
   - 125 poked in: 16 pages, 「1／16」 to 「16／16」 (5 on the last);
     外す says 「これ以上武将の入る場所がございません」;
   - the info screen from 能力: Left from the first shows the 125th;
     every window still 6004 cycles;
-  - bt1/s1: 樊稠 joins after the moved list, and the screens equal the
+  - bt1/s1: 樊稠 joins after the 15, and the screens equal the
     previous build's; with 124 he is the 125th; with 125 the prisoner
     window says 「劉備軍はこれ以上仲間を持つことができない」;
   - 外す (文醜 into entry 40), 加える and 解雇 leave the same lists as the
     previous build, in the new place, with the same screens.
-- The event at `$AF2A` was not reached in play; `ls_find` and the
-  packing it calls are the py65-tested routines.
+- The event at `$AF2A` was not reached in play; its search and the
+  packing it calls are py65-tested.
 - The regression set against the previous build: gy 7, cyy 16, vsy 330,
   ti 6, stdx 211 screenshots, none different.
