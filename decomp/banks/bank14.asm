@@ -898,7 +898,8 @@ b14_k_info_kanji_name:
     jsr wait_vblank
     lda #$80                    ; as the original leaves it
     sta input_buttons
-    jmp loc_D44C
+    ldx #UIF_INFO_WAIT          ; loc_D44C's wait (A / B), and Left / Right:
+    jmp CALL_UI                 ; the officer before / after (ui_info.asm)
     .pad $857B
 .else
     jsr compact_items_actor

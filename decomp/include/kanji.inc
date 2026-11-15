@@ -350,6 +350,27 @@ LS_END            = LS_NP+7   ; ($7954)
 .endif
 
 ; ----------------------------------------------------------------------
+; The info screen's Left / Right (2026-11-15, the user's request;
+; ui_info.asm, TEXT_RENDERER.md "The info screen's page flip"): what is in
+; CHR while the screen shows.  Battery RAM after the reserve list's:
+; ----------------------------------------------------------------------
+IS_P1G            = LS_END    ; 27: the UI glyph in plane 1 of slot i ($FF: none)
+IS_P0G            = IS_P1G+27 ; 22: in plane 0 of slot j
+IS_PART           = IS_P0G+22 ; 6: the portrait's parts in tiles $80-$A3 (record bytes)
+IS_COL            = IS_PART+6 ; the portrait's colour index (record $10, low nibble)
+IS_NMB            = IS_COL+1  ; 3: the name's kanji k in $10 + 4k: the store's 8 KiB bank
+IS_NMP            = IS_NMB+3  ; 3:   its pos
+IS_DIRTY          = IS_NMP+3  ; 2: plane-1 slots 15-26 ($50-$7C) written (bit j: slot
+                              ;    15 + j; the battle exit streams the names there)
+IS_SH1            = IS_DIRTY+2 ; 4: plane-1 slots the shown page uses (bit 7-i of byte
+IS_SH0            = IS_SH1+4  ; 3:   i >> 3 ... see ui_info.asm sh_bit); plane-0's
+IS_RAM_END        = IS_SH0+3  ; ($799B)
+IS_PB             = $79A0     ; 576: portrait parts for a flip's window (32-aligned)
+.if IS_RAM_END > IS_PB || IS_PB+576 > $7BF5
+    .error "the info flip's RAM runs into its buffer or the renderer's tables"
+.endif
+
+; ----------------------------------------------------------------------
 ; Bank-switch-free kanji on the info screen (step B, STATUS.md "UI bank").
 ; The UI bank holds the screen renderer, its own copy of the UI kanji
 ; glyphs and the item / tactic kanji tables (tools/asm/ui.asm); bank 14
@@ -396,6 +417,8 @@ UIF_LROWS         = 21      ; its window drawn: rows 19-20 (the arrows' row,
 UIF_LFRAME        = 22      ; its frame: update_frame with the arrows
 UIF_LFLIP         = 23      ; Left / Right: the page's 8 lines again
 UIF_LPICK         = 24      ; picked: $60AF, $4A, X = the entry (as the original)
+UIF_INFO_WAIT     = 25      ; the info screen's wait (loc_D44C): A / B end it,
+                            ; Left / Right show the officer before / after
 ; The fixed-bank trampolines of UIF_WIPE_ROWS and UIF_ROWEV (sub_CE2D's
 ; and sub_CE7A's space; mmc3_b15.asm checks these): bank 14 mapped while
 ; the game's routines run and while they yield, the UI bank again on return.

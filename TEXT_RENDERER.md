@@ -3118,3 +3118,115 @@ a beaten 兵士 as 数備).  The alive test is gone; a slot never drawn shows
 `$0A` at its position and is still skipped.  The same path in bt1/s1 is
 identical to the previous build in RNG and frame timing; only the names
 differ.
+
+## The info screen's page flip (2026-11-15)
+
+The user's request: on the officer info screen, Left / Right show another
+officer, with a sound; on the map (ぶしょう) the party, in battle the
+enemies still alive.  "Minimal update": the next name into plane 1 of
+`$10`, the item and tactic kanji again, then every nametable cell; the top
+32 lines are black, so push as much as possible before line 32.  Also
+"assess: re-send only the kanji that changed; choose the statistically
+faster one".  (`ui_info.asm`, `ui_info_lo.asm`; bank 14's screen ends in
+`UIF_INFO_WAIT`, loc_D44C's wait with Left / Right.)
+
+**Which officers.**  The map: the party order `$6090-$6096` (the list's
+entries; a member with `$609C` bit 7 clear gets its ＊ as the entry draws
+it), round.  The battle: actors 7-11 (slots 5-9) with `$609C` bit 7, round;
+nobody else, nothing happens (no sound).  A flip does what opening the
+screen for that officer does: `compact_items_actor`, and on the map
+`b14_party_status_update`'s S.P (`$61FB`: 知力 × `$61F8` >> 8 − `$61FE`,
+0 when 知力 < 武力).  The sound is the cursor's `$09`, as the reserve
+list's pages.
+
+**A page** is an image of the 254 cells that depend on the officer (the
+names: rows 10-13, columns 1-7; the stats: rows 4-12, columns 17-30;
+兵士数's digits; the six tactic lines: rows 16-27, columns 18-24; the
+three equipment lines: rows 20-25, columns 4-14), written by fixed runs
+(`is_commit`, 2,380 cycles), plus its glyphs.  The first page is built the
+same way (`is_first`), so a flipped page is the page the screen opens
+with: every flip of the test party was pixel-identical to the same
+officer opened from the list.
+
+**Changed kanji only: chosen.**  It never sends more than a full upload,
+and the glyphs can be cached across flips:
+- Plane 1 of 27 groups (`$A4-$DC`, then `$50-$7C`) for the tactics' kanji
+  (P1 cells), plane 0 of 22 (`$A4-$F8`) for the equipment's kanji and 計
+  (P0 cells).  Plane 0 of `$E0-$FB` shows in no cell (the bars are P2,
+  S.P P1); plane 1 of the pool shows in no P0 cell.
+- A glyph already in a group is used from there.  A new one takes a group
+  never used, else one neither page uses, so nothing on screen changes
+  before the image is written.  A group the shown page uses is taken only
+  when no other is left (two pages of 11+ distinct equipment kanji); it is
+  then sent in the image's own window, before the image.
+- The name goes to plane 1 of `$10-$1B` (as the screen's entry puts it),
+  in the image's window, only when it differs.
+- Measured, two rounds of the test party (張飛 関羽 … 孔明 馬超, 13 flips):
+  a full upload would send 111 glyphs, the cache sent 40 (36%).  The first
+  visit to 孔明 sends 15 (his 12 tactic kanji, 計, the name); after the
+  first round every flip sends the name's 2 kanji only; 銅の鎧 鉄の兜
+  関王刀 never again.
+
+**The windows.**  A window is the vblank plus lines 0-31 with rendering
+off: from the vblank flag (the NMI off, the flag polled) to line 31's
+hblank, where rendering comes back on for line 32.  Every step has fixed
+cycles (no data-dependent branch, no page crossing; the timed routines
+are padded to stay in a page), so each window ends with a delay to the
+same point: 6,004 cycles after the poll, measured at line 31 dots 287-307
+(the hblank is 257-320; the poll's jitter is 7 cycles).  Budget: a glyph
+410 cycles (one plane of 4 tiles straight from the store bank at R7), a
+portrait part 833, the image 2,380, so a window holds 14 glyphs, or 8
+with the image, or a whole portrait (6 parts, 5,101) with the colours.
+- The colours (P3) are written first, in the vblank proper: palette
+  writes in lines 0-31 would show as coloured backdrop pixels.
+- `v` is set with `$2006` = `$00`, `$80`, not `$20`, `$80`: bits 12-14 of
+  `v` are fine Y, so `$2080` renders from fine Y 2 (the first try showed
+  every window frame 2 lines up).  `t` is set back to scroll 0 after the
+  enable, for the frames after.
+- The background only for a window's frame: its NMI is skipped (no OAM
+  DMA) and the OAM shadow is the flip's scratch.  The next real NMI
+  writes the mask again.
+- Each window's frame runs its NMI work right after rendering is on: a
+  pushed return address and `jmp` to the NMI handler in busy mode (the
+  timers, the sound, the frame counter), so the music keeps its tempo.
+- Order: glyph windows, then the image's window (with the colours when no
+  part changed, e.g. to or from a 兵士, whose colour 0 shows the portrait
+  black), then the portrait's (its changed parts and the colours).  The
+  text changes one frame before the face.
+- The poll can miss a vblank (a read on the flag's own dot clears it);
+  then that window comes a frame later.  Seen once in about 40 windows.
+
+**Speed.**  The preparation (busy mode, the NMI on) builds the image,
+gives the glyphs groups and plans the windows in about 22,000 cycles
+(profiled); a button seen at line ~12 gets its first window in that
+frame's vblank.  The text is new 2 frames after the button is read, the
+face 1 frame later.  The portrait's parts are read from the ROM between
+the image's window and the portrait's (9,000 cycles: before the first
+window they made the preparation miss the vblank).  The first visit to a
+strategist (15 glyphs, 3 windows) takes 39,000 and one frame more.
+
+**Two traps found on the way:**
+- The NMI's bank restore honours `PRG_R7X` only for a store bank or a text
+  chunk; for any other bank at R7 it maps the current bank's upper half
+  back.  The portrait parts (banks 2/3) and the officer records (bank 12)
+  are read with the NMI off (`is_map7` / `is_unmap7`); a vblank that
+  starts meanwhile keeps its flag, so its NMI comes when the NMI is turned
+  on again.  Before this, a part read during an NMI copied UI-bank code
+  into the portrait.
+- asm6f does not keep a symbol assigned inside a `.rept` inside a macro;
+  the unrolled copies are top-level `.rept` blocks.
+
+**The battle exit** streams a battle name again when it has a kanji in a
+plane-1 group the screen wrote: `$10-$4F` always, `$50 + 4j` when a flip
+put a tactic kanji there (`IS_DIRTY` bit j; was: the tactic lines drawn).
+Plane 0/1 of `$A4-$DF` are cleared and `$C4-$FF`'s plane 0 refilled as
+before.  Tested: three flips in bt1/s1 and the exit; the battle screen
+matches the previous build's after the same exit without flips (but for
+the menu cursor's blink phase, a frame-count matter).
+
+**RAM.**  `IS_*` at `$7954-$799A` (the cache: the glyph in each group,
+the portrait's parts and colour, the name's kanji, `IS_DIRTY`, the shown
+page's groups as bits), the portrait buffer `IS_PB` at `$79A0-$7BDF`.  A
+flip's scratch: the image at `$0600` and its lists at `$0200` (the OAM
+shadow, all hidden on this screen; busy mode keeps the NMI's DMA off it;
+it is hidden again at the end).  The UI bank has 1.0 KiB left.

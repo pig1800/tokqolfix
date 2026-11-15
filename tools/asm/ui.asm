@@ -13,10 +13,12 @@
 ; CHR (decisions 3, 5, 11; tile order t, t+1, t+2, t+3 = TL, BL, TR, BR):
 ;   plane 1 of $10-$1B  the name (the original engine, $A9 = $10)
 ;   plane 1 of $1C-$4F  13 label kanji, slot k at $1C + 4k
-;   plane 1 of $50-$7F  tactic line n: first kanji $50 + 8n, second $54 + 8n
-;   plane 0 of $A4-$DF  15 groups: the equipment kanji and 計 (P0 cells),
-;                       one group per distinct kanji
-;   $E0-$FE             the bank-9 block, every glyph in plane 1 (bars, S.P)
+;   plane 1 of $A4-$DF and $50-$7F  27 groups: the tactics' kanji (P1 cells)
+;   plane 0 of $A4-$FB  22 groups: the equipment's kanji and 計 (P0 cells)
+;                       (both a cache of one group per kanji: ui_info.asm,
+;                       which also flips the screen to another officer)
+;   $E0-$FE             the bank-9 block, every glyph in plane 1 (bars, S.P;
+;                       plane 0 shows in no cell: P1 / P2 cells only)
 ; Battle path (UIF_BINFO_ENTER / _EXIT around the screen): on the way back
 ; every battle name whose plane-1 tiles the screen used is streamed again
 ; (the game's put_officer_name), the pool is blanked and marked usable, and
@@ -46,10 +48,9 @@ ZP_K        = $0D
 ZP_X        = $0E           ; line buffer length
 
 ; RAM scratch (call_inline_block's $0600 page: free between game calls)
-LBUF_T      = $0600         ; line buffer, top row
+LBUF_T      = $0600         ; line buffer, top row (the battle's redraw_line)
 LBUF_B      = $0620         ; line buffer, bottom row
-UI_NG       = $0640         ; plane-0 groups used on this screen
-UI_GMAP     = $0641         ; 15: glyph in each plane-0 group
+
 
 T_BLANK     = $0A
 T_NO        = $23           ; の
@@ -115,7 +116,7 @@ ui_fns:
     .dw ui_bsetup-1, ui_bsetup_end-1, ui_dec-1, ui_div-1, ui_wipe-1
     .dw ui_wipe_rows-1, ui_rowev-1, ui_pchoose-1, ui_ptiles-1, ui_rwload-1
     .dw ui_nameg-1, ui_lstart-1, ui_lrows-1, ui_lframe-1, ui_lflip-1
-    .dw ui_lpick-1
+    .dw ui_lpick-1, ui_info_wait-1
 
 ; ======================================================================
 ; UIF_NAMEG (the fixed bank's pon_kanji: put_officer_name with $AA set,
@@ -731,30 +732,37 @@ slot_name_dirty:
     rts
 
 ; A = a plane-1 tile $10-$7F: C set when this screen wrote its group.
-; Groups $10-$4F (the name, the labels) always; tactic line n's groups
-; $50 + 8n and $54 + 8n when the line was drawn (UI_TACT bit n).
+; Groups $10-$4F (the name, the labels) always; group $50 + 4j when a
+; tactic kanji went there (ui_info.asm: IS_DIRTY bit j, plane-1 slot
+; 15 + j).  X, Y kept.
 group_dirty:
     cmp #$50
     bcc @yes
+    sty ZP_K
     sec
     sbc #$50
     lsr a
-    lsr a
-    lsr a                       ; line n
-    sty ZP_K
+    lsr a                       ; j
+    cmp #8
+    bcs @hi
     tay
-    lda tact_bit,y
+    lda bit_tab,y
+    and IS_DIRTY
+    jmp @test
+@hi:
+    sbc #8                      ; (C set)
+    tay
+    lda bit_tab,y
+    and IS_DIRTY+1
+@test:
     ldy ZP_K
-    and UI_TACT
-    beq @no
+    cmp #1                      ; C set: the bit
+    rts
 @yes:
     sec
     rts
-@no:
-    clc
-    rts
-tact_bit:
-    .db $01, $02, $04, $08, $10, $20
+bit_tab:
+    .db $01, $02, $04, $08, $10, $20, $40, $80
 
 pool_unchecked:
     lda KANJI_WIN_COL
@@ -1668,48 +1676,6 @@ ppu_end:
     rts
 
 ; ======================================================================
-; A = glyph: its plane-0 group on this screen (uploaded on first use).
-; Returns A = the group's first tile.  Groups $A4, $A8, ... $DC.
-; ======================================================================
-pool_glyph:
-    sta ZP_G
-    ldx #0
-@find:
-    cpx UI_NG
-    beq @new
-    lda UI_GMAP,x
-    cmp ZP_G
-    beq @have
-    inx
-    bne @find
-@new:
-    cpx #POOL_GROUPS
-    bcs @full
-    lda ZP_G
-    sta UI_GMAP,x
-    inc UI_NG
-    txa
-    pha
-    asl a
-    asl a
-    adc #$A4
-    tax
-    lda ZP_G
-    clc
-    jsr put_glyph
-    pla
-    tax
-@have:
-    txa
-    asl a
-    asl a
-    adc #$A4
-    rts
-@full:
-    lda #$FF                    ; no room (cannot happen: at most 10)
-    rts
-
-; ======================================================================
 ; Static runs: hi, lo, ctl (bits 0-5 count, bit 6 one byte repeated, bit 7
 ; vertical), data; $FF ends.  ZP_PTR = the runs.
 ; ======================================================================
@@ -1757,76 +1723,6 @@ write_runs:
     lda ppu_ctrl_shadow
     and #$FB
     sta PPUCTRL
-    rts
-
-; Write the line buffers: LBUF_T[0..ZP_X) at ZP_A, LBUF_B below it.
-write_line:
-    lda ZP_A+1
-    sta PPUADDR
-    lda ZP_A
-    sta PPUADDR
-    ldx #0
-@t:
-    cpx ZP_X
-    beq @bot
-    lda LBUF_T,x
-    sta PPUDATA
-    inx
-    bne @t
-@bot:
-    lda ZP_A
-    clc
-    adc #$20
-    tay
-    lda ZP_A+1
-    adc #0
-    sta PPUADDR
-    sty PPUADDR
-    ldx #0
-@b:
-    cpx ZP_X
-    beq @done
-    lda LBUF_B,x
-    sta PPUDATA
-    inx
-    bne @b
-@done:
-    rts
-
-; Line buffers: put kanji group A (16x16, tiles A..A+3) at ZP_X.
-buf_kanji:
-    ldx ZP_X
-    sta LBUF_T,x
-    clc
-    adc #1
-    sta LBUF_B,x
-    adc #1
-    sta LBUF_T+1,x
-    adc #1
-    sta LBUF_B+1,x
-    inx
-    inx
-    stx ZP_X
-    rts
-
-; Line buffers: kana game code A at ZP_X (in the lower row, its voicing
-; mark above it, as the game's text engine draws it).
-buf_kana:
-    ldx ZP_X
-    ldy #T_BLANK
-    cmp #$80
-    bcc @plain
-    and #$7F
-    ldy #T_DAK
-    cmp #$62
-    bcc @plain
-    sbc #$0A
-    ldy #T_HANDAK
-@plain:
-    sta LBUF_B,x
-    tya
-    sta LBUF_T,x
-    inc ZP_X
     rts
 
 ; ======================================================================
@@ -1889,78 +1785,15 @@ ui_info_draw:
     inx
     cpx #64
     bne @attr
-    jsr draw_stats
-    jsr draw_troops
+    lda #<troop_runs            ; 兵士数 (after the name windows: the kanji
+    sta ZP_PTR                  ; name's clears rows 14-15 at columns 2-9)
+    lda #>troop_runs
+    sta ZP_PTR+1
+    jsr write_runs
     lda #0
-    sta UI_NG
-    sta UI_TACT
-    jsr draw_tactics
-    jsr draw_equipment
+    sta UI_TACT                 ; (UI_BRIGHT for the battle: cleared, as before)
+    jsr is_first                ; the officer's page (ui_info.asm)
     jmp ppu_end
-
-; ----------------------------------------------------------------------
-; The five stat lines (b14_wincb_stat_value_bar's values): 3 digits at
-; columns 17-19 (the kanji lines' upper row), a blank, then from column 21
-; a bar of $F4 per 26 points and $F3 for a remainder of 13 or more.
-; ----------------------------------------------------------------------
-draw_stats:
-    lda #0
-    sta ZP_I
-@stat:
-    lda ZP_I
-    jsr stat_value
-    sta ZP_V
-    lda #0
-    sta ZP_X
-    lda ZP_V
-    jsr buf_num3
-    ldx ZP_X
-    lda #T_BLANK
-    sta LBUF_B,x
-    inx
-    lda ZP_V
-@bar:
-    cmp #26
-    bcc @rem
-    sbc #26
-    pha
-    lda #T_FULL
-    sta LBUF_B,x
-    inx
-    pla
-    jmp @bar
-@rem:
-    cmp #13
-    bcc @end
-    lda #T_HALF
-    sta LBUF_B,x
-    inx
-@end:
-    stx ZP_X
-    ldx ZP_I
-    lda stat_hi,x
-    sta PPUADDR
-    lda stat_lo,x
-    sta PPUADDR
-    ldx #0
-@w:
-    lda LBUF_B,x
-    sta PPUDATA
-    inx
-    cpx ZP_X
-    bne @w
-    inc ZP_I
-    lda ZP_I
-    cmp #5
-    bne @stat
-    rts
-
-; Digits at column 17 of rows 4, 6, 8, 10 (the kanji lines' upper rows)
-; and 12 (S.P).
-stat_lo:
-    .db $91, $D1, $11, $51, $91
-stat_hi:
-    .db $20, $20, $21, $21, $21
 
 ; A = stat 0-4: ぶりょく, ちりょく, こうげき, ぶそうど, S.P of text_actor.
 stat_value:
@@ -1992,140 +1825,10 @@ stat_value:
     lda $60B4,x
     rts
 
-; A = 0-255: three digits into LBUF_B at ZP_X, leading zeros blank.
-buf_num3:
-    ldy #0
-@h:
-    cmp #100
-    bcc @hd
-    sbc #100
-    iny
-    bne @h
-@hd:
-    sta ZP_K
-    lda #0
-    sta ZP_J                    ; a digit was shown
-    tya
-    jsr @digit
-    lda ZP_K
-    ldy #0
-@t:
-    cmp #10
-    bcc @td
-    sbc #10
-    iny
-    bne @t
-@td:
-    sta ZP_K
-    tya
-    jsr @digit
-    lda ZP_K
-    ldx ZP_X
-    sta LBUF_B,x
-    inc ZP_X
-    rts
-@digit:
-    ldx ZP_X
-    ora ZP_J
-    beq @blank
-    sta ZP_J
-    tya
-    sta LBUF_B,x
-    inc ZP_X
-    rts
-@blank:
-    lda #T_BLANK
-    sta LBUF_B,x
-    inc ZP_X
-    rts
-
-; ----------------------------------------------------------------------
-; 兵士数 (rows 15-16, columns 2-7) and text_actor's 24-bit troop maximum
-; ($6160 + 4 * actor, low byte first) as 6 digits, leading zeros blank, in
-; row 15 from column 8.  Drawn after the name windows: the kanji name's
-; window clears rows 14-15 at columns 2-9 (its second line).
-; ----------------------------------------------------------------------
-draw_troops:
-    lda #<troop_runs
-    sta ZP_PTR
-    lda #>troop_runs
-    sta ZP_PTR+1
-    jsr write_runs
-    jsr troops_digits
-    lda #$21
-    sta PPUADDR
-    lda #$E8
-    sta PPUADDR
-    ldx #0
-@w:
-    lda LBUF_B,x
-    sta PPUDATA
-    inx
-    cpx #6
-    bne @w
-    rts
 troop_runs:
     .db $21,$E2,6, $38,$3A,$3C,$3E,$40,$42  ; 兵士数 rows 15-16
     .db $22,$02,6, $39,$3B,$3D,$3F,$41,$43
     .db $FF
-
-; LBUF_B[0..6) = the troop maximum's 6 digits.
-troops_digits:
-    lda text_actor
-    asl a
-    asl a
-    tax
-    lda $6160,x
-    sta ZP_V
-    lda $6161,x
-    sta ZP_V+1
-    lda $6162,x
-    sta ZP_V+2
-    lda #0
-    sta ZP_X
-    sta ZP_J                    ; a digit was shown
-    ldy #0
-@digit:
-    lda #0
-    sta ZP_K
-@sub:
-    lda ZP_V
-    sec
-    sbc pow_lo,y
-    sta ZP_PTR
-    lda ZP_V+1
-    sbc pow_mid,y
-    sta ZP_PTR+1
-    lda ZP_V+2
-    sbc pow_hi,y
-    bcc @emit
-    sta ZP_V+2
-    lda ZP_PTR+1
-    sta ZP_V+1
-    lda ZP_PTR
-    sta ZP_V
-    inc ZP_K
-    bne @sub
-@emit:
-    ldx ZP_X
-    lda ZP_K
-    ora ZP_J
-    bne @show
-    lda #T_BLANK
-    bne @put
-@show:
-    sta ZP_J
-    lda ZP_K
-@put:
-    sta LBUF_B,x
-    inc ZP_X
-    iny
-    cpy #5
-    bne @digit
-    ldx ZP_X
-    lda ZP_V
-    sta LBUF_B,x
-    rts
 
 pow_lo:                         ; 100000, 10000, 1000, 100, 10
     .db $A0, $10, $E8, $64, $0A
@@ -2133,163 +1836,6 @@ pow_mid:
     .db $86, $27, $03, $00, $00
 pow_hi:
     .db $01, $00, $00, $00, $00
-
-; ----------------------------------------------------------------------
-; さくりゃく: line n (0-5) shows tactic $65A0[6 * actor + n] (0: none) as
-; its two plane-1 kanji ($50 + 8n, $54 + 8n), の and the plane-0 計, at
-; rows 16 + 2n / 17 + 2n from column 18.
-; ----------------------------------------------------------------------
-draw_tactics:
-    lda text_actor
-    asl a
-    sta ZP_J
-    asl a
-    adc ZP_J
-    sta ZP_J                    ; 6 * actor
-    lda #0
-    sta ZP_I
-@line:
-    lda ZP_J
-    clc
-    adc ZP_I
-    bmi @next                   ; (the original's other list; no actor here)
-    tay
-    lda $65A0,y
-    beq @next
-    sta ZP_G
-    tay
-    lda ui_tactic_g1,y
-    cmp #$FF
-    beq @next
-    ldx ZP_I                    ; this line's plane-1 groups are used
-    lda tact_bit,x
-    ora UI_TACT
-    sta UI_TACT
-    ldy ZP_G
-    ; plane-1 kanji
-    lda ZP_I
-    asl a
-    asl a
-    asl a
-    adc #TACT_TILE
-    tax
-    lda ui_tactic_g1,y
-    sec
-    jsr put_glyph
-    lda ZP_I
-    asl a
-    asl a
-    asl a
-    adc #TACT_TILE+4
-    tax
-    ldy ZP_G
-    lda ui_tactic_g2,y
-    sec
-    jsr put_glyph
-    ; the line
-    lda #0
-    sta ZP_X
-    lda ZP_I
-    asl a
-    asl a
-    asl a
-    adc #TACT_TILE
-    pha
-    jsr buf_kanji
-    pla
-    adc #4
-    jsr buf_kanji
-    lda #T_NO
-    jsr buf_kana
-    lda #UI_G_KEI
-    jsr pool_glyph
-    jsr buf_kanji
-    ldx ZP_I
-    lda tact_lo,x
-    sta ZP_A
-    lda tact_hi,x
-    sta ZP_A+1
-    jsr write_line
-@next:
-    inc ZP_I
-    lda ZP_I
-    cmp #6
-    bne @line
-    rts
-
-; Row 16 + 2n, column 18.
-tact_lo:
-    .db $12, $52, $92, $D2, $12, $52
-tact_hi:
-    .db $22, $22, $22, $22, $23, $23
-
-; ----------------------------------------------------------------------
-; そうび: line k (0-2) shows the k-th equipped item (bit 7) of the actor's
-; 8 slots ($6100 + 8 * actor): its kanji name (plane-0 groups), kana in the
-; lower row, at rows 20 + 2k / 21 + 2k from column 4.
-; ----------------------------------------------------------------------
-draw_equipment:
-    lda #0
-    sta ZP_I                    ; line
-    sta ZP_K                    ; slot
-@scan:
-    lda ZP_K
-    cmp #8
-    bcs @done
-    lda text_actor
-    asl a
-    asl a
-    asl a
-    adc ZP_K
-    tay
-    inc ZP_K
-    lda $6100,y
-    bpl @scan
-    and #$7F
-    tay
-    lda ui_item_lo,y
-    sta ZP_A
-    lda ui_item_hi,y
-    sta ZP_A+1
-    lda #0
-    sta ZP_X
-    sta ZP_N                    ; string index
-@tok:
-    ldy ZP_N
-    lda (ZP_A),y
-    cmp #$FF
-    beq @line
-    inc ZP_N
-    cmp #$FE
-    bne @kanji
-    iny
-    inc ZP_N
-    lda (ZP_A),y
-    jsr buf_kana
-    jmp @tok
-@kanji:
-    jsr pool_glyph
-    jsr buf_kanji
-    jmp @tok
-@line:
-    ldx ZP_I
-    lda equip_lo,x
-    sta ZP_A
-    lda equip_hi,x
-    sta ZP_A+1
-    jsr write_line
-    inc ZP_I
-    lda ZP_I
-    cmp #3
-    bcc @scan
-@done:
-    rts
-
-; Row 20 + 2k, column 4.
-equip_lo:
-    .db $84, $C4, $04
-equip_hi:
-    .db $22, $22, $23
 
 ; ----------------------------------------------------------------------
 ; The static layout (nametable 0).  Label kanji k: top t, t+2, bottom
@@ -2329,6 +1875,10 @@ info_runs:
     .db $FF
 
 .include "ui_battle.asm"
-.include "ui_list.asm"
+.include "ui_info_lo.asm"
 
 .include "../../decomp/build/kanji/ui_data.inc"
+
+; Code that never maps another bank at R7: after the data, in the upper half.
+.include "ui_list.asm"
+.include "ui_info.asm"

@@ -35,11 +35,11 @@ is in `MEMORY_MAP.md`.
 | 23 | hack bank: the message engine (`kanji_msg.asm`), the battle pool's uploads, the palette tables |
 | 24 | title screen and attract mode (`attract.asm`) |
 | 26 | map text renderer (`txr.asm`) |
-| 28 | UI bank (`ui.asm`, `ui_battle.asm`, `ui_list.asm`) |
+| 28 | UI bank (`ui.asm`, `ui_battle.asm`, `ui_list.asm`, `ui_info.asm`, `ui_info_lo.asm`) |
 | 31 | fixed bank: bank 15 with registered patches, and the runtime at `$FC00` (`fixed_rt.asm`) |
 | 20-22, 25, 27, 29, 30 | free |
 
-187.5 KiB free in all.
+182.5 KiB free in all (the UI bank has 1.0 KiB left).
 
 ## Runtime
 
@@ -101,6 +101,16 @@ is in `MEMORY_MAP.md`.
   black and shown once complete, without the original's frame pacing.
   The battle setup replays the RNG steps of the frames it skips, so every
   roll is the original's.
+- **The info screen's Left / Right** (`ui_info.asm`): the officer before
+  / after, with the cursor's sound; on the map the party order, in battle
+  the enemies still alive.  A flip re-sends only the kanji that changed
+  (a cache of 27 plane-1 and 22 plane-0 groups; a new kanji goes to a
+  group the shown page does not use), then writes the officer's 254 cells
+  at once.  The data go in "windows": the vblank and the black lines
+  0-31 with rendering off, cycle-counted to line 31's hblank, where
+  rendering comes back on; each window's frame runs its NMI work itself.
+  The text changes 2 frames after the button is read, the portrait 1
+  frame later (TEXT_RENDERER.md "The info screen's page flip").
 - **Boot screens** (main menu, history books, name entry): one fixed set
   of 25 kanji at upper tiles `$80-$E3`, uploaded once at the boot entry
   (`TXF_MENUSET`).  The message speed prompt (b11_msg_147) shows before
@@ -140,7 +150,9 @@ is in `MEMORY_MAP.md`.
 | `$7800-$78FF` | the map's attribute shadow (`MAP_ATTR`, four-screen) |
 | `$7900-$794C` | the title intro's IRQ events (`TFX_*`) |
 | `$794D-$7953` | the reserve list (`LS_*`) |
-| `$7954-$7BF4` | free (cleared at reset) |
+| `$7954-$799A` | the info screen's glyph cache (`IS_*`) |
+| `$79A0-$7BDF` | the info screen's portrait buffer (`IS_PB`) |
+| `$799B-$799F`, `$7BE0-$7BF4` | free (cleared at reset) |
 | `$7BF5-$7F9B` | the renderer's tables and buffers (in battle: the kanji slot table) |
 | `$7F9C-$7FFF` | the UI bank's state, `PRG_R7X` |
 
@@ -206,3 +218,10 @@ is in `MEMORY_MAP.md`.
   change resets the renderer (seen 2026-11-15: 程遠志 as 程粛志).
 - In map mode, each new kanji of a page waits for its glyph upload, so
   kanji print a little slower than kana.
+- Info screen flips: a page whose new kanji need more than the image's
+  window (8 glyphs) takes glyph windows first, one frame each (the first
+  visit to a strategist: 15 glyphs, one frame more).  The vblank poll
+  misses a vblank now and then (a read on the flag's own dot); that window
+  comes a frame later.  Two pages with 11 or more distinct equipment kanji
+  each can leave a new kanji only a group the shown page uses; it is sent
+  just before the image, in the same window, unless that window is full.
