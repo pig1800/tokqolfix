@@ -26,7 +26,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from kanji_common import KANJI_CALLS, KANJI_SUFFIX_CALLS, KANJI_TROOP_CALLS, code_map, inventory
+from kanji_common import KANJI_CALLS, KANJI_SUFFIX_CALLS, KANJI_TROOP_CALLS, code_map, inventory, officer_names
 import textdata
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -217,6 +217,13 @@ def token_width(tok: str) -> int | None:
         return sum(2 if KANJI_RE.match(c) else 1 for c in re.sub(r"<[^>]*>", "", s))
     if key.startswith("CALL:") and int(key[5:9], 16) in NUMBER_CALLS:
         return NUMBER_CALLS[int(key[5:9], 16)]
+    if key.startswith("NAME:"):
+        # $F2 id: officer id's name, the same whoever is in the party (the
+        # original's handler $D2F3 skips put_officer_name's party lookup):
+        # its kanji name's width (map mode puts it in kanji).
+        name = officer_names().get(int(key[5:], 16))
+        if name:
+            return sum(2 if KANJI_RE.match(c) else 1 for c in name)
     if key.startswith("NAME") or key.startswith("CALL:"):
         # Runtime names are 2-4 kana; CALL helpers print short names/numbers.
         return 8
@@ -444,7 +451,8 @@ FALLBACK_SPLITS: list[list[str]] = []    # pages split inside a line (none expec
 
 def line_width_issues(rec: "Record", data: bytes) -> list[str]:
     """Lines wider than the window: 18 cells, 17 after an indenting break
-    ($FA <NL>, $FC <PAGE>).  Runtime names count 8 cells."""
+    ($FA <NL>, $FC <PAGE>).  Runtime names count 8 cells, a fixed name
+    ($F2 id) its kanji name's width (as token_width)."""
     issues = []
     width, cap, line = 0, 18, 0
     i = 0
@@ -465,7 +473,8 @@ def line_width_issues(rec: "Record", data: bytes) -> list[str]:
             i += 2
             continue
         if b in (0xF1, 0xF2):
-            width += 8
+            width += (token_width(f"<NAME:{data[i + 1]:02X}>") if b == 0xF2 and i + 1 < len(data)
+                      else 8)
             i += 2
             continue
         if 0xF3 <= b <= 0xF7:

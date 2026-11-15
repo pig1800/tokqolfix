@@ -185,6 +185,10 @@ is in `MEMORY_MAP.md`.
     glyphs.
 - `python -I tools/scroll_scan.py` lists messages that would scroll in map
   mode, i.e. a 4th line between page breaks.  It should report 0.
+- The compiler adds a `<NLNI>` where a line would pass 18 cells (a kanji
+  2, a kana 1).  `<NAME:xx>` is officer xx's fixed name, not the party's
+  (it counts its kanji name's width, so `<NAME:AD>` and 張苞 lay out the
+  same).  The runtime names `<NAME_F3>`-`<NAME_F7>` count 8.
 - The name and word kanji come from three files:
   - `kanjiwordlist.csv`: item and tactic words (cp932);
   - `namekanjilist.csv`: officer names;

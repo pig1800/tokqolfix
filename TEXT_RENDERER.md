@@ -3250,6 +3250,36 @@ flip's scratch: the image at `$0600` and its lists at `$0200` (the OAM
 shadow, all hidden on this screen; busy mode keeps the NMI's DMA off it;
 it is hidden again at the end).  The UI bank has 1.0 KiB left.
 
+## Fixed officer names, `<NAME:xx>` (2026-11-16)
+
+The user put b11_msg_078's last line (the sword どりゅうのけん, item
+`$50`, from a chest: bank 14 `$8217`) back to the original's
+`<NAME:AD>は剣を手に入れた`: it still showed 張苞, with a line break
+before た.  They asked: what if 張苞 is not in the team?
+
+- `$F2 id` prints officer id's name.  Its handler (`$D2F3`) reads the id
+  and jumps into put_officer_name after the party lookup (`$D4A5`, past
+  `lda $60A8,y`).  So it is a fixed name, whoever is in the party: the
+  original always said チョウホウ there.  The dtx headers said "party
+  slot"; corrected.  The party's names are `$F4`-`$F7` (`$F6`: the
+  actor in `$4C`).
+- r14 writes all 197 of the original's `<NAME:xx>` as kanji.  Officer
+  names are ROM records (bank 12), so both print the same.
+- 張苞 cannot leave the party once he joins: the office's 外す refuses the
+  7 officers in bank 14's table at `$9561` (劉備 関羽 張飛 関興 張苞 呂布
+  孔明).  解雇 refuses 17, 張苞 among them (`$9568`).  呂蒙 (b11_msg_081)
+  and the village elder (b11_msg_086) name him in the same 呉 chapter.
+  The text is flavour only: the chest gives the sword to the first member,
+  in party order, with a free item slot (`$8268`).  In the user's main save
+  馬超 holds it.
+- The break: the compiler's line fit (`reflow`) counted every name token
+  as 8 cells, so `<NAME:AD>は剣を手に入れた` came to 19 > 18.  Now
+  `<NAME:xx>` counts the width of its kanji name (`officer_names()`;
+  張苞 4), in the line fit and in the build's width check
+  (`line_width_issues`).  The runtime names keep 8.  Both forms of the
+  line now compile to the same breaks (py check); the text as it is (no
+  `<NAME:xx>`) builds byte-identical.  Not seen in the game.
+
 ## The reserve list holds 125 (2026-11-15)
 
 The user's request, after the assessment above ("Why 64"): check
