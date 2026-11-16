@@ -609,10 +609,12 @@ ui_binfo_enter:
 ;   put_officer_name to the same tiles ($A9 = its first tile).  In busy mode its wait_vblank flushes at
 ;   once, so the stream costs no frame.  The block writer does not mirror
 ;   it (UI_NOMIR);
-; - plane 0 and 1 of the pool $A4-$DF are cleared: no message is shown
-;   now, the pool is marked checked and blank, so the next battle message
-;   uses it (not the band page); then the 15 fixed command kanji go back to
-;   groups 8-22 and the slot table is reset (battle_state_direct);
+; - plane 0 and 1 of the pool $A4-$DF are cleared (the info screen used
+;   them): no message is shown now, the pool is marked checked and blank,
+;   so the next battle message uses it (not the band page); then the 15
+;   fixed command kanji go back to plane 1 of groups 0-14, う to plane 1
+;   of $FB, and the slot table and the attribute shadow are reset
+;   (battle_state_direct);
 ; - the P2 colours 1-3 come back (decision 6).
 ; ======================================================================
 ui_binfo_exit:

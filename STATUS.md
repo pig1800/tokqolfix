@@ -83,12 +83,19 @@ is in `MEMORY_MAP.md`.
   - Map windows never scroll: where the original would scroll, the page
     breaks (`<NLNI>`, `<PAGENI>`).
 - **Battle.**  The kanji slot table manages 32 slots of 4 tiles in the
-  scene page (`$80 + 4s`, 8x16 order).
-  - Before the win, messages use slots 9-23; slots 0-8 hold the portrait.
-    The command windows' 15 fixed kanji live there too.
+  scene page (`$80 + 4s`, 8x16 order), plane 0.
+  - The 15 fixed command kanji are in plane 1 of slots 9-23 (`$A4-$DF`,
+    free in the battle set), the command window's う in plane 1 of `$FB`
+    (2026-11-17).  The command windows' kanji cells are P1, every other
+    window's P0, set with each row pair (`attr_pair`).  So no other
+    window's kanji ever takes theirs, and the item and tactic windows'
+    kanji show as their rows are drawn.
+  - Before the win, messages use slots 9-31; slots 0-8 hold the portrait.
+    The item, tactic and prisoner windows use the same plane-0 groups.
   - From the win, slots 0-5 hold the reward window's 金兵糧経験値 and 6-31
     the messages'.
-  - A kanji already in a slot is used from it.
+  - A kanji already in a slot is used from it.  On the battle screen the
+    message uploads write plane 0 only.
   - The battle window scrolls as in the original.  The scroll blanks
     line ends (`$FA-$FF`) but keeps the tiles of slots 30-31, which
     share those values (`redraw_hi`).

@@ -1,23 +1,26 @@
 ; ======================================================================
 ; Battle screen (step B item 7, STATUS.md "UI bank").  Included by ui.asm.
 ;
-; Kanji area: plane 0 of the 23 groups $A4 + 4k (k = 0-22), tiles in 8x16
-; order (t TL, t+1 BL, t+2 TR, t+3 BR).  P0 cells show plane 0 only, so
-; the gauges ($E0-$EE) and S, P ($F6, $F7) keep their plane 1.
-;   groups 0-7    free: the subwindows' kanji (and the messages' pool)
-;   groups 8-22   the 15 fixed command kanji, filled from the back
-;                 (ui_fixed_g): 道具 in 21-22, 残 in 20, then 御 防 略 策
-;                 戦, then the first command window's 将 武 却 退 撃 攻 総
-;                 (8-14: the only fixed ones the messages' pool $A4-$DF
-;                 reaches)
-; UI_SLOT[k] = the glyph in group k ($FF unknown, $FE a message kanji that
-; may be on screen).  UI_GF[k]: GF_REF = a window on screen shows it,
-; GF_NREF = the window being drawn uses it.  A group on screen, or with a
-; message kanji, is never rewritten: the new window draws that kanji blank
-; and fills it in once its last row pair is drawn (the old window is gone
-; then; UI_PEND = its lines).  Subwindows take the lowest free group; the
-; command windows use their fixed groups and restore the ones that were
-; taken.
+; Kanji area: the 23 groups $A4 + 4k (k = 0-22), tiles in 8x16 order (t TL,
+; t+1 BL, t+2 TR, t+3 BR).  Since 2026-11-17 (the user's design) the two
+; planes hold different kanji:
+;   plane 1 of groups 0-14 ($A4-$DF, free in the battle set): the 15 fixed
+;           command kanji (ui_fixed_g index = group), written once at the
+;           battle start and after 武将's info screen; plane 1 of $FB: the
+;           command window's う (a copy of the font's).  Shown in P1 cells:
+;           the command windows' kanji columns and the tactic window's 残
+;           (attr_pair).
+;   plane 0 of groups 0-22: the other windows' kanji and the messages'
+;           (slots 9-31 before the win), shown in P0 cells.  Plane 1 of
+;           $E0-$FF keeps the gauges and S P (P2 / P1 cells).
+; UI_SLOT[k] = the glyph in plane 0 of group k ($FF unknown, $FE a message
+; kanji that may be on screen).  UI_GF[k]: GF_REF = a window on screen
+; shows it, GF_NREF = the window being drawn uses it.  A group on screen,
+; or with a message kanji, is never rewritten: the new window draws that
+; kanji blank and fills it in once its last row pair is drawn (the old
+; window is gone then; UI_PEND = its lines).  Subwindows take the lowest
+; free group.  The command windows use no plane-0 group: none of theirs
+; is ever taken.
 ;
 ; Window templates (fixed bank, patched by kanji_build): "$F8 cv_wincb n"
 ; per line; n = 0-3 command window line, $10 tactic window line (rows one
@@ -39,13 +42,14 @@ GF_NREF     = $02
 TEXT_PUT    = $D340         ; text_put_tile (fixed bank)
 SP_OWNER_X6 = $DEBC         ; battle_sp_owner_x6 (fixed bank): Y = 6 * owner
 NGROUPS     = 23
-G_FIXED     = 8             ; group of ui_fixed_g[0]
-F_ZAN       = 12            ; ui_fixed_g index of 残 (group 20)
-F_DOU       = 13            ;   道 (group 21); 具 = 14 (group 22)
+NFIXED      = 15            ; the command kanji, plane 1 of groups 0-14
+F_ZAN       = 12            ; ui_fixed_g index (= group) of 残
 WIN_LINE0   = $266C         ; line 0's top row (19), column 12, nametable 1
 TW_ROW      = $20           ; the tactic window's lines: one row lower
 PR_LINE0    = $25B4         ; window $21's line 0: top row 13, column 20
-ZAN_TILE    = $F4           ; group 20's first tile (残, 8x16 order)
+ZAN_TILE    = $A4+4*F_ZAN   ; 残's first tile (plane 1, 8x16 order)
+T_U1        = $FB           ; plane 1: the command window's う
+FONT_U      = $3F           ; the font's う (plane 0)
 CMD_COUNT   = $7C           ; the round's commands so far: 0 = window $11
 
 
@@ -56,10 +60,11 @@ CMD_COUNT   = $7C           ; the round's commands so far: 0 = window $11
 ui_bstart:
     jsr ppu_begin
     jsr battle_state_direct
+    jsr attr_reset
     jmp ppu_end
 
-; Busy mode: the fixed kanji to plane 0 of groups 8-22 (plane 1 kept), the
-; state reset and the hooks on.
+; Busy mode: the fixed kanji to plane 1 of groups 0-14 (plane 0 kept), the
+; font's う to plane 1 of T_U1, the state reset and the hooks on.
 battle_state_direct:
     jsr battle_state_reset
     ldx #0
@@ -68,16 +73,13 @@ battle_state_direct:
     txa
     asl a
     asl a
-    adc #$C4                    ; group 8 + X
+    adc #$A4                    ; group X
     sta ZP_T
     lda ui_fixed_g,x
-    sta UI_SLOT+G_FIXED,x
-    tay                         ; the slot table: its code (the store)
+    tay                         ; its code (the store)
     lda ui_gcode_lo,y
-    sta SL_LO+9+G_FIXED,x
     sta ZP_N                    ; (its pos)
     lda ui_gcode_hi,y
-    sta SL_HI+9+G_FIXED,x
     M_STMAP                     ; (inline: the battle start's stack is
     ldy ZP_N                    ; deep, and the NMI comes on top)
 @tile:
@@ -93,6 +95,7 @@ battle_state_direct:
     asl a
     asl a
     asl a
+    ora #8                      ; plane 1
     sta PPUADDR
 @b:
     lda (ZP_PTR),y
@@ -108,8 +111,31 @@ battle_state_direct:
     M_STUNMAP
     ldx ZP_I
     inx
-    cpx #15
+    cpx #NFIXED
     bne @fix
+    lda #>($1000+FONT_U*16)     ; う: the font tile's plane 0 (a buffered
+    sta PPUADDR                 ; read: the first byte is stale) ...
+    lda #<($1000+FONT_U*16)
+    sta PPUADDR
+    lda PPUDATA
+    ldx #0
+@ur:
+    lda PPUDATA
+    sta LBUF_T,x
+    inx
+    cpx #8
+    bne @ur
+    lda #>($1000+T_U1*16+8)     ; ... to plane 1 of T_U1
+    sta PPUADDR
+    lda #<($1000+T_U1*16+8)
+    sta PPUADDR
+    ldx #0
+@uw:
+    lda LBUF_T,x
+    sta PPUDATA
+    inx
+    cpx #8
+    bne @uw
     rts
 
 ; The slot table unknown, no window, no pending pool check, the pool
@@ -124,7 +150,6 @@ battle_state_reset:
     sta UI_GF,x
     dex
     bpl @slot
-    sta UI_SPST
     sta UI_SHOWCHK
     sta UI_PEND
     sta UI_WIN
@@ -303,33 +328,9 @@ need:
 @have:
     jmp set_nref
 
-; Fixed kanji A (ui_fixed_g index) in its own group, restored when that
-; may be rewritten (always at the window's end).
-need_fixed:
-    clc
-    adc #G_FIXED
-    tax
-    jsr set_nref
-    lda ui_fixed_g-G_FIXED,x
-    cmp UI_SLOT,x
-    beq @rts
-    sta ZP_G
-    lda B_MODE
-    bne @put
-    lda UI_GF,x
-    and #GF_REF
-    bne @rts
-    lda UI_SLOT,x
-    cmp #$FE
-    beq @rts
-@put:
-    lda ZP_G
-    jmp q_glyph
-@rts:
-    rts
-
 ; ----------------------------------------------------------------------
-; Every glyph of window UI_WIN (need / need_fixed).
+; Every plane-0 glyph of window UI_WIN (need).  The command windows have
+; none (their kanji are in plane 1).
 ; ----------------------------------------------------------------------
 win_glyphs:
     lda UI_WIN
@@ -346,49 +347,12 @@ win_glyphs:
     jmp wg_prison
 @not21:
     cmp #$17
-    bne @panel
+    bne @rts
     jmp wg_tactics
-@panel:                         ; command window $11 / $12: its lines
-    lda #0
-    sta ZP_K
-@line:
-    ldx ZP_K
-    lda panel_line,x
-    sta ZP_A
-    lda panel_line+4,x
-    sta ZP_A+1
-    ldy #0
-@ent:
-    lda (ZP_A),y
-    iny
-    cmp #$FF
-    beq @next
-    cmp #$FE
-    bne @nokana
-    iny                         ; (a kana)
-    bne @ent
-@nokana:
-    cmp #$FD
-    bne @kanji
-    lda UI_WIN
-    cmp #$11
-    beq @ent                    ; the right column: window $11 only
-    bne @next
-@kanji:
-    sty ZP_J
-    jsr need_fixed
-    ldy ZP_J
-    jmp @ent
-@next:
-    inc ZP_K
-    lda ZP_K
-    cmp #4
-    bne @line
+@rts:
     rts
 
 wg_tactics:
-    lda #F_ZAN                  ; the title's 残
-    jsr need_fixed
     lda #0
     sta ZP_K
 @ent:
@@ -601,16 +565,16 @@ draw_panel_line:
     ldy ZP_X
     cmp #$FF
     beq @done
-    cmp #$FE
-    bne @nokana
-    ldy ZP_J
-    inc ZP_J
-    lda (ZP_A),y
-    ldy ZP_X
-    jsr put_kana
+    cmp #$FC
+    bne @nou
+    lda #T_BLANK                ; う: plane 1 of T_U1
+    sta (B_TOP),y
+    lda #T_U1
+    sta (B_BOT),y
+    iny
     sty ZP_X
     jmp @ent
-@nokana:
+@nou:
     cmp #$FD
     bne @kanji
     lda UI_WIN
@@ -622,17 +586,8 @@ draw_panel_line:
     sta ZP_X
     jmp @ent
 @kanji:
-    clc
-    adc #G_FIXED
-    tax
-    lda ui_fixed_g-G_FIXED,x
-    cmp UI_SLOT,x
-    bne @blank
+    tax                         ; plane 1 of group = its index
     jsr put_group
-    sty ZP_X
-    jmp @ent
-@blank:
-    jsr put_blank
     sty ZP_X
     jmp @ent
 @done:
@@ -995,12 +950,13 @@ put_kana:
     iny
     rts
 
-; Command window lines: ui_fixed_g index (the kanji in its group), $FE
-; kana, $FD the right column (window $11 only), $FF end.
+; Command window lines: ui_fixed_g index (its kanji in plane 1 of that
+; group), $FC う (plane 1 of T_U1), $FD the right column (window $11 only),
+; $FF end.  All shown in P1 cells (attr_pair).
 panel_line:
     .db <pl0, <pl1, <pl2, <pl3
     .db >pl0, >pl1, >pl2, >pl3
-pl0: .db 7, $FE,$3F, $FD, 0, 1, 2, $FF  ; 戦う   総攻撃
+pl0: .db 7, $FC, $FD, 0, 1, 2, $FF      ; 戦う   総攻撃
 pl1: .db 8, 9, $FD, 3, 4, $FF           ; 策略   退却
 pl2: .db 10, 11, $FD, 5, 6, $FF         ; 防御   武将
 pl3: .db 13, 14, $FF                    ; 道具
@@ -1014,9 +970,10 @@ pl3: .db 13, 14, $FF                    ; 道具
 ;   another window covered since the last blanking (UI_BRIGHT): between
 ;   two officers' command windows nothing is there, and blanking it
 ;   anyway (30 bytes a row pair) made the flush overrun vblank (a frame
-;   with the screen scrolled wrong).  cv_sm waits for a flush when the
-;   queue is long (SM_QMAX).
-; - The row pair 18-19: the tactic window's S P cells (UI_SPST).
+;   with the screen scrolled wrong).  A narrow window's long queue is
+;   flushed here (SM_QMAX), any window's in cv_sm (SM_QCAP): the same
+;   waits as before the attributes (the RNG steps every frame).
+; - The pair's attributes in columns 12-23 (attr_pair).
 ; - The window's last row pair (UI_SMRET = $82): the window's end.
 ; ----------------------------------------------------------------------
 ui_sm:
@@ -1062,41 +1019,17 @@ ui_sm:
     sta $0400,x
     stx vram_queue_write
 @noerase:
-    lda ppu_addr_hi_shadow
-    cmp #$26
-    bne @nosp
-    lda ppu_addr_lo_shadow
-    and #$E0
-    cmp #$60
-    bne @nosp
-    ldy #0
-    lda text_mode
-    cmp #$17
-    bne @want
-    iny
-@want:
-    cpy UI_SPST
-    beq @nosp
-    sty UI_SPST
-    ldy #0
-    lda UI_SPST
-    beq @sp0
-    ldy #4
-@sp0:
-    lda #4
-    sta B_E
-    ldx vram_queue_write
-@sp:
-    lda sp_off,y
-    sta $0400,x
-    inx
-    iny
-    dec B_E
-    bne @sp
-    lda #0
-    sta $0400,x
-    stx vram_queue_write
-@nosp:
+    jsr attr_pair
+    lda text_speed_count        ; a narrow window: the game waits only after
+    cmp #13                     ; every 2nd or 3rd pair (text_init $CB21), so
+    bcs @wide                   ; a long queue is flushed now (two such
+    lda vram_queue_write        ; pairs overran vblank); the wide ones' wait
+    sec                         ; comes right after the pair
+    sbc vram_queue_read
+    cmp #SM_QMAX+1
+    bcc @wide
+    jsr WAIT_VBLANK
+@wide:
     lda UI_SMRET
     cmp #$82
     bne @rts
@@ -1141,13 +1074,196 @@ sm_blank_run:
     bne @b
     rts
 
-; $27E4 (rows 16-19, columns 16-19): the battle's own $0A; the tactic
-; window open: rows 18-19 columns 18-19 P1 (its title's S P, plane 1).
-; Its 残 (rows 18-19, columns 14-15) is P0 as the battle's own.
-sp_off:
-    .db $27,$E4,1, $0A
-sp_on:
-    .db $27,$E4,1, $4A
+; ----------------------------------------------------------------------
+; The row pair's attributes (2026-11-17): the command windows show their
+; kanji in plane 1 (P1 cells), every other window in plane 0 (P0).  In the
+; pair's cell row each 2-column cell of columns 12-23 that the window
+; covers takes the window's palette; the other cells keep theirs.
+; UI_ATTR shadows $27E3-$27E5, $27EB-$27ED and $27F3-$27F5 (rows 16-27,
+; columns 12-23; rows 16-17 are the gauges' P2); a changed byte row is
+; queued with the pair (the same flush).  Not once the battle is won (the
+; game sets its own attributes then, and no command window comes back).
+; ----------------------------------------------------------------------
+attr_pair:
+    bit UI_BATTLE
+    bpl @live
+@rts0:
+    rts
+@live:
+    lda UI_ATTR                 ; (rows 16-17 are always P2 there: else a
+    and #$0F                    ; state saved by an earlier build)
+    cmp #$0A
+    beq @ok
+    jsr attr_reset
+@ok:
+    lda ppu_addr_hi_shadow      ; the pair's second row (nametable $2400)
+    sec
+    sbc #$24
+    cmp #4
+    bcs @rts0
+    asl a
+    asl a
+    asl a
+    sta ZP_T
+    lda ppu_addr_lo_shadow
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ora ZP_T
+    sec
+    sbc #19
+    bcc @rts0                   ; above row 19
+    lsr a
+    bcs @rts0                   ; (an even row: not a pair's second)
+    cmp #5
+    bcs @rts0                   ; below row 27
+    sta ZP_C                    ; m: rows 18-19 (0) .. 26-27 (4)
+    ldx #0                      ; the window's P1 cells: bit k = columns
+    lda text_mode               ; 12+2k, 13+2k
+    cmp #$11
+    bne @n11
+    ldx #%111011                ; window $11: 戦 策 防 道 / 総攻撃 退却 武将
+@n11:
+    cmp #$12
+    bne @n12
+    ldx #%000011                ; window $12: the left column
+@n12:
+    cmp #$17
+    bne @n17
+    ldy ZP_C
+    bne @n17
+    ldx #%001010                ; the tactic window's title: 残, S P
+@n17:
+    stx ZP_N
+    lda ZP_C
+    clc
+    adc #1
+    lsr a
+    sta ZP_I                    ; the byte row: 0 (rows 16-19), 1, 2
+    asl a
+    adc ZP_I
+    sta ZP_J                    ; its first UI_ATTR byte
+    lda ZP_C
+    and #1
+    eor #1
+    asl a
+    sta ZP_K                    ; 2: the pair is the byte's lower half
+    lda ppu_addr_lo_shadow
+    and #$1F
+    sta ZP_G                    ; the window's left column
+    lda #0
+    sta ZP_X                    ; not 0: a byte changed
+    ldx #0
+@k:
+    txa
+    asl a
+    adc #12                     ; (C clear) cell k's first column
+    cmp ZP_G
+    bcc @next                   ; left of the window
+    adc #1                      ; (C set: +2) past the cell
+    cmp B_E
+    beq @in
+    bcs @next                   ; right of the window
+@in:
+    txa
+    and #1
+    ora ZP_K
+    tay                         ; the field: 0 TL, 1 TR, 2 BL, 3 BR
+    lda at_field,y
+    sta ZP_A
+    lda ZP_N
+    and at_bit,x
+    beq @p0
+    lda at_one,y                ; palette 1
+@p0:
+    sta ZP_A+1
+    txa
+    lsr a
+    clc
+    adc ZP_J
+    tay
+    lda UI_ATTR,y
+    sta ZP_PTR
+    lda ZP_A
+    eor #$FF
+    and UI_ATTR,y
+    ora ZP_A+1
+    sta UI_ATTR,y
+    cmp ZP_PTR
+    beq @next
+    txa
+    lsr a
+    tay
+    lda at_bit,y
+    ora ZP_X
+    sta ZP_X                    ; bit b: byte b of the row changed
+@next:
+    inx
+    cpx #6
+    bne @k
+    ldy ZP_X
+    beq @rts
+    lda at_count,y              ; the changed bytes, first to last
+    sta ZP_K
+    lda at_first,y
+    tay
+    clc
+    adc ZP_J
+    sta ZP_J
+    ldx vram_queue_write
+    lda #$27
+    sta $0400,x
+    inx
+    lda ZP_I
+    asl a
+    asl a
+    asl a
+    adc #$E3                    ; (C clear) $27E3 + 8 * byte row
+    sta ZP_T
+    tya
+    adc ZP_T                    ; + the first changed byte
+    sta $0400,x
+    inx
+    lda ZP_K
+    sta $0400,x
+    inx
+    ldy ZP_J
+@b:
+    lda UI_ATTR,y
+    sta $0400,x
+    inx
+    iny
+    dec ZP_K
+    bne @b
+    lda #0
+    sta $0400,x
+    stx vram_queue_write
+@rts:
+    rts
+at_field:
+    .db $03, $0C, $30, $C0
+at_one:
+    .db $01, $04, $10, $40
+at_bit:
+    .db $01, $02, $04, $08, $10, $20
+at_first:                       ; by the changed-bytes mask
+    .db 0, 0, 1, 0, 2, 0, 1, 0
+at_count:
+    .db 0, 1, 1, 2, 1, 3, 2, 3
+; The attribute shadow: the battle's own (the battle start; 武将's info
+; screen leaves the battle's attributes as they are, so its exit does not).
+attr_reset:
+    ldx #8
+@a:
+    lda attr_base,x
+    sta UI_ATTR,x
+    dex
+    bpl @a
+    rts
+attr_base:
+    .db $0A, $0A, $0A, $00, $00, $00, $00, $00, $00
 
 ; The window's last row pair is queued, so the old window is gone, and so
 ; are the message kanji.  A window of ours: its groups are the ones shown
@@ -1802,7 +1918,7 @@ ui_pchoose:
 pc_v40:
     .db $40
 
-; UI_PMT = base mask Y: 0 before the win (slots 9-23), 4 from it (6-31).
+; UI_PMT = base mask Y: 0 before the win (slots 9-31), 4 from it (6-31).
 pc_base:
     ldx #0
 @b:
@@ -1814,7 +1930,7 @@ pc_base:
     bne @b
     rts
 pc_masks:
-    .db $FF, $80, $00, $FF
+    .db $FF, $80, $00, $00
     .db $FC, $00, $00, $00
 
 pc_or_lines:
@@ -2009,12 +2125,8 @@ ui_ptiles:
     bpl @find
     lda UI_BATTLE
     bmi @won
-    lda #9                      ; before the win: slots 9-16, then the
-    ldy #16                     ; command kanji's 17-23
-    jsr lru_slot
-    bcc @new
-    lda #17
-    ldy #23
+    lda #9                      ; before the win: slots 9-31 (plane 0; the
+    ldy #31                     ; command kanji are in plane 1)
     jsr lru_slot
     bcc @new
     ldx #9                      ; (none free: not reached, pool_choose made

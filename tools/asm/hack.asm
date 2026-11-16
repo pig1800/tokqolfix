@@ -350,11 +350,14 @@ tile_addr:
     jmp plane1_blank            ; (Y = k still)
 .endm
 
-; Plane 1 of the tile just written (KANJI_TILES+Y) blank, except in the
-; battle screen's groups 15-20 ($E0-$F7, the battle messages' last resort,
-; ui_pchoose): their plane 1 holds the HP gauges and S P.  Then the store
-; bank unmapped (unmap_store).
+; Plane 1 of the tile just written (KANJI_TILES+Y) blank, except on the
+; battle screen (UI_BATTLE): there every cell that shows a message kanji is
+; P0, and plane 1 holds the command kanji ($A4-$DF), the HP gauges and S P
+; ($E0-$F7); and in tiles $E0-$FF elsewhere.  Then the store bank unmapped
+; (unmap_store).
 plane1_blank:
+    lda UI_BATTLE
+    bne unmap_store
     lda KANJI_TILES,y
     cmp #$E0
     bcs unmap_store

@@ -445,9 +445,9 @@ UI_DECX           = $7F9D   ; UIF_DEC, UIF_DIV: the caller's X (the bytes before
 UI_RAM2           = $7F9E   ; battery RAM below UI_RAM
 ; Battle kanji slots (2026-11-13, the user's design; ui_battle.asm
 ; ui_pchoose / ui_ptiles): slot s = the 4 tiles $80 + 4s (s = 0-31), 8x16
-; order; the battle screen's group k is slot k + 9.  Before the win: slots
-; 9-23 (17-23, the command kanji 将武却退撃攻総, last; 0-8 are the portrait,
-; 24-31 the other command kanji).  From the win: 0-5 the reward window's
+; order, plane 0; the battle screen's group k is slot k + 9.  Before the
+; win: slots 9-31 (0-8 are the portrait; the command kanji are in plane 1
+; of 9-23 since 2026-11-17).  From the win: 0-5 the reward window's
 ; 金兵糧経験値 (loaded at the first victory message), 6-31 the messages.
 ; The slot table (SL_*) knows each slot's kanji: a kanji already in a slot
 ; is used from there; a new one takes the free slot unused longest.  Bit
@@ -476,7 +476,11 @@ PRG_R7X           = UI_RAM2+16 ; main thread: the 8 KiB bank at R7 that the
 NG_REC            = UI_RAM2+17 ; put_officer_name's kanji (mmc3_b15 pon_kanji,
 NG_K              = UI_RAM2+18 ;   UIF_NAMEG): the record, its kanji 0-2,
 NG_X              = UI_RAM2+19 ;   the line-buffer index
-                            ; (UI_RAM2+20 to +31: free)
+UI_ATTR           = UI_RAM2+20 ; 9: battle: the attributes of rows 16-27,
+                            ; columns 12-23 ($27E3-5, $27EB-D, $27F3-5): P1
+                            ; cells for the command kanji in plane 1
+                            ; (ui_battle.asm attr_pair, 2026-11-17)
+                            ; (UI_RAM2+29 to +31: free)
 UI_SHOWCHK        = UI_RAM2+32 ; 1: the window being drawn opens beside the
                             ; message window ($21 / $22: grp_shown applies)
                             ; (UI_RAM2+33: free)
@@ -495,17 +499,20 @@ UI_TACT           = UI_RAM+6 ; info screen: bit n = tactic line n drawn
 UI_BRIGHT         = UI_TACT  ; battle (the same byte; the info screen clears it): the
                             ; first column right of every window drawn since a
                             ; command window last blanked beside itself (UIF_SM)
-SM_QMAX           = 56      ; cv_sm: queued bytes after a battle row pair that
-                            ; make it wait for a flush (the blanking beside a
-                            ; command window; a flush over ~110 bytes ends
-                            ; past vblank: one frame scrolled wrong)
-UI_SPST           = UI_RAM+7 ; battle: 1 = the tactic window's S P / 残 cells
-                            ; are set (P1 at $27E4, P0 at $27E3, 残's top
-                            ; half in row 17), written with a window's row
-                            ; pair 18-19 (canvas cv_sm, UIF_SM)
-; Battle screen (step B item 7).  Kanji area: plane 0 of the 23 groups
-; $A4 + 4k (k = 0-22, tiles in 8x16 order t, t+1, t+2, t+3 = TL, BL, TR, BR);
-; groups 8-22 hold the 15 fixed command kanji, filled from the back.
+SM_QMAX           = 56      ; UIF_SM: queued bytes after a narrow battle
+                            ; window's row pair (width < 13: the game waits
+                            ; after every 2nd or 3rd pair only) that make it
+                            ; wait for a flush (the blanking beside a command
+                            ; window; a flush over ~110 bytes ends past
+                            ; vblank: one frame scrolled wrong)
+SM_QCAP           = 64      ; cv_sm: the same for any window (the wide ones
+                            ; wait after each pair; their pairs with the
+                            ; blanking and the attributes reach 58)
+                            ; (UI_RAM+7: free since 2026-11-17)
+; Battle screen (step B item 7).  Kanji area: the 23 groups $A4 + 4k
+; (k = 0-22, tiles in 8x16 order t, t+1, t+2, t+3 = TL, BL, TR, BR): plane 0
+; for the windows' and messages' kanji, plane 1 of groups 0-14 for the 15
+; fixed command kanji (2026-11-17).
 UI_BATTLE         = UI_RAM+8 ; not 0: the battle screen's kanji state is live
                             ; (1; bit 7 UI_WON once the battle is won)
 UI_X              = UI_RAM+9 ; template CALL: the row-buffer index X

@@ -122,8 +122,8 @@ PRISON_KANJI = "仲間入逃"       # the prisoner window $21 (ui_battle.asm ui_
 PRISON_TPL = (0xEC24, bytes.fromhex("ff020afa1f1029203e3433fa209017ff"))
 REWARD_TPL = 0x923C             # its template in bank 14 (bank14.asm b14_k_reward_tpl)
 UI_ITEM_TYPES = ("weapon", "armor", "helmet", "consumable", "keyitem")
-# The battle command window's 15 fixed kanji in group order 8-22 (step B
-# item 7, ui_battle.asm): filled from the back, 道具 last, 残 before them.
+# The battle command window's 15 fixed kanji, index = group 0-14: plane 1
+# of $A4 + 4 * index (ui_battle.asm, since 2026-11-17; 残 is index 12).
 UI_FIXED = "総攻撃退却武将戦策略防御残道具"
 # Decision 11: every UI glyph of the bank-9 block ($E0-$FE, CPU $BE00) is
 # moved to plane 1 in the kanji target's copy.

@@ -304,7 +304,7 @@ cv_sm:
     lda vram_queue_write        ; a long queue (the blanking beside a
     sec                         ; command window): flushed now, so the
     sbc vram_queue_read         ; next row pair cannot push the NMI's
-    cmp #SM_QMAX+1              ; flush past vblank
+    cmp #SM_QCAP+1              ; flush past vblank
     bcc @rts
     jmp WAIT_VBLANK
 @rts:

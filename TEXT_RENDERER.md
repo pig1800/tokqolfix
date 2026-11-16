@@ -3346,6 +3346,97 @@ Measured in Mesen (bt1/s1, and round 2 of it saved on this build):
   screenshots): none different.  The original build is still
   byte-identical.
 
+## Command kanji in plane 1 (2026-11-17)
+
+The user's report: back from a full tactic or item window, the command
+window drew some kanji blank for a while.  A window needing more than
+the 8 free groups took the command kanji's groups.  Those could only be
+written again once the old window was gone, one per frame
+(`need_fixed`).  Measured on the previous build:
+- 6 tactics, then B: 総攻撃 blank 4 frames after the window is complete.
+- 8 items, then B: 退却, 武将 and 総攻撃 back one at a time, 8-12 frames
+  late.
+- Opening that item window: 6 of its kanji 8 frames late.
+
+The user's design: the 15 fixed command kanji in plane 1, plane 0 for the
+others.  Their answers: う at `$FB`, messages in slots 9-31 before the
+win, no plane-1 clearing on the battle screen, and mid-battle save
+states from older builds may lose the command kanji until the info
+screen or the next battle.
+
+- **Planes.**
+  - Plane 1 of scene tiles `$A4-$DF` is free in the battle set (60
+    tiles, 15 kanji; also `$FB`, `$FC`, `$FE`, `$FF`; measured in bt1,
+    r4, r5).  The other scene tiles' plane 1 holds the portrait, the
+    gauges and S P.
+  - The 15 fixed kanji go to plane 1 of group = index (`ui_fixed_g`;
+    残 is group 12, `$D4`), at the battle start and at the exit of 武将's
+    info screen.  That screen clears both planes of `$A4-$DF` (measured
+    with a pattern poked into plane 1); its exit runs with rendering off.
+  - The font's plane 1 of `$10-$5F` holds the names at the top, so the
+    font's う would show part of a name in a P1 cell.  `battle_state_direct`
+    copies plane 0 of font tile `$3F` to plane 1 of `$FB` (`T_U1`), and
+    the command window puts `$FB` there (marker `$FC` in `panel_line`).
+  - Plane 0 of all 23 groups is for the item, tactic, prisoner and
+    reward windows and the messages.  `need_fixed` and the command
+    windows' glyph loading are gone: they use no plane-0 group.
+- **Attributes** (`attr_pair`, in UIF_SM: the same flush as the row pair).
+  - Cells of columns 12-23, rows 18-27.  Window `$11`: columns 12-15 and
+    18-23 P1, 16-17 P0 (the cursor there is plane 0).  `$12`: 12-15.  The
+    tactic window's title: 残 (14-15) and S P (18-19), rows 18-19.  Every
+    other window: P0.  The frame columns (10, 24) are never P1: the
+    corners and sides are plane 0 only; the top and bottom lines are in
+    both planes.
+  - Only the cells inside the window's columns change; the others keep
+    their palette (`$12` leaves 18-23 as they were; they are blanked).
+  - A byte covers two row pairs (rows 20-23, 24-27; rows 16-19 with the
+    gauges' P2): the other pair keeps the old window's palette until its
+    own rows are drawn.  `UI_ATTR` (9 bytes, `UI_RAM2+20`) shadows
+    `$27E3-5`, `$27EB-D`, `$27F3-5`; only the changed bytes are queued.
+  - The shadow is set at the battle start, kept through 武将's info screen
+    (the battle's attributes stay; a reset there made each row pair
+    flash its lower neighbour for a frame), and reset when its rows 16-17
+    nibble is not `$A` (a state from an older build).  Nothing is written
+    once the battle is won (the game sets its own attributes then).
+  - Measured per frame (tiles and attribute bytes at the end of each
+    frame): every pair's tiles and palette change in the same frame,
+    command window to tactic window and back.
+- **Queue waits.**  The attributes add up to 6 bytes a row pair.  `$11`'s
+  pair with the blanking beside it came to 58 > 56 (`SM_QMAX`), so
+  `cv_sm` waited a second frame per pair.  The game itself waits after
+  each pair of a window 13 or more wide (`text_init` `$CB21`), after
+  every 2nd or 3rd of a narrower one.  Now `cv_sm` waits above 64
+  (`SM_QCAP`), and UIF_SM flushes a narrow window's queue above 56 as
+  before.  The waits fall as in the previous build; `$12`'s two-pair
+  flush is 112 bytes at most (104 before).
+- **Messages.**  Slots 9-31 before the win (`pc_masks`, `ui_ptiles`).  On
+  the battle screen the glyph upload writes plane 0 only (`plane1_blank`
+  returns while `UI_BATTLE`): every cell that shows a message kanji is
+  P0, also after the win, when the game sets rows 20-29 to P0 (measured).
+  Elsewhere (the pool outside the battle screen) it still clears plane
+  1.  A message can no longer use a command kanji's plane-0 copy, so one
+  with 戦 or 策 uploads its own.
+
+Measured in Mesen (bt1/s1 on this build, after 武将's info screen):
+- Tactic window (6) and item window (8 items poked): their kanji show as
+  each row is drawn; B gives the command window back complete as its
+  last row is drawn, one pair a frame, as before.
+- `$14`, the next officer's `$12`, its tactic window and B: no frame with
+  a wrong palette or a missing kanji.
+- 武将's info screen and back: the command window shows during the
+  fade-in and redraws without a flash.
+- A victory with a capture (総攻撃, bt1/s1): the RNG equals the previous
+  build's in all 880 frames, and the 35 screenshots (frames 200-880) are
+  the same.
+- A full round with a tactic: the round's messages finish 0-6 frames
+  sooner each (with the plane-1 clear put back, the frames are the same,
+  so it comes from the pool), and from the round's first message on the
+  RNG differs from the previous build's for the same button frames.
+- The regression set against the previous build: 3 of 3,193 screenshots
+  differ, all in the level-up battle's first victory message (戦 is
+  uploaded now, a few frames later); the screens from there on are the
+  same.  The original build is still byte-identical.
+
 ## The reserve list holds 125 (2026-11-15)
 
 The user's request, after the assessment above ("Why 64"): check
