@@ -607,10 +607,11 @@ def build_ui_data() -> int:
 # covers screen columns 2-29 only, so no window may reach column 30.  The
 # gold window $18 (columns 20-29) becomes 12 wide at columns 18-29: 金 /
 # 兵糧 in 16x16 kanji from column 19, right after its border, the number
-# right aligned at column 28 (6 digits).  The shop draws it over the buy
-# list (bank 14 b14_k_goldover; the original drew the list over it).  $1C
-# (columns 22-29) becomes 10 wide at 20-29 for 買いに来た.  The boot
-# menu's speed window $29 (columns 22-27) becomes 7 wide for 普通.
+# right aligned at column 28 (gold 7 digits from column 22, food 6 from
+# column 23; 2026-11-17: 6 for gold cut the millions).  The shop draws it
+# over the buy list (bank 14 b14_k_goldover; the original drew the list
+# over it).  $1C (columns 22-29) becomes 10 wide at 20-29 for 買いに来た.
+# The boot menu's speed window $29 (columns 22-27) becomes 7 wide for 普通.
 MAP_UI_TEMPLATES = {0x18: (1, 12), 0x1C: (2, 10), 0x29: (3, 7)}
 # Window rows (a template's byte 0, in metatiles): the speed window $29 two
 # rows up, rows 10-17 (the user, 2026-11-14: the third record that pushed it
@@ -622,8 +623,9 @@ MAP_UI_ROWS = {0x29: -2}
 FIX_FIRST = 0x80
 FIX_LIMIT = 0xE4
 # The labels TXF_LABEL writes (kanji_common.MAP_UI_LABELS order): the first
-# cell's offset from the row-buffer index passed in, and the index after.
-MAP_UI_LABEL_POS = ((-1, 3), (-1, 3), (0, 4))
+# cell's offset from the row-buffer index passed in, and the index after
+# (金: its 7-digit number from column 22, bank 14 b14_k_gold_line).
+MAP_UI_LABEL_POS = ((-1, 2), (-1, 3), (0, 4))
 
 
 def build_txr_ui() -> None:

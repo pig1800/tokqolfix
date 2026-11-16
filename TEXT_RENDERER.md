@@ -592,8 +592,9 @@ Still kana:
   columns 18-29, width 12.
   - 金 and 兵糧 in 16x16 at column 19, right after the left border, their
     bottom row the number's.
-  - The number right-aligned at column 28, in 6 cells (23-28).  Up to 5
-    digits leave a cell after 兵糧.
+  - The number right-aligned at column 28: gold in 7 cells (22-28, as the
+    original; 6 until 2026-11-17, "The gold window's 7 digits"), food in
+    6 cells (23-28).  Up to 5 digits leave a cell after 兵糧.
 - **Draw order.**  The shop's buy list (bank 14 `$8E24`) drew the gold
   window first and the item list over its top-left corner (rows 12-13,
   columns 18-19, where 金 now starts).  It now draws the list first, then
@@ -3436,6 +3437,36 @@ Measured in Mesen (bt1/s1 on this build, after 武将's info screen):
   differ, all in the level-up battle's first victory message (戦 is
   uploaded now, a few frames later); the screens from there on are the
   same.  The original build is still byte-identical.
+
+## The gold window's 7 digits (2026-11-17)
+
+The user's report: in the shop (buying, selling) the gold showed gold -
+1,000,000 once it passed 1,000,000; the army info screen and the
+battle's reward window were right.
+
+**Cause.**  The map-mode gold line (bank 14 `b14_k_gold_line`) printed 6
+digits (`read_stack_arg` A = 5, the last 6 of the 7 at `$0104-$010A`)
+from column 23, so the millions were cut.  The original prints 7 (A =
+6); the army info screen and the reward window print 7 too.
+
+**Fix.**  7 digits from column 22: A = 6, and 金's label now advances the
+row-buffer index by 2 (`MAP_UI_LABEL_POS`).  Column 21 stays blank
+between 金 (19-20) and the number.
+
+**Limits.**
+- Gold is a 24-bit number with no cap (up to 16,777,215).  7 digits
+  show up to 9,999,999.  From 10,000,000 the top digit is 10 or more and
+  shows as a blank or a wrong tile, here and on the other screens, as in
+  the original.
+- Food in the same window keeps 6 cells (23-28), since 兵糧 takes 19-22.
+  From 1,000,000 it shows food - 1,000,000 (measured: 1,234,567 shows
+  234567).  The window is 10 cells inside; 兵糧 plus 7 digits needs 11.
+
+Measured in Mesen (the shop greeting state, gold poked): 1,234,567,
+9,999,999 and 0 show right-aligned at column 28; 10,000,000 shows a
+blank then 000000.  The regression set: all 3,193 screenshots the same
+as the previous build's (gold below 1,000,000 in all of them).  The
+original build is still byte-identical.
 
 ## The reserve list holds 125 (2026-11-15)
 
