@@ -24,7 +24,7 @@ is in `MEMORY_MAP.md`.
 
 | Bank | Content |
 |---|---|
-| 0-8, 12 | the original game |
+| 0-8, 12 | the original game; the original officer-name glyphs in banks 1 (`$8010-$9A0F`) and 2 (`$8010-$880F`) are unread and freeable (2026-11-17) |
 | 9 | original; the UI glyphs `$EF-$FA` moved to plane 1 (the info screen's kanji) |
 | 10, 11 | the game's message tables; each kanji message is a 6-byte `$F8` far stub (JUMP-only messages 3 bytes); the old text space is free |
 | 13 | original, patched: the boot screens (fixed kanji set, the speed message, two save records), the attract entry |
@@ -39,7 +39,8 @@ is in `MEMORY_MAP.md`.
 | 31 | fixed bank: bank 15 with registered patches, and the runtime at `$FC00` (`fixed_rt.asm`) |
 | 20-22, 25, 27, 29, 30 | free |
 
-182.4 KiB free in all (the UI bank has 1.0 KiB left, the fixed bank 0.5 KiB).
+190.5 KiB free in all, 8.5 KiB of it the old name glyphs in banks 1-2 (the
+UI bank has 0.6 KiB left, the fixed bank 0.4 KiB).
 
 ## Runtime
 

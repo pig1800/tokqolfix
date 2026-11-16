@@ -219,6 +219,28 @@ def main() -> int:
             pos = hi + 1
         if pos < B:
             add(b, pos, B - 1, "orig", f"original: {role}")
+    # The original officer-name glyphs (16x16, 64 bytes each), unread since
+    # 2026-11-13: every kanji name comes from the kanji store.  The bytes stay
+    # (the banks are the original's); free only while bank 1 / 2 is mapped,
+    # which the game does for its graphics (TEXT_RENDERER.md "The old name
+    # glyphs freeable", 2026-11-17: no code reads them, and a CPU-read log of
+    # five runs found no read).
+    for b, lo, hi, n in ((1, 0x0010, 0x1A0F, 104), (2, 0x0010, 0x080F, 32)):
+        new = []
+        for r in regions[b]:
+            if r.hi < lo or r.lo > hi:
+                new.append(r)
+                continue
+            if r.kind != "orig":
+                raise SystemExit(f"memory_map: bank {b}'s name glyphs are not original bytes")
+            if r.lo < lo:
+                new.append(Region(r.lo, lo - 1, r.kind, r.text))
+            new.append(Region(max(r.lo, lo), min(r.hi, hi), "free",
+                              f"the original officer-name glyphs ({n}; unread since 2026-11-13: names come "
+                              "from the kanji store): freeable, usable while this bank is mapped"))
+            if r.hi > hi:
+                new.append(Region(hi + 1, r.hi, r.kind, r.text))
+        regions[b] = new
     # bank 13's filler ($8D20-$8FFF): the boot title and boot routines, then fill
     b13_end = None
     for r in list(regions[13]):
@@ -475,8 +497,9 @@ def main() -> int:
       "(8 KiB banks 62 / 63 at `$C000-$DFFF` / `$E000-$FFFF`).")
     w("- **The game's `set_bank n`** maps both halves of 16 KiB bank *n*.  The kanji store is read in 8 KiB "
       "units at R7 (banks 32-35); the NMI maps the renderer's first half alone.")
-    w("- **Free** counts only what the build owns and does not use, plus the original fillers known never to be read "
-      "(bank 13's `$8D20-$8FFF`).  **Fill** is `$00` / `$FF` runs "
+    w("- **Free** counts only what the build owns and does not use, plus original bytes known never to be read "
+      "(bank 13's filler `$8D20-$8FFF`; the original officer-name glyphs in banks 1 and 2, the bytes kept).  "
+      "**Fill** is `$00` / `$FF` runs "
       f"({FILL_MIN}+ bytes) left in original-byte areas of banks 10/11: the build reads none of it, but nothing checked it "
       "at runtime, so it is listed apart.  Original game data is never counted.")
     w("")
@@ -569,7 +592,8 @@ def main() -> int:
         if only_changes:
             orig_bytes = sum(r.size for r in rs if r.kind == "orig")
             w(f"Everything not listed is the original's ({orig_bytes} bytes); "
-              + ("the fixed bank keeps every address (`tools/bank15_lint.py`)." if b == 31 else "the changed ranges by address:"))
+              + ("the fixed bank keeps every address (`tools/bank15_lint.py`)." if b == 31
+                 else "the changed or freed ranges by address:"))
             w("")
         w("| Address | Half | Bytes | Kind | Content |")
         w("|---|---|---:|---|---|")

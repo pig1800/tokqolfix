@@ -3477,6 +3477,55 @@ the window is as before.  The regression set: with gold in 7 digits all
 (the shop greeting and the menu cycle, all at columns 19-22 of the food
 line: the label).  The original build is still byte-identical.
 
+## The old name glyphs freeable (2026-11-17)
+
+The user's QoL request: every officer kanji name routine to take its
+kanji from the kanji store instead of the original fixed glyphs, reuse
+a kanji already uploaded (they estimated 1-2 black frames saved), then
+retire the original glyph set as freeable.
+
+**Already so.**  Every name routine has read the store since 2026-11-13
+("The kanji store"): `pon_kanji` / `UIF_NAMEG` (the battle's names, the
+info screen's name), `ar_name` (the army screen), `txr_put`'s `$ED n`
+(map mode), `KNAME` (battle messages).  The 8 KiB name font was removed
+then.
+
+**The original glyphs are unread.**  Bank 1 `$8010-$9A0F` (104 glyphs,
+6,656 bytes) and bank 2 `$8010-$880F` (32 glyphs, 2,048 bytes), 64 bytes
+each.
+- In the code, three places map bank 1 or 2: the battle effects
+  (`battle_effect_setup`, pointers `$BE00` / `$BE80` / `$BF00`), the
+  title's copy from bank 2 `$B800` (bank 13 `$881A`), and the original
+  army screen's `b14_inline_upload_status_kanji` (bank 1 `$8000`), which
+  the kanji target does not assemble.
+- Mesen's CPU-read log (`out/test/nm/cdlp.lua`): 0 bytes read in either
+  region over five runs: a random battle from the field to the victory,
+  a battle with 武将's info screen (flips) and a capture, the map menus
+  with the info screen and the army screen, power-on to a new game, the
+  shop's menu cycle.  The graphics around them were read (bank 1
+  `$9B7F-$9CFE` and `$BDFF-$BE7E`, bank 2 from `$885F`), so the log
+  works.
+
+**Reuse: measured, not done (the user chose to only mark the glyphs).**
+A random battle from the user's field state (5 officers, 5 兵士): 21
+frames with rendering off.  The setup's slot loop takes 337,000 cycles
+(11.3 frames): the unit sprites 153,000 (5.1 frames), the troop gauges
+120,000 (4.0), the names 50,000 (1.7: 20 kanji at about 2,300 cycles
+each, through the VRAM queue and a direct flush), the rest 14,000.
+- Reusing kanji: 12 uploads instead of 20 here, about 0.6 frame; the
+  user's 司馬師 / 司馬昭 / 兵士 battle 15 instead of 22, about 0.5; nothing
+  in a battle of different officers.
+- With direct PPU writes as well (rendering is off): about 1 frame
+  (estimated at 1,250 cycles a kanji).
+- The name waits are not frames there (busy mode, as in the original),
+  so the RNG does not depend on them.
+- It needed a table of the battle's name kanji (battery RAM `$7900-$794C`,
+  the title's only) and 武将's exit restoring names from it.
+
+**Done.**  `tools/memory_map.py` lists both regions as free (the bytes
+kept: the banks stay the original's; usable only while bank 1 / 2 is
+mapped).  190.5 KiB free in all.  No ROM change.
+
 ## The reserve list holds 125 (2026-11-15)
 
 The user's request, after the assessment above ("Why 64"): check
