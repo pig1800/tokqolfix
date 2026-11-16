@@ -80,9 +80,9 @@ is in `MEMORY_MAP.md`.
   - The map UI's words, and item, tactic and place names, show in kanji
     (`TXF_PUT`).  Officer names show in kanji in map mode, in battle and on
     the info and army screens (`pon_kanji`, the UI bank's name table).
-  - The gold window `$18` (shops): gold in 7 digits at columns 22-28 (up
-    to 9,999,999, as the original; 2026-11-17), food in 6 at 23-28 (up to
-    999,999; the original showed 7).
+  - The gold window `$18` (shops): 金 / 糧 with 7 digits at columns 22-28
+    (up to 9,999,999, as the original; 2026-11-17: they were 金 / 兵糧
+    with 6 digits).
   - Map windows never scroll: where the original would scroll, the page
     breaks (`<NLNI>`, `<PAGENI>`).
 - **Battle.**  The kanji slot table manages 32 slots of 4 tiles in the

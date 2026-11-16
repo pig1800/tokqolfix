@@ -556,7 +556,7 @@ kanji beside the numbers.
 | officers `$1F` | のうりょく くわえる はずす かいこ | 能力 加える 外す 解雇 |
 | record office `$24` | きろく よぶ | 記録 呼ぶ |
 | list `$20` | そのた | その他 |
-| gold window `$18` | 金 兵ろう (8x8) | 金 兵糧 (16x16) |
+| gold window `$18` | 金 兵ろう (8x8) | 金 糧 (16x16; 兵糧 until 2026-11-17) |
 | item names (64 records) | e.g. こん たんけん かわのどうあて | 棍 短剣 皮の胴当 |
 | tactic names (in messages) | e.g. れんかのけい | 練火の計 |
 | place names (the 神行の札 list) | e.g. ジョシュウじょう | 徐州城 |
@@ -590,11 +590,11 @@ Still kana:
 - **Gold window `$18`.**  It was columns 20-29, with 8x8 金 / 兵ろう at
   column 22 in the top row and 7 digits ending at column 28.  It is now
   columns 18-29, width 12.
-  - 金 and 兵糧 in 16x16 at column 19, right after the left border, their
+  - 金 and 糧 in 16x16 at column 19, right after the left border, their
     bottom row the number's.
-  - The number right-aligned at column 28: gold in 7 cells (22-28, as the
-    original; 6 until 2026-11-17, "The gold window's 7 digits"), food in
-    6 cells (23-28).  Up to 5 digits leave a cell after 兵糧.
+  - The number right-aligned at column 28 in 7 cells (22-28), as the
+    original.  Until 2026-11-17 the labels were 金 / 兵糧 and both
+    numbers 6 cells (23-28) ("The gold window's 7 digits").
 - **Draw order.**  The shop's buy list (bank 14 `$8E24`) drew the gold
   window first and the item list over its top-left corner (rows 12-13,
   columns 18-19, where 金 now starts).  It now draws the list first, then
@@ -3453,20 +3453,29 @@ from column 23, so the millions were cut.  The original prints 7 (A =
 row-buffer index by 2 (`MAP_UI_LABEL_POS`).  Column 21 stays blank
 between 金 (19-20) and the number.
 
-**Limits.**
-- Gold is a 24-bit number with no cap (up to 16,777,215).  7 digits
-  show up to 9,999,999.  From 10,000,000 the top digit is 10 or more and
-  shows as a blank or a wrong tile, here and on the other screens, as in
-  the original.
-- Food in the same window keeps 6 cells (23-28), since 兵糧 takes 19-22.
-  From 1,000,000 it shows food - 1,000,000 (measured: 1,234,567 shows
-  234567).  The window is 10 cells inside; 兵糧 plus 7 digits needs 11.
+**Food.**  The food line (`b14_k_food_line`) had the same 6 digits, from
+column 23 after 兵糧 (19-22): from 1,000,000 it showed food - 1,000,000
+(measured: 1,234,567 showed 234567).  The window is 10 cells inside, and
+兵糧 plus 7 digits needs 11; it cannot widen (column 30 is outside the
+map redraw; to the left it would cover the buy list's prices).  The
+user's choice (of 糧 alone, the number on its own row, or as it was):
+the label 糧, two cells as 金, and 7 digits from column 22 the same way
+(`MAP_UI_LABELS`).  The army info screen and the reward window keep
+兵糧 (they have room).  The UI kanji order is unchanged (兵 is used
+earlier).
 
-Measured in Mesen (the shop greeting state, gold poked): 1,234,567,
-9,999,999 and 0 show right-aligned at column 28; 10,000,000 shows a
-blank then 000000.  The regression set: all 3,193 screenshots the same
-as the previous build's (gold below 1,000,000 in all of them).  The
-original build is still byte-identical.
+**Limits.**  Gold and food are 24-bit numbers with no cap (up to
+16,777,215).  7 digits show up to 9,999,999.  From 10,000,000 the top
+digit is 10 or more and shows as a blank or a wrong tile, here and on
+the other screens, as in the original.
+
+Measured in Mesen (the shop greeting state, gold and food poked):
+1,234,567, 9,999,999, 0, and 999,999 / 999 show right-aligned at
+column 28; 10,000,000 shows a blank then 000000; the buyer's list over
+the window is as before.  The regression set: with gold in 7 digits all
+3,193 screenshots the same as the previous build's; with 糧, 9 differ
+(the shop greeting and the menu cycle, all at columns 19-22 of the food
+line: the label).  The original build is still byte-identical.
 
 ## The reserve list holds 125 (2026-11-15)
 

@@ -2477,11 +2477,11 @@ b14_k_army_wait:
 
 ; The map UI in kanji (TEXT_RENDERER.md "Kanji UI").  Window $18's lines
 ; (the gold window, 12 wide at columns 18-29: kanji_build.py
-; MAP_UI_TEMPLATES): in map mode 金 / 兵糧 in kanji from column 19 (X - 1,
+; MAP_UI_TEMPLATES): in map mode 金 / 糧 in kanji from column 19 (X - 1,
 ; X the index after the line's indent), their bottom row the number's,
-; the number right aligned at column 28: gold in 7 cells from column 22
-; (2026-11-17: 6 cells cut the millions), food in 6 from column 23 (5
-; digits leave a cell after 兵糧).  Elsewhere the original lines.
+; the number right aligned at column 28 in 7 cells from column 22, as the
+; original (2026-11-17: 6 cells cut the millions; food's label was 兵糧,
+; 4 cells).  Elsewhere the original lines.
 b14_k_gold_line:
     bit TXR_ON
     bmi @k
@@ -2507,12 +2507,12 @@ b14_k_food_line:
     sta $0304
     jmp b14_print_food
 @k:
-    lda #1                      ; 兵糧
+    lda #1                      ; 糧
     jsr b14_k_label
     jsr wait_vblank
     jsr read_inline_block_3     ; inline pointer/data follows the JSR (as b14_print_food)
     .incbin "build/assets/bank14_data.bin", $165C, $0002
-    lda #$05
+    lda #$06                    ; 7 digits, as the original
     jmp read_stack_arg
 ; The shop's buy list (from $8E24, after the list $1A is drawn): the gold
 ; window over the list, then the list's state back for its cursor (the

@@ -144,8 +144,8 @@ def wordlist() -> list[tuple[str, str, str]]:
 
 # Map-mode UI (TEXT_RENDERER.md "Kanji UI", 2026-11-12): the kana words of
 # the window templates (window, kana, kanji) that the map text renderer
-# shows in kanji, and its labels (the gold window's 金 and 兵糧, the
-# tavern list's その他).  Item, tactic and place names come from the word
+# shows in kanji, and its labels (the gold window's 金 and 糧: 兵糧 left
+# food 6 digits, the user, 2026-11-17; the tavern list's その他).  Item, tactic and place names come from the word
 # list and the glossary.
 MAP_UI_WORDS = (
     (0x00, "はなす", "話す"), (0x00, "しらべる", "調べる"), (0x00, "たいれつ", "隊列"),
@@ -191,7 +191,7 @@ BOOT_MESSAGES = ("b11_msg_145", "b11_msg_146", "b11_msg_147", "b11_msg_148",
 # 128 (a fixed split; no band, no uploads while the scene runs).
 OATH_FIXED = "生月日異願同年死閻魔大王照覧誓逆者地獄落"
 OATH_MESSAGES = ("b10_msg_128",)
-MAP_UI_LABELS = ("金", "兵糧", "その他")
+MAP_UI_LABELS = ("金", "糧", "その他")
 GLOSSARY = ROOT / "decomp" / "text" / "kanji_r14" / "glossary.tsv"
 
 
