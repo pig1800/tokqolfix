@@ -38,7 +38,7 @@ PATCHES = [
     (0xEA9C, 0xEAB3),   # window $11 template: UI-bank line CALLs (step B item 7)
     (0xEAC8, 0xEADF),   # window $12 template
     (0xEB23, 0xEB3A),   # window $16 template (battle items)
-    (0xEB43, 0xEB6C),   # window $17 template (battle tactics; title 残り)
+    (0xEB43, 0xEB5E),   # window $17 template (battle tactics: rows one lower, the UI bank draws them)
     (0xEC24, 0xEC31),   # window $21's template (the prisoner window in kanji)
     (0xEDC3, 0xEDC3),   # window $22's template pointer, low (reward window: bank 14 $923C)
     (0xEDF3, 0xEDF3),   # its high byte

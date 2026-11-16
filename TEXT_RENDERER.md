@@ -3280,6 +3280,72 @@ before た.  They asked: what if 張苞 is not in the team?
   line now compile to the same breaks (py check); the text as it is (no
   `<NAME:xx>`) builds byte-identical.  Not seen in the game.
 
+## The tactic window one row lower (2026-11-16)
+
+The user's report: with a long enough gauge, opening the tactic window
+turned the last two tiles of the last officer's gauge (row 16, columns
+14-15) into kanji bit planes.  The title's 残 had its top half in row 17,
+above the frame in row 18.  To show it, `$27E3` set rows 16-17 columns
+14-15 to P0, which shows plane 0 of the gauge tiles (the command kanji
+groups 15-18).  Their call: move the whole tactic window one tile down.
+
+- The engine draws a window in 16-pixel rows from a metatile position,
+  one row pair a frame; each pair is the bottom row of one line and the
+  top row of the next.  A window cannot start in an odd row.  So the
+  window stays at rows 18-27 (five pairs, as the command windows) and the
+  UI bank lays its contents one row lower (`tw_line`, `ui_battle.asm`):
+  - row 18: the command window's top frame as it was (window `$11`, 15
+    columns, for the round's first command, `$7C` = 0; else `$12`, 8),
+    with 残's top half;
+  - row 19: the title (frame, 残り, S P, the S.P left: bank 14's `$968A`
+    puts the digits in row 18's buffer, copied over);
+  - rows 20-25: the three tactic lines.  Line t's top half goes in engine
+    line t's bottom row, its bottom half in engine line t+1's top row.
+    The half a draw does not want goes in engine line t-1's top row,
+    which is queued already and cleared again before line t+1;
+  - row 26: the bottom frame;
+  - row 27: the command window's bottom frame as it was.  The engine
+    writes its own bottom frame after the last CALL: `cv_smend` (fixed
+    bank, called at `$CB80`) runs UIF_SMEND before that pair is queued,
+    then `cv_sm` as before.
+- 残 in rows 18-19 is in P0 cells already: `$27E3` is not written any
+  more.  Only `$27E4` changes (rows 18-19 columns 18-19 P1 for S P), as
+  before.  The plane-1 copy of 計 is gone (line 0 is in rows 20-21, P0).
+  道具 is covered now, so the window no longer keeps its groups.
+- The cursor: the engine places it from the template's 16-pixel rows, on
+  a line's top row now.  `cur_st` (txr_cur's store, fixed bank) adds
+  `$20` to the queued address while `text_mode` is `$17`.  The VRAM
+  queue is a ring: a first version addressed the bytes as `$0400-2,x`,
+  wrote `$03FE`-`$03FF` when an entry wrapped, and left a stale cursor.
+  It steps X back now; A, X, Y and the flags are as the store leaves them.
+- The template at `$EB43` is 28 bytes: a one-cell title, `$968A`, four
+  `cv_wincb $10` lines.  `apply_patch` checks a registered site's
+  original bytes in full when the new data is shorter.
+- One row pair more: in bt1/s1 the five pairs show in frames 46-50 (the
+  previous build's four in 47-50).  The RNG bytes (`$AC-$AF`) equal the
+  previous build's in every frame of a 1600-frame run (a tactic used in
+  round 1, the tactic window and the river notice in round 2).
+- The UI bank's code moved: states saved on an older build on the info
+  screen or in the reserve list (inside UI-bank code) no longer load
+  right.
+
+Measured in Mesen (bt1/s1, and round 2 of it saved on this build):
+- Row 16 columns 14-15 poked to full gauge tiles: under the window the
+  previous build shows them white, this build pink.
+- Over `$11` and over `$12`: rows 18 and 27 hold the command window's
+  frames (15 / 8 columns).  B gives the command window back with `$27E4`
+  `$0A`; a chosen tactic, the river notice and the next officer's window
+  leave nothing behind.
+- 1, 3 and 6 tactics (lists poked): the cursor moves as before, with one
+  arrow on screen, on each line's lower row.
+- Round 2 (message kanji in the pool): line 2's 解 and 奇襲 are drawn
+  blank and filled in 5 frames later in rows 24-25 (`redraw_line`,
+  `TW_ROW`).
+- The regression set against the previous build (gy, cyy, vsy, ti,
+  stdx, the two battles, the oath and the five boot flows: 3,373
+  screenshots): none different.  The original build is still
+  byte-identical.
+
 ## The reserve list holds 125 (2026-11-15)
 
 The user's request, after the assessment above ("Why 64"): check

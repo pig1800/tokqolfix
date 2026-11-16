@@ -980,9 +980,11 @@ def write_txr_bank(image: bytes) -> None:
 
 
 def apply_patch(bank: bytearray, addr: int, data: bytes) -> None:
+    """Write data at addr; a registered site (PATCH_SITES) must hold the
+    original's bytes there (all of them: the data may be shorter)."""
     off = addr - 0xC000
-    original = bytes(bank[off:off + len(data)])
     want = PATCH_SITES.get(addr)
+    original = bytes(bank[off:off + len(want if want is not None else data)])
     if want is not None and original != want:
         raise SystemExit(f"patch site ${addr:04X}: expected {want.hex()}, "
                          f"found {original.hex()}")
@@ -1121,9 +1123,9 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
                                      labels["render_ctl"] >> 8)))
 
     # Battle windows (step B item 7): one UI-bank CALL per line,
-    # "$F8 cv_wincb n" (ui_battle.asm); the tactic window's title のこり
-    # becomes 残り (残's lower half, group 20 = tiles $F4-$F7; its upper half
-    # is written in row 17 by UIF_SM).
+    # "$F8 cv_wincb n" (ui_battle.asm).  The tactic window's rows are one
+    # below the engine's since 2026-11-16 (ui_battle.asm tw_line): its
+    # title のこり becomes 残り in rows 18-19, drawn by the UI bank.
     if labels["call_ui"] != 0xC48D:
         raise SystemExit(f"call_ui moved to ${labels['call_ui']:04X}: "
                          "old save states' RAM code calls $C48D")
@@ -1176,18 +1178,20 @@ def build_bank15(fixed: bytes, labels: dict[str, int],
 
 def battle_templates(cb: bytes) -> dict[int, bytes]:
     """Window templates $11, $12 (command windows), $16 (items), $17
-    (tactics) with the UI-bank line CALL cb + n."""
+    (tactics) with the UI-bank line CALL cb + n.  $17: a one-cell title
+    (row 18; the UI bank writes that row), bank 14's S.P CALL ($968A: the
+    digits into row 18's buffer), four engine lines (rows 19-26) for the
+    title and three tactic lines one row lower (ui_battle.asm tw_line)."""
     end = bytes((0xFF,))
 
     def lines(*ns: int) -> bytes:
         return b"".join(bytes((0xFA,)) + cb + bytes((n,)) for n in ns)
-    title = bytes.fromhex("6D0C0C0C F5F732 0A F6F7 0A0A0A0A 0C0C0C0C0C6E")
     out = {
         0xEA9C: bytes.fromhex("02FD0F") + lines(0, 1, 2, 3) + end,
         0xEAC8: bytes.fromhex("02FD08") + lines(0, 1, 2, 3) + end,
         0xEB23: bytes.fromhex("02FD14") + lines(0x20, 0x20, 0x20, 0x20) + end,
-        0xEB43: (bytes.fromhex("02FD14") + title + bytes.fromhex("FAF88A96")
-                 + cb + bytes((0x10,)) + lines(0x10, 0x10) + end),
+        0xEB43: (bytes.fromhex("02FD14 0A FAF88A96") + cb + bytes((0x10,))
+                 + lines(0x10, 0x10, 0x10) + end),
     }
     room = {0xEA9C: 44, 0xEAC8: 24, 0xEB23: 32, 0xEB43: 48}
     for addr, data in out.items():

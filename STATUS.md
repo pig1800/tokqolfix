@@ -95,6 +95,11 @@ is in `MEMORY_MAP.md`.
   - The UI bank draws the command, item and tactic windows (one UI-bank
     call per template line, `cv_wincb`), the reward window (`$22`) and
     the prisoner window (`$21`).
+  - The tactic window's rows are one below the engine's (`tw_line`,
+    2026-11-16): its title's 残 sits in rows 18-19, P0 like the battle's
+    own, so rows 16-17 (the last officer's gauge) keep their palette.
+    Rows 18 and 27 show the command window's frames, as before it
+    opened; the cursor is one row lower too (`cur_st`).
 - **UI bank.**  The officer info screen and the army status screen show
   kanji without switching CHR banks: in plane 1 of the font tiles (labels,
   names) and in plane 0 of free scene tiles.  Each screen is built while

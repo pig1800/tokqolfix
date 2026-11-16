@@ -1077,11 +1077,11 @@ wipe_rows_end:
 
 ; ----------------------------------------------------------------------
 ; text_init's "jsr scroll_map" ($CB1B, $CB80): step B's battle row hook
-; (cv_sm).
+; (cv_sm; at the window's end cv_smend first, the battle's tactic window).
 .base $CB1B
     jsr cv_sm
 .base $CB80
-    jsr cv_sm
+    jsr cv_smend
 
 .base $FFDC
     jmp early_reset             ; reset vector: "jmp reset_init"

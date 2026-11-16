@@ -419,6 +419,8 @@ UIF_LFLIP         = 23      ; Left / Right: the page's 8 lines again
 UIF_LPICK         = 24      ; picked: $60AF, $4A, X = the entry (as the original)
 UIF_INFO_WAIT     = 25      ; the info screen's wait (loc_D44C): A / B end it,
                             ; Left / Right show the officer before / after
+UIF_SMEND         = 26      ; battle window: its last metarow's buffers, before
+                            ; the game queues them (canvas cv_smend)
 UI_RSETUP         = $FEEF   ; fixed_rt.asm ui_rsetup: reserve record A into actor 7
                             ; (the office's 能力), for the info screen's flips
 ; The reserve list (2026-11-15, the user's request; TEXT_RENDERER.md "The

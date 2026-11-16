@@ -20,10 +20,12 @@
 ; taken.
 ;
 ; Window templates (fixed bank, patched by kanji_build): "$F8 cv_wincb n"
-; per line; n = 0-3 command window line, $10 tactic line, $20 item line,
-; $40-$41 the prisoner window's lines ($21: 仲間に入れる / 逃がす).
+; per line; n = 0-3 command window line, $10 tactic window line (rows one
+; below the engine's: tw_line), $20 item line, $40-$41 the prisoner
+; window's lines ($21: 仲間に入れる / 逃がす).
 ; The reward window $22 (bank 14's template): "$F8 cv_wincb", line $54.
-; The canvas code's cv_sm hook calls UIF_SM after every row pair.
+; The canvas code's cv_sm hook calls UIF_SM after every row pair, and
+; cv_smend UIF_SMEND before the window's last row pair is queued.
 ; ======================================================================
 B_TOP       = $08           ; 2: row-buffer pointer, top row
 B_BOT       = $0A           ; 2: row-buffer pointer, bottom row
@@ -41,9 +43,10 @@ G_FIXED     = 8             ; group of ui_fixed_g[0]
 F_ZAN       = 12            ; ui_fixed_g index of 残 (group 20)
 F_DOU       = 13            ;   道 (group 21); 具 = 14 (group 22)
 WIN_LINE0   = $266C         ; line 0's top row (19), column 12, nametable 1
+TW_ROW      = $20           ; the tactic window's lines: one row lower
 PR_LINE0    = $25B4         ; window $21's line 0: top row 13, column 20
-ZAN_TOP     = $262E         ; row 17, columns 14-15: 残's top half
-ZAN_TILE    = $F4           ; group 20's first tile
+ZAN_TILE    = $F4           ; group 20's first tile (残, 8x16 order)
+CMD_COUNT   = $7C           ; the round's commands so far: 0 = window $11
 
 
 ; ----------------------------------------------------------------------
@@ -386,10 +389,6 @@ win_glyphs:
 wg_tactics:
     lda #F_ZAN                  ; the title's 残
     jsr need_fixed
-    lda #F_DOU                  ; 道具: the command window's, still shown
-    jsr need_fixed
-    lda #F_DOU+1
-    jsr need_fixed
     lda #0
     sta ZP_K
 @ent:
@@ -409,70 +408,6 @@ wg_tactics:
     cmp #6
     bne @ent
 @done:
-; 計's top-right tile in plane 1 as well: the first tactic's 計 ends at
-; column 18 of row 19, inside the S P cell (P1 while this window is open,
-; S and P are plane 1).  Both planes set is colour 3, white in P0 too.
-; Only in groups 0-14, whose plane 1 nothing shows.
-    ldx #NGROUPS-1
-@kei:
-    lda UI_SLOT,x
-    cmp #UI_G_KEI
-    bne @knext
-    lda UI_GF,x
-    and #GF_NREF
-    bne @kfound
-@knext:
-    dex
-    bpl @kei
-    rts
-@kfound:
-    cpx #15
-    bcs @krts
-    txa
-    asl a
-    asl a
-    adc #$A6                    ; the group's third tile (TR)
-    sta ZP_T
-    lda #UI_G_KEI
-    jsr glyph_map               ; Y = pos
-    lda #>STORE_TAB+16          ; the TR tile's 8 rows (8x16 order)
-    sta ZP_PTR+1
-    ldx vram_queue_write
-    lda ZP_T
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    ora #$10
-    sta $0400,x
-    inx
-    lda ZP_T
-    asl a
-    asl a
-    asl a
-    asl a
-    ora #8                      ; plane 1
-    sta $0400,x
-    inx
-    lda #8
-    sta $0400,x
-    inx
-@kb:
-    lda (ZP_PTR),y
-    sta $0400,x
-    inx
-    inc ZP_PTR+1
-    lda ZP_PTR+1
-    cmp #>STORE_TAB+24
-    bne @kb
-    lda #0
-    sta $0400,x
-    stx vram_queue_write
-    M_STUNMAP
-    lda #1
-    sta B_Q
-    jmp q_flush
-@krts:
     rts
 .if $ > STORE_TAB
     .error "kanji store code past $9FFF (the store bank is mapped at R7)"
@@ -600,8 +535,7 @@ ui_wincb:
     jsr draw_panel_line
     jmp @out
 @tactic:
-    lda battle_anim
-    jsr draw_tactic_pair
+    jsr tw_line
     jmp @out
 @reward:
     jsr draw_reward_line
@@ -740,6 +674,200 @@ draw_tactic_pair:
     rts
 @none:
     clc
+@rts:
+    rts
+
+; ----------------------------------------------------------------------
+; The tactic window ($17).  At the user's call (2026-11-16) every row is
+; one below the engine's: 残 (the title's) is in rows 18-19, P0 as the
+; battle's own, and rows 16-17 keep their palette (with 残's top half in
+; row 17, columns 14-15 of rows 16-17 were P0: the end of the last
+; officer's gauge showed its tiles' plane 0, kanji).  The
+; engine draws the title row (18), lines 0-3 (rows 19-26) and its bottom
+; frame (27); they hold:
+;   18      the command window's top frame (what was there), 残's top half
+;   19      the title: frame, 残り, S P, the S.P left
+;   20-25   tactic lines 0-2: line t's top half in engine line t's bottom
+;           row, its bottom half in engine line t+1's top row
+;   26      the bottom frame
+;   27      the command window's bottom frame (ui_smend)
+; Engine line k = B_LINE ($54), Y = its row-buffer index: the buffer pair's
+; base (0 / $30: rows $0300 / $0318 + base) + 2 (column 12).  Engine line
+; k-1's top row is queued already and cleared again before line k+1 is
+; drawn: the half not wanted goes there (the spare row).
+; ----------------------------------------------------------------------
+tw_line:
+    tya
+    and #$30
+    sta ZP_C                    ; base
+    ldx #>($0300-$30)
+    lda #<($0300-$30)           ; spare: base $30 -> $0300 + cell
+    ldy ZP_C
+    bne @spare
+    ldx #>($0300+$30)
+    lda #<($0300+$30)           ;        base 0 -> $0330 + cell
+@spare:
+    sta ZP_PTR
+    stx ZP_PTR+1
+    lda B_LINE
+    sta ZP_T                    ; k
+    bne @lower
+    jsr tw_title
+    jmp @upper
+@lower:
+    lda ZP_PTR                  ; tactic line k-1's bottom half: this
+    sta B_TOP                   ; line's top row
+    lda ZP_PTR+1
+    sta B_TOP+1
+    lda #<$0300
+    sta B_BOT
+    lda #>$0300
+    sta B_BOT+1
+    dec B_LINE                  ; (its kanji drawn blank: line k-1)
+    lda battle_anim             ; (counted with its top half)
+    pha
+    lda ZP_T
+    asl a
+    sec
+    sbc #2                      ; its first entry
+    ldy ZP_C
+    iny
+    iny
+    jsr draw_tactic_pair
+    pla
+    sta battle_anim
+    inc B_LINE
+@upper:
+    lda ZP_T
+    cmp #3
+    beq @frame
+    lda #<$0318                 ; tactic line k's top half: this line's
+    sta B_TOP                   ; bottom row
+    lda #>$0318
+    sta B_TOP+1
+    lda ZP_PTR
+    sta B_BOT
+    lda ZP_PTR+1
+    sta B_BOT+1
+    lda battle_anim
+    ldy ZP_C
+    iny
+    iny
+    jmp draw_tactic_pair
+@frame:
+    lda #20                     ; line 3's bottom row: the bottom frame
+    sta ZP_N
+    lda ZP_C
+    clc
+    adc #$18
+    tay
+    ldx #3
+    jmp tw_frow
+
+; Engine line 0: its top row (19) the title, row 18 (the engine's title
+; row, $0318) the command window's top frame with 残's top half.  Bank 14's
+; $968A (the template's CALL before this one) put the S.P left in row 18's
+; cells 11-13.
+tw_title:
+    lda ZP_C
+    clc
+    adc #19
+    tay
+    ldx #19
+@t:
+    lda tw_title_row,x
+    sta $0300,y
+    dey
+    dex
+    bpl @t
+    lda ZP_C
+    clc
+    adc #13
+    tay
+    ldx #2
+@d:
+    lda $0318+11,x
+    sta $0300,y
+    dey
+    dex
+    bpl @d
+    jsr tw_cmdw
+    ldx #0
+    ldy #$18
+    jsr tw_frow
+    lda #ZAN_TILE
+    sta $0318+4
+    lda #ZAN_TILE+2
+    sta $0318+5
+    rts
+tw_title_row:
+    .db $6D, $0C, $0C, $0C, ZAN_TILE+1, ZAN_TILE+3, $32, T_BLANK    ; 残り
+    .db $F6, $F7, T_BLANK, T_BLANK, T_BLANK, T_BLANK                ; S P, S.P
+    .db $0C, $0C, $0C, $0C, $0C, $6E
+
+; ZP_N = the command window's width, as b14_battle_command_panel picks it:
+; window $11 (15 columns) for the round's first command, else $12 (8).
+tw_cmdw:
+    lda #8
+    ldy CMD_COUNT
+    bne @w
+    lda #15
+@w:
+    sta ZP_N
+    rts
+
+; Row $0300 + Y, cells 0 to the window's width - 1: a frame of ZP_N cells
+; (X = 0: top, 3: bottom), then blanks.
+tw_frow:
+    tya
+    clc
+    adc text_speed_count
+    sta ZP_J                    ; past the window
+    tya
+    clc
+    adc ZP_N
+    sta ZP_K
+    dec ZP_K                    ; the frame's last cell
+    lda tw_fr,x
+@c:
+    sta $0300,y
+    iny
+    lda tw_fr+1,x
+    cpy ZP_K
+    bcc @c
+    lda tw_fr+2,x
+    sta $0300,y
+    iny
+    lda #T_BLANK
+@b:
+    cpy ZP_J
+    bcs @r
+    sta $0300,y
+    iny
+    bne @b
+@r:
+    rts
+tw_fr:
+    .db $6D, $0C, $6E           ; top: corner, line, corner
+    .db $0B, $0D, $6F           ; bottom
+
+; ----------------------------------------------------------------------
+; UIF_SMEND (cv_smend: text_init's window end; the bottom frame is in its
+; buffer, $0300 + (text_line ? 0 : $30), not queued yet).  The tactic
+; window: its last row (27) the command window's bottom frame, as it was.
+; ----------------------------------------------------------------------
+ui_smend:
+    lda text_mode
+    cmp #$17
+    bne @rts
+    jsr tw_cmdw
+    ldx #3
+    ldy #$30
+    lda text_line
+    beq @f
+    ldy #0
+@f:
+    jmp tw_frow
 @rts:
     rts
 
@@ -888,7 +1016,7 @@ pl3: .db 13, 14, $FF                    ; 道具
 ;   anyway (30 bytes a row pair) made the flush overrun vblank (a frame
 ;   with the screen scrolled wrong).  cv_sm waits for a flush when the
 ;   queue is long (SM_QMAX).
-; - The row pair 18-19: the tactic window's S P / 残 cells (UI_SPST).
+; - The row pair 18-19: the tactic window's S P cells (UI_SPST).
 ; - The window's last row pair (UI_SMRET = $82): the window's end.
 ; ----------------------------------------------------------------------
 ui_sm:
@@ -953,9 +1081,9 @@ ui_sm:
     ldy #0
     lda UI_SPST
     beq @sp0
-    ldy #10
+    ldy #4
 @sp0:
-    lda #10
+    lda #4
     sta B_E
     ldx vram_queue_write
 @sp:
@@ -1013,15 +1141,13 @@ sm_blank_run:
     bne @b
     rts
 
-; $27E3 (rows 16-19, columns 12-15) and $27E4 (columns 16-19): the battle's
-; own $0A / $0A; open: rows 16-17 columns 14-15 P0 (残's top half), rows
-; 18-19 columns 18-19 P1 (S P).  Row 17 columns 14-15: blank / 残's top.
+; $27E4 (rows 16-19, columns 16-19): the battle's own $0A; the tactic
+; window open: rows 18-19 columns 18-19 P1 (its title's S P, plane 1).
+; Its 残 (rows 18-19, columns 14-15) is P0 as the battle's own.
 sp_off:
-    .db $27,$E3,2, $0A,$0A
-    .db >ZAN_TOP,<ZAN_TOP,2, T_BLANK,T_BLANK
+    .db $27,$E4,1, $0A
 sp_on:
-    .db $27,$E3,2, $02,$4A
-    .db >ZAN_TOP,<ZAN_TOP,2, ZAN_TILE,ZAN_TILE+2
+    .db $27,$E4,1, $4A
 
 ; The window's last row pair is queued, so the old window is gone, and so
 ; are the message kanji.  A window of ours: its groups are the ones shown
@@ -1128,12 +1254,16 @@ redraw_line:
     lda B_LINE
     asl a
     jsr draw_tactic_pair
-    jmp @queue
+    lda #TW_ROW                 ; (one row lower)
+    bne @row
 @item:
     lda B_LINE
     asl a
     jsr draw_item_pair
 @queue:
+    lda #0
+@row:
+    sta ZP_T
     lda text_speed_count        ; columns 12 .. left + width - 2
     sec
     sbc #3
@@ -1145,6 +1275,7 @@ redraw_line:
     asl a
     asl a
     asl a                       ; $40 * line
+    ora ZP_T
     clc
     adc #<WIN_LINE0
     sta ZP_T

@@ -15,6 +15,8 @@
 ;   cv_sm     text_init's "jsr scroll_map": step B's battle hook
 ;   cv_wincb  the battle templates' line CALL (step B)
 ;   txr_*     the renderer's stubs and waits
+; After them (not in the RAM image's layout): ui_rsetup (the info screen's
+; flips from 能力), cur_st and cv_smend (the battle's tactic window).
 ; ======================================================================
 SCROLL_MAP        = $DB87
 LOC_C139          = $C139       ; NMI on, a frame, rendering on (the game's)
@@ -439,7 +441,7 @@ txr_rcx:
 ; text_draw_cursor's tile store ($CD07, "pla / sta $0400,x" patched to
 ; "pla / jsr txr_cur"; also text_put_char's ▼ and blank): A = the tile.  In
 ; map mode ▶ ($70), ▼ ($71) and the blank ($0A) are the fixed set's $0A,
-; $0B and $7F.
+; $0B and $7F.  The store is cur_st's (the battle's tactic window).
 txr_cur:
     bit TXR_ON
     bpl @st
@@ -454,8 +456,8 @@ txr_cur:
 @b:
     lda #$7F
 @st:
-    sta $0400,x
-    rts
+    jmp cur_st
+    .db $60                     ; (pad: the stubs after keep their addresses)
 
 ; screen_refresh's "jsr load_battle_palette" ($CF22, the map setup): the
 ; renderer's page setup in place of the font load.  (The boot's font load,
@@ -552,3 +554,46 @@ ui_rsetup:
     sta current_bank_a
     txa
     jmp SET_BANK_LOCK
+
+; ----------------------------------------------------------------------
+; The battle's tactic window (window $17) is drawn one row below the
+; engine's rows (ui_battle.asm tw_line, 2026-11-16):
+; - txr_cur's store: its cursor one row lower too (the address queued
+;   before the tile, X = the tile's place in the ring $0400-$04FF).  A,
+;   X, Y and the flags as the store alone leaves them.
+; - text_init's window end ($CB80, "jsr cv_smend"): before the game queues
+;   the last row pair, the UI bank's UIF_SMEND (its row 27), then cv_sm as
+;   before (UI_SMRET from the game's return address, $CB82).
+; ----------------------------------------------------------------------
+cur_st:
+    php
+    pha
+    lda text_mode
+    cmp #$17
+    bne @st
+    dex                         ; (the queue is a ring: X wraps)
+    dex
+    lda $0400,x                 ; the address' low byte
+    clc
+    adc #$20
+    sta $0400,x
+    bcc @hi
+    dex
+    inc $0400,x                 ; its high byte
+    inx
+@hi:
+    inx
+    inx
+@st:
+    pla
+    plp
+    sta $0400,x
+    rts
+
+cv_smend:
+    lda UI_BATTLE
+    beq @sm
+    ldx #UIF_SMEND
+    jsr call_ui
+@sm:
+    jmp cv_sm
