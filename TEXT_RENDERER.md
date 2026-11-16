@@ -3342,7 +3342,7 @@ Measured in Mesen (bt1/s1, and round 2 of it saved on this build):
   blank and filled in 5 frames later in rows 24-25 (`redraw_line`,
   `TW_ROW`).
 - The regression set against the previous build (gy, cyy, vsy, ti,
-  stdx, the two battles, the oath and the five boot flows: 3,373
+  stdx, the two battles, the oath and the five boot flows: 3,193
   screenshots): none different.  The original build is still
   byte-identical.
 
