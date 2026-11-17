@@ -26,7 +26,7 @@ Its reading order is:
 えおアイウエオカキクケコサシスセ
 ソタチツテトナネハヒフミホはひふ
 へほラリルレロワンュョド金<LT><RT><RB>
-▶▼゛゜ヤム「ッ-ー！？／<L><R>兵
+▶▼゛゜ヤム「ッ.ー！？／<L><R>兵
 ```
 
 Bytes `$80-$EE` do not select another font page.  They draw the base tile
@@ -60,6 +60,8 @@ b10_msg_001:
   therefore share the same bytes.
 - Literal kana/digits are mapped to the game's 8×8 tile codes.
 - `　` (U+3000) is the game's space tile.  ASCII spaces are accepted too.
+- `.` is tile `$78`, a small dot at mid height that the game uses in
+  ellipses (`「そうか...`).  It was written `-` until 2026-11-17.
 - `""` denotes an empty stream.
 
 ## Named tokens

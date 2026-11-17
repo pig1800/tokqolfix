@@ -33,6 +33,8 @@ BANK_INFO = {
 
 # Reading order of assets/fonts/kana_8x8.png.  Each row is 16 tiles.
 # The <...> entries are frame/tab tiles, not printable characters.
+# Tile $78 is a small dot at mid height, used (nearly) only in ellipses:
+# "." in the text ("-" until 2026-11-17, the user's correction).
 FONT_ROWS = [
     "０１２３４５６７８９　<FRAME_LB><FRAME_TOP><FRAME_BOT>＊★",
     "かきくけこさしすせそたちつてとな",
@@ -41,7 +43,7 @@ FONT_ROWS = [
     "えおアイウエオカキクケコサシスセ",
     "ソタチツテトナネハヒフミホはひふ",
     "へほラリルレロワンュョド金<FRAME_LT><FRAME_RT><FRAME_RB>",
-    "▶▼゛゜ヤム「ッ-ー！？／<FRAME_L><FRAME_R>兵",
+    "▶▼゛゜ヤム「ッ.ー！？／<FRAME_L><FRAME_R>兵",
 ]
 
 FRAME_BYTE_TO_TOKEN = {

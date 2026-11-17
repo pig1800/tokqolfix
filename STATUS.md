@@ -205,6 +205,9 @@ UI bank has 0.6 KiB left, the fixed bank 0.4 KiB).
   2, a kana 1).  `<NAME:xx>` is officer xx's fixed name, not the party's
   (it counts its kanji name's width, so `<NAME:AD>` and 張苞 lay out the
   same).  The runtime names `<NAME_F3>`-`<NAME_F7>` count 8.
+- `.` is the font's mid-height dot (tile `$78`), the one the game uses
+  in ellipses (`...`); it was written `-` until 2026-11-17 (both dtx
+  sets, `tools/textdata.py`).
 - The name and word kanji come from three files:
   - `kanjiwordlist.csv`: item and tactic words (cp932);
   - `namekanjilist.csv`: officer names;
