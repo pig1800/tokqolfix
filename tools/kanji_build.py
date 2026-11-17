@@ -293,7 +293,7 @@ def write_hook_constants(labels: dict[str, int], att: dict) -> None:
     need = ("main_prg", "nmi_prg", "irq_handler", "far_head", "call_hack", "c343_hook",
             "ef08_hook", "ef08_tail", "nmi_gate", "ef31_hook", "ef31_gate", "chr1_scene", "wait_text", "scroll_text",
             "page_flip", "window_clear", "ltg_copied", "battle_shake",
-            "call_ui", "call_ui_army", "bs_wait")
+            "call_ui", "call_ui_army", "bs_wait", "door_music", "door_exit")
     for label in need:
         if label not in labels:
             raise SystemExit(f"missing fixed-hook label {label}")

@@ -1189,7 +1189,8 @@ nmi_r7x:
 ; The title's NMI (nmi_mode $80), in place of the original's cycle-counted
 ; split loops ($EF38-$EF89; their $2006 tables $EF8A-$EF93 unused): the
 ; attract bank's first half at R6 for title_fx (this frame's IRQ events),
-; then the current bank back, then the NMI's end as before.
+; then the current bank back, then the NMI's end as before.  The door's
+; music after it (door_music).
 .base $EF38
 title_nmi:
     lda #MMC3_R6
@@ -1200,8 +1201,67 @@ title_nmi:
     lda current_prg_bank
     jsr RESTORE_BANK_AFTER_NMI
     jmp $EF31
+
+; A door (2026-11-17, the user's QoL request), from bank 14 (mapped):
+; b14_field_enter_location_done (door_music, X = the location entered)
+; and b14_field_exit_to_prev_location (door_exit: the location the stack
+; returns to, $6012 + $6011 - 1).  The original stops the music there
+; ($FF through sound_queue_add_once, so the lock is $FF) and the next
+; area starts its own (b14_field_play_area_music: sound_queue_add_once,
+; which skips the music the lock holds).  Here the next area's music is
+; picked as b14_field_play_area_music will pick it (its tables in bank 14
+; at $BF91 / $BF98); when it is the music playing (the lock: in the field
+; every music and stop goes through sound_queue_add_once), there is no
+; stop, and the lock keeps it, so the area's start skips it: the music
+; goes on.  Then the door's sound as before ($10: the noise channel only,
+; over the music's).  A, X, Y lost (the callers load them next).
+SQ_ADD_ONCE = $C4CF             ; sound_queue_add_once
+SQ_ADD      = $C4D5             ; sound_queue_add
+door_exit:
+    ldx $6011
+    lda $6011,x                 ; $6012 + $6011 - 1
+    tax
+door_music:
+    lda $6553
+    and #$04
+    beq @n21
+    lda #$21
+    bne @cmp
+@n21:
+    cpx #$7F
+    bne @lv
+    lda #$20
+    bne @cmp
+@lv:
+    txa
+    lsr a
+    tay
+    lda $BF98,y                 ; the location's tileset (level): b14_data_BF98
+    bcs @lo
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+@lo:
+    and #$0F
+    tay
+    lda $BF91,y                 ; its music: b14_data_BF91
+    cpy #0
+    bne @cmp
+    ldy $6010
+    cpy #6
+    bcc @cmp
+    lda #$28
+@cmp:
+    cmp sound_bank_lock
+    beq @door                   ; playing: it goes on
+    lda #$FF
+    jsr SQ_ADD_ONCE
+@door:
+    lda #$10
+    jmp SQ_ADD
 .if $ > $EF94
-    .error "title_nmi outgrew the original's split code ($EF38-$EF93)"
+    .error "title_nmi and door_music outgrew the original's split code ($EF38-$EF93)"
 .endif
 
 ; ----------------------------------------------------------------------

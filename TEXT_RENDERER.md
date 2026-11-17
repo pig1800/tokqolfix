@@ -3477,6 +3477,69 @@ the window is as before.  The regression set: with gold in 7 digits all
 (the shop greeting and the menu cycle, all at columns 19-22 of the food
 line: the label).  The original build is still byte-identical.
 
+## The door keeps the music (2026-11-17)
+
+The user's QoL request: if the music after a scene change can be known
+and is the one playing, keep it playing instead of stopping and
+restarting it; the door's sound only uses the noise channel.
+
+**What the original does.**
+- At a door, entering (`b14_field_enter_location_done`) or leaving
+  (`b14_field_exit_to_prev_location`), it queues `$FF` through
+  `sound_queue_add_once` (the music stops, and the lock `$EA` becomes
+  `$FF`), then the door's sound `$10`.
+- The new area's music comes after its screen is loaded
+  (`b14_field_play_area_music`), through `sound_queue_add_once`, which
+  skips a command equal to the lock.  So the lock's `$FF` makes the same
+  music start again from its beginning.
+- Stairs and other transfers (`b14_field_transfer_done`) never stop it:
+  there the same music already goes on.
+
+**The next music is known at the door.**  The pick is a function of the
+location and two story flags:
+- `$6553` bit 2: `$21`;
+- location `$7F`: `$20`;
+- else the location's tileset (`b14_data_BF98`) indexes `b14_data_BF91`
+  (`27 2B 2E 2C 2A 29 29`), and tileset 0 with `$6010` >= 6 gives `$28`.
+The location is known at the door: the entrance match has already set
+`party_index`; the exit returns to `$6012 + $6011 - 1`.  Nothing between
+the door and the pick changes the flags.
+
+**The playing music is the lock.**  The musics are commands `$20-$32`
+(priority 15: the driver never refuses one).  In the field every music
+and stop goes through `sound_queue_add_once`.  The only plain
+`sound_queue_add` musics or stops are in battle (`$FF`, `$32`; every
+battle's end starts the area's music again, the lock then holding a
+battle music), the title (`$22`) and the ending (`$2D`).
+
+**The door's sound.**  `$10` uses the noise channel only (its channel mask
+`1000`), like the field's other effects over the music.
+
+**Done** (`mmc3_b15.asm` `door_music` / `door_exit`, in the title NMI's
+unused split code `$EF4D-$EF93`; bank 14's two door sites call it): the
+next area's music is picked as `b14_field_play_area_music` will pick it.
+If it equals the lock, there is no stop: the lock keeps it, the area's
+start skips it, and the music goes on.  Otherwise the original's `$FF`.
+Then the door's sound as before.  A wrong pick could only cost the
+original's restart (or a switch without the stop's silence): the area's
+own pick still runs.
+
+**Where it applies.**  Houses (location `$01`) play `$2B`, the music of
+tileset 1, so the towns of tileset 1 and their houses now keep it; so do
+the locations of tilesets 5 and 6 (both `$29`).  The test town of
+`out/user/cur/s1` is tileset 5 (`$29`) with a house of tileset 1, so its
+door still changes the music.
+
+Measured in Mesen (`out/test/tw/sndp.lua`, the sound queue's writes):
+- That house's exit and entrance: `$FF` and `$10` at the door, the new
+  music when the area is drawn, as before.
+- The same doors with the music made the next area's (queued and locked
+  by the probe): only `$10`, no stop, no restart.  The RNG and the
+  party's position every 20 frames over 900 frames are the previous
+  build's.
+- The regression set: all 3,193 screenshots the same.  The original
+  build is byte-identical.
+
 ## The item name in battle messages (2026-11-17)
 
 The user's report: in battle, 「[who]は[what]を使った」 (b10_msg_010,

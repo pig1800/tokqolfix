@@ -8023,10 +8023,16 @@ b14_data_BD60:
 ;   then the area change.
 ; ----------------------------------------------------------------------
 b14_field_enter_location_done:
+.ifdef KANJI_TARGET
+    ldx party_index             ; the music goes on when the next area's is
+    jsr DOOR_MUSIC              ; the same (mmc3_b15.asm door_music); the
+    .dsb 5, $EA                 ; door's sound
+.else
     lda #$FF
     jsr sound_queue_add_once
     lda #$10
     jsr sound_queue_add
+.endif
     ldy #$05
     jsr draw_window
     jsr init_party_status
@@ -8160,9 +8166,14 @@ b14_loc_BE1C:
 b14_field_exit_to_prev_location:
     lda #$FF
     sta $86
+.ifdef KANJI_TARGET
+    jsr DOOR_EXIT               ; as at the entrance (door_music)
+    .dsb 5, $EA
+.else
     jsr sound_queue_add_once
     lda #$10
     jsr sound_queue_add
+.endif
     ldy #$05
     jsr draw_window
     ldx party_index

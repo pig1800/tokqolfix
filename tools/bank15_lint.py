@@ -52,7 +52,7 @@ PATCHES = [
     (0xEED0, 0xEED2),   # jmp nmi_gate (map mode: the uploads first)
     (0xEF0B, 0xEF0F),   # jmp cv_nmi (bank 26's nmi_cvg) + nop nop
     (0xEF31, 0xEF33),   # jmp ef31_gate
-    (0xEF38, 0xEF93),   # the title's cycle-counted splits: title_nmi (the intro by IRQ, attract bank title_fx)
+    (0xEF38, 0xEF93),   # the title's cycle-counted splits: title_nmi (the intro by IRQ, attract bank title_fx), door_music
     (0xF004, 0xF039),   # reset: MMC3 registers + hack RAM clear (rewritten)
     (0xFFE0, 0xFFEF),   # block-writer entry, the message engine's frame wait (padding)
     (0xFFFE, 0xFFFF),   # IRQ vector: irq_handler (MMC3 scanline IRQ)

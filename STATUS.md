@@ -168,6 +168,11 @@ UI bank has 0.6 KiB left, the fixed bank 0.4 KiB).
   4 frames).  The NMI computes the strip positions (`title_fx`), and
   scanline IRQs (`title_irq`, fixed bank) make the mid-frame writes in
   hblank.  Bank 13's steps, Start checks and RNG are unchanged.
+- **Doors keep the music** (2026-11-17): entering or leaving a location
+  through a door, the music goes on when the next area plays the same one
+  (a town of tileset 1 and its houses, for example); the door's sound
+  plays over it on the noise channel.  A different music still stops at
+  the door and starts in the new area (`door_music`, fixed bank `$EF4D`).
 - **Anything else.**  A message printed with neither the map renderer nor
   the battle pool hits `band_trap`, a JAM, in place of the old band page.
   At the JAM, A = its text chunk and X/Y = its text address;
