@@ -669,6 +669,34 @@ b13_k_oathend:
     jsr ppu_bg_sprites_off
     ldx #TXF_OATHEND
     jmp TXR_CALL
+; Story flag A set (b13_check_name_tile's body: bank 14 sets $0C, bank 15
+; $15, bank 7 $10).  $10 is the ending's: bank 7 sets it from its inline
+; block ($9D5A) on the last screen (CAPCOM, さいごまで あそんでくれて どうも
+; ありがとう), then waits for good ($9D62).  Here (2026-11-17, the user's
+; QoL request) that wait is this loop: Start fades the screen out as the
+; ending's own fades do (draw_window: the palettes to black, 10 frames a
+; step) and resets the game through the reset vector: the title and its
+; logo intro.  (Bank 13 is mapped and current: the inline block's
+; set_bank_13, so the waits come back here.)
+b13_k_flag:
+    cmp #$10
+    beq @end
+    jsr b13_expand_name_tile
+    sec
+    jmp b13_pack_name_tile
+@end:
+    jsr b13_expand_name_tile
+    sec
+    jsr b13_pack_name_tile
+@wait:
+    jsr wait_vblank
+    lda controller_state
+    and #$10                    ; Start (just pressed)
+    beq @wait
+    ldy #$0A
+    jsr draw_window             ; (the fade out)
+    sei
+    jmp ($FFFC)
 b13_k_end:
     .incbin "build/assets/bank13_data.bin", $0D20 + (b13_k_end - boot_title_block), $02E0 - (b13_k_end - boot_title_block)
 .else
@@ -1634,10 +1662,15 @@ b13_data_9CBE:
 ;   Check/expand a packed name tile and set carry on failure.
 ; ----------------------------------------------------------------------
 b13_check_name_tile:
+.ifdef KANJI_TARGET
+    jmp b13_k_flag              ; (flag $10, the ending's: its last screen)
+    .dsb 5, $EA
+.else
     jsr b13_expand_name_tile
     sec
     jsr b13_pack_name_tile
     rts
+.endif
 
 b13_data_9CCE:
     .incbin "build/assets/bank13_data.bin", $1CCE, $0266

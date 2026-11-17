@@ -177,6 +177,12 @@ UI bank has 0.6 KiB left, the fixed bank 0.4 KiB).
   (a town of tileset 1 and its houses, for example); the door's sound
   plays over it on the noise channel.  A different music still stops at
   the door and starts in the new area (`door_music`, fixed bank `$EF4D`).
+- **The ending's last screen** (CAPCOM, さいごまで あそんでくれて どうも
+  ありがとう; 2026-11-17): Start fades it out and resets the game to the
+  title and its logo intro (bank 13 `b13_k_flag`, at the ending's story
+  flag `$10`).  The reset path sets the stack first now, so the console's
+  Reset no longer crashes while a task runs (it did, for example during
+  a battle's start).
 - **Anything else.**  A message printed with neither the map renderer nor
   the battle pool hits `band_trap`, a JAM, in place of the old band page.
   At the JAM, A = its text chunk and X/Y = its text address;

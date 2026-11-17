@@ -451,9 +451,14 @@ reset_mmc3:
 ; every MMC3 register and hack_init (clear the hack state and battery RAM
 ; $7900-$7FFF) before reset_init's PPU warm-up, whose three vblank waits
 ; absorb the clear (after them the RAM image's copy, until 2026-11-14,
-; cost the game a frame).  NMIs and IRQs are off; the stack is the
-; power-on one until reset_init's txs.
+; cost the game a frame).  NMIs and IRQs are off.  The stack first
+; (2026-11-17): a warm reset keeps the interrupted stack pointer, often a
+; task's stack low in page 1 ($0127 in the field), which hack_init's clear
+; of $0103-$017F would wipe under its own return address (reset_init's
+; txs comes later; the original had nothing to clear there).
 early_reset:
+    ldx #$FF
+    txs
     ldx #7
 @reg:
     txa
@@ -475,6 +480,9 @@ early_reset:
 ; game's code from $F03A on maps its banks before it uses them).
 mmc3_init:
     .db CHR_SCENE_LO, CHR_SCENE_HI, 0, 1, 2, 3, KANJI_HACK_BANK*2, KANJI_HACK_BANK*2+1
+.if $ > $F03A
+    .error "the reset code runs into the original's $F03A"
+.endif
 
 ; ----------------------------------------------------------------------
 .base $FFE0; ----------------------------------------------------------------------

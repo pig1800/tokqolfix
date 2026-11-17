@@ -3477,6 +3477,44 @@ the window is as before.  The regression set: with gold in 7 digits all
 (the shop greeting and the menu cycle, all at columns 19-22 of the food
 line: the label).  The original build is still byte-identical.
 
+## Start on the ending's last screen (2026-11-17)
+
+The user's QoL request: on the last screen (CAPCOM, さいごまで あそんでくれて
+どうも ありがとう), Start fades the screen out and resets the game to the
+title's raster-effect screen.
+
+**Where.**  Bank 7 (which must stay the original's) ends the game from
+an inline block: `set_bank_13`, story flag `$10` through
+`b13_check_name_tile` (bank 13 `$9CC6`), then `$9D62`: `jsr wait_vblank`
+for good.  Only the ending sets flag `$10` there (bank 14 sets `$0C`, bank
+15 `$15`).  `b13_check_name_tile` is now `jmp b13_k_flag` (bank 13's
+filler): any other flag as before; flag `$10` is set, then the loop is
+there (bank 13 is current, so the waits come back to it): Start (just
+pressed) fades out as the ending's own fades do (`draw_window`, the
+palettes to black, 10 frames a step), then `sei` and the reset vector.
+
+**A reset bug found on the way.**  The reset path (`early_reset`, fixed
+bank `$F00C`) called `hack_init`, which clears `$0103-$017F`, before
+`reset_init`'s `txs`, assuming the power-on stack.  A warm reset keeps the
+stack pointer, and a task's stack lies in that range (the main task's
+`$0120-$012F`): the clear wiped `hack_init`'s own return address and the
+CPU ran into zero page.  The jump from the ending's task stack hit it,
+and so does the console's Reset while a task runs: measured with Mesen's
+reset at a random battle's start (stack pointer `$20` / `$25`), the
+previous build stopped at `$00C6` / `$0020`.  `early_reset` now starts
+with `ldx #$FF / txs` (the three free bytes before the original's
+`$F03A`).
+
+Measured in Mesen:
+- The user's ending state: the last screen; Start; the fade to black
+  (10 frames a step, black about 40 frames after Start); the title's
+  logo intro and PUSH START.
+- Mesen's reset in the field, and at the two battle-start moments that
+  crashed: the title.
+- The regression set: all 3,193 screenshots the same as the previous
+  build's (the boot flows start through the changed reset path).  The
+  original build is byte-identical.
+
 ## The ending's last screens (2026-11-17)
 
 The user's report: the ending seemed to hang after the credits (げんさく
