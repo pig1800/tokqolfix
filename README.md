@@ -133,6 +133,27 @@ as it is.
   domain and asks that its use be credited.
 - Patch by pig1800.
 
+## License
+
+The MIT License ([`LICENSE`](LICENSE)) covers this project's own work: the
+tools, the edition's assembly (`tools/asm/`, and its patches in
+`decomp/banks/`), the build scripts, the documents and the kanji word and
+name lists.
+
+It does not cover:
+- **Capcom's material:** the game itself, the disassembly of its code
+  (`decomp/banks/`, apart from the edition's patches), its script
+  (`decomp/text/`, including the kanji text derived from it) and the
+  screenshots (`docs/images/`).  *Tenchi o Kurau* © CAPCOM.
+- **Third-party files**, which keep their own terms:
+  - `JF-Dot-Izumi16.ttf`: the Izumi bitmap font, public-domain-like (see
+    Credits);
+  - asm6f in `tools/toolchain/`: free software by loopy and its
+    contributors (see its readme).
+
+The release patch carries this work together with the font's glyphs and
+the kanji text; each part keeps its own terms.
+
 ## This repository
 
 The patch is built from a byte-identical assembler reconstruction of the
