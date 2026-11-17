@@ -72,6 +72,10 @@ UI bank has 0.6 KiB left, the fixed bank 0.4 KiB).
   - The screen has four parts (rows 0-8, 9-14, 15-20, 21-29), shown
     through R0 pages 4, 8, 10 and 12.  The IRQ switches pages at lines 71,
     119 and 167.
+  - The map scrolls through four nametables: PPUCTRL bit 1 is the camera's
+    vertical half, which the original never set.  Every other screen's
+    fill (`txr_fill`) clears it, so a screen drawn at `$2000` shows
+    `$2000` (2026-11-17: the ending's last two screens were black).
   - Each page holds the fixed set (frame and cursor tiles `$00-$0B`, blank
     `$7F`), then kanji in 4-tile groups from `$0C` up, and kana from the
     top down.

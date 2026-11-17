@@ -903,6 +903,15 @@ txr_fill:
 @fx:
     lda #0                      ; (the boot screens' fixed set ends too)
     sta TXR_ON
+    ; PPUCTRL bit 1 is the map camera's vertical half (walk_scroll, nt_bits:
+    ; the four-screen ring); the original never sets it, its screens draw
+    ; into the upper twins and showed either.  A screen built here shows
+    ; the upper one (2026-11-17: the ending's last two screens, drawn at
+    ; $2000 after a map scene that left bit 1 set, showed the blank $2800).
+    ; The map sets it again from its camera (set_scroll_from_cursor).
+    lda ppu_ctrl_shadow
+    and #$FD
+    sta ppu_ctrl_shadow
 cvf_go:
     lda $00
     ldy #1                      ; two tables (no subroutine: the original

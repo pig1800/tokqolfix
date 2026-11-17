@@ -3477,6 +3477,44 @@ the window is as before.  The regression set: with gold in 7 digits all
 (the shop greeting and the menu cycle, all at columns 19-22 of the food
 line: the label).  The original build is still byte-identical.
 
+## The ending's last screens (2026-11-17)
+
+The user's report: the ending seemed to hang after the credits (げんさく
+もとみや ひろし ...): 劉関張 in front of 陳城, then a dark screen for
+good, the music going on; the original goes on to すぺしゃる さんくす.
+The state: `out/user/end/s4.mss` (the user's slot 4).
+
+**Not a hang.**  The main task runs bank 7's ending to its end as the
+original: after the map scene, `b07_loc_9CE8` draws a text screen (two
+waits of 200 frames), then the special thanks (bank 4's logo tiles,
+`draw_string`), sets story flag `$10` and loops at `$9D62` (the game's
+last screen).  The nametable at `$2000` held the logo and the text, the
+palette was set, rendering was on.
+
+**Cause.**  PPUCTRL was `$92`: nametable `$2800`.  The map scene before
+left bit 1 set: in the kanji target the map scrolls through four
+nametables, and bit 1 is the camera's vertical half (`walk_scroll`,
+`nt_bits`).  The original never sets bit 1 (it only toggles bit 0), and
+its tables are mirrored vertically, so `$2800` showed `$2000`.  These two
+screens set no PPUCTRL of their own (the credit pages before them set
+`$90`).  With four screens `$2800` is a table of its own, filled blank by
+the screen's fill: black.
+
+**Fix** (`txr.asm` `txr_fill`, the fill every non-map screen starts with,
+`set_ppu_scroll` / `cv_fill`): clear bit 1.  The map sets it again from its
+camera (`set_scroll_from_cursor`); every other screen expects it clear,
+as on the original.  The other screens built this way without a PPUCTRL
+of their own (the title through `ppu_init`, bank 14's event scene after
+b11_msg_191 at `$B1E4`) get the same.
+
+Measured in Mesen (the user's state): the text screen, すぺしゃる さんくす
+and the CAPCOM 「さいごまで あそんでくれて どうも ありがとう」 screen show.
+The regression set: 3,192 of 3,193 screenshots the same as the previous
+build's; one frame of the boot copy flow (frame 800) differs by two
+pixels of a window corner erased a little later in the frame (the fill's
+11 more cycles); the frames around it and the run's log are the same.
+The original build is byte-identical.
+
 ## The door keeps the music (2026-11-17)
 
 The user's QoL request: if the music after a scene change can be known
