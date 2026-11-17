@@ -110,8 +110,7 @@ UI bank has 0.6 KiB left, the fixed bank 0.4 KiB).
     message uploads write plane 0 only.
   - Runtime names in messages show in kanji from entries the page
     reserves: officers (`$F4-$F7`), the tactic, and since 2026-11-17 the
-    item (`$F3`, 「劉封は短剣を使った」, `KITEM`).  An item with no kanji
-    form (そうこうのふだ, items `$29`/`$2A`) stays kana.
+    item (`$F3`, 「劉封は短剣を使った」, `KITEM`).
   - The battle window scrolls as in the original.  The scroll blanks
     line ends (`$FA-$FF`) but keeps the tiles of slots 30-31, which
     share those values (`redraw_hi`).

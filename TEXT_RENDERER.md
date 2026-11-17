@@ -3866,3 +3866,18 @@ given its own CRC in the patch, also gives the build.  Not tried with a
 third-party patcher: none is installed here.  A trap met on the way:
 Python's `pos += num()` reads `pos` before `num()` advances it, which
 decoded the metadata length again as a command.
+
+## そうこうのふだ: an abandoned item (2026-11-18)
+
+Items `$29` / `$2A` (そうこうのふだ) are the only items without a kanji
+form.  The user had never seen the item in play.  Its effect is complete:
+`$2A`'s handler (bank 14 `$8C54`) sets the step counter `$8B` to 64 and
+`battle_flags2` bits `$42`.  The field loop (`$F225`) counts the steps;
+bit `$02` doubles the walk (the scroll moves 2 pixels a frame, and the
+walk animation and the step timer run twice as fast).  At 0 it prints
+b10_msg_041 (「…の効果が消えた」).  It is the twin of まもりのけむり
+(`$2B`: counter `$8A`, no encounters for 64 steps).  `$29`'s handler is an
+`rts`, as for the other duplicate names.  No guide lists it (ゲームの里's
+item list has every other usable item), so it is taken as never placed
+in the game.  The user's call: no kanji and no code change; the docs no
+longer list it as a limit (it stays in `txr_ui_missing.txt`).

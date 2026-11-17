@@ -120,7 +120,6 @@ as it is.
 
 ## Known limits
 
-- The item そうこうのふだ is still in kana.
 - In the field, each kanji new to a message page waits for its glyph to
   be loaded, so kanji appear a little more slowly than kana.
 
