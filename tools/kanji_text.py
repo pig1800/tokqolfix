@@ -135,7 +135,7 @@ class Record:
 @dataclass
 class Page:
     kanji_order: list[int] = field(default_factory=list)   # first appearance
-    names: int = 0          # runtime officer names ($F4-$F7, the tactic pick)
+    names: int = 0          # runtime names ($F3 the item, $F4-$F7, the tactic pick)
 
 
 def parse_dtx(path: Path) -> list[Record]:
@@ -383,8 +383,8 @@ def page_from_bytes(data: bytes) -> list[Page]:
         if b in (0xF1, 0xF2):
             i += 2
             continue
-        if 0xF4 <= b <= 0xF7:
-            page.names += 1
+        if 0xF3 <= b <= 0xF7:          # (the item's $F3 too, kanji_msg.asm KITEM;
+            page.names += 1            # a 4-kanji item counts two at run time)
         if b in (0xF8, 0xF9):
             i += 3
             continue

@@ -39,7 +39,7 @@ is in `MEMORY_MAP.md`.
 | 31 | fixed bank: bank 15 with registered patches, and the runtime at `$FC00` (`fixed_rt.asm`) |
 | 20-22, 25, 27, 29, 30 | free |
 
-190.5 KiB free in all, 8.5 KiB of it the old name glyphs in banks 1-2 (the
+189.5 KiB free in all, 8.5 KiB of it the old name glyphs in banks 1-2 (the
 UI bank has 0.6 KiB left, the fixed bank 0.4 KiB).
 
 ## Runtime
@@ -100,6 +100,10 @@ UI bank has 0.6 KiB left, the fixed bank 0.4 KiB).
     the messages'.
   - A kanji already in a slot is used from it.  On the battle screen the
     message uploads write plane 0 only.
+  - Runtime names in messages show in kanji from entries the page
+    reserves: officers (`$F4-$F7`), the tactic, and since 2026-11-17 the
+    item (`$F3`, 「劉封は短剣を使った」, `KITEM`).  An item with no kanji
+    form (そうこうのふだ, items `$29`/`$2A`) stays kana.
   - The battle window scrolls as in the original.  The scroll blanks
     line ends (`$FA-$FF`) but keeps the tiles of slots 30-31, which
     share those values (`redraw_hi`).

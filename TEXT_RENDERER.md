@@ -3477,6 +3477,44 @@ the window is as before.  The regression set: with gold in 7 digits all
 (the shop greeting and the menu cycle, all at columns 19-22 of the food
 line: the label).  The original build is still byte-identical.
 
+## The item name in battle messages (2026-11-17)
+
+The user's report: in battle, 「[who]は[what]を使った」 (b10_msg_010,
+`b14_battle_use_item`) showed the item in kana.
+
+**Cause.**  The item is `$F3` in the text: the original's `$D2ED`, which
+puts item `text_command` through `$D5A3` / `$D5A5`, a kana byte at a time.
+In map mode each byte goes through `txr_tp`, which puts the item's kanji
+form (`ui_r2`); in a battle message (the pool) nothing did, unlike the
+officer names (`KNAME`) and the tactic (`$F0 $FB`).
+
+**Fix** (`kanji_msg.asm` `KITEM`, the dispatch entry for `$F3`):
+- In a pool message, the item's kanji form from `msg_items.inc`
+  (`kanji_build` `build_txr_ui`: by item index `text_command & $7F`, a
+  kana byte or `$EC` + store bank and pos per character, `ki_n` its
+  kanji).  Its kanji take the page's reserved entries the way a runtime
+  officer name's do (`pool_tiles`, `post_wait`, `put_tiles`); its kana
+  are cells (`text_put_tile`).
+- `scan_page` counts `$F3` as a runtime name: 3 reserved entries; an
+  item of 4 kanji (皇帝玉璽, 皇帝信璽, 天子信璽, 天子行璽) counts as two
+  names, so a 3-kanji officer's name and the item still fit.  At most 3
+  names a page as before (b10_msg_010: the officer and the item).
+- No kanji form (items `$29` / `$2A`, そうこうのふだ: not in
+  `kanjiwordlist.csv`), or too few entries left: the original's kana.
+  Map mode and outside the pool: the original handler, as before.
+- The text compiler counts `$F3` as a name too (`page_from_bytes`; it
+  only reports the count).  The widest kanji form is 8 cells (皇帝玉璽),
+  the width the compiler gives a runtime name.
+- `txr_ui_missing.txt` was always empty: the boot-screen and oath checks
+  reused its list's name.  It lists そうこうのふだ now.
+
+Measured in Mesen (bt1/s1 after 武将's info screen, 劉封's first item
+poked): 短剣, 皇帝玉璽 (4 kanji), 銅の鎧 (の between kanji) and 老木の枝
+show in kanji, then 「だが何も起きなかった」.  The map's 渡す message
+(張飛は銅の鎧を関羽に渡した) is as before.  The regression set: all
+3,193 screenshots the same as the previous build's (none uses an item in
+battle).  The original build is byte-identical.
+
 ## The old name glyphs freeable (2026-11-17)
 
 The user's QoL request: every officer kanji name routine to take its

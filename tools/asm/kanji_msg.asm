@@ -367,7 +367,7 @@ text_dispatch:
 ; original's $EF (a place) and $F0 (a word) are not in the compiled text.
 dispatch_table:
     .dw KANJI_EC, KANJI_EC, KANJI_EC, KANJI_EC
-    .dw KANJI_CT, $D2FE, $D2F3, $D2ED, KNAME, KNAME, KNAME, KNAME
+    .dw KANJI_CT, $D2FE, $D2F3, KITEM, KNAME, KNAME, KNAME, KNAME
 
 ; ----------------------------------------------------------------------
 ; $F0 ctl: the control byte follows (kanji_ctl).
@@ -720,6 +720,114 @@ kn_orig:
     .dw $D2E7, $D2E1, $D2DB, $D2CF
 
 ; ----------------------------------------------------------------------
+; The item's name in battle messages (2026-11-17, the user's report: 「…は
+; …を使った」 showed it in kana).  $F3 in a pool message puts item
+; text_command (& $7F, as $D5A3) in kanji: its kanji from the page's
+; reserved entries like a runtime officer name's (scan_page counts it as
+; one name, two for a 4-kanji item), its kana as cells.  The string:
+; ki_lo/hi (msg_items.inc: a kana byte, or $EC + store bank and pos; $FF
+; ends), ki_n its kanji.  No kanji form, or too few entries left: the
+; original's kana.  Map mode (the renderer puts item names) and outside
+; the pool: the original handler.
+; ----------------------------------------------------------------------
+KITEM:                          ; $F3
+    bit TXR_ON
+    bmi @o
+    bit KANJI_PAGES_LEFT
+    bvs @pool
+@o:
+    jmp $D2ED
+@kana:
+    ldx KANJI_BUFX
+    jmp $D5A3                   ; (the original's body: item text_command)
+@pool:
+    pla
+    tax
+    stx KANJI_BUFX
+    lda text_command
+    and #$7F
+    sta TXR_TA                  ; the item (kept while post_wait yields)
+    tax
+    lda ki_n,x
+    beq @kana
+    sta KANJI_M0
+    lda KANJI_PAGE_N            ; the reserved entries: n .. n + 3 * names
+    and #$1F
+    sta KANJI_M1
+    clc
+    adc KANJI_UPLOADED          ; the first not taken (the names' kanji
+    sta TXR_NE                  ; the page placed)
+    adc KANJI_M0                ; (C clear) after this name's
+    sta KANJI_M0
+    lda KANJI_PAGE_N
+    and #$60
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta KANJI_M2                ; names (C clear)
+    asl a
+    adc KANJI_M2
+    adc KANJI_M1                ; the reserved entries' end
+    cmp KANJI_M0
+    bcc @kana                   ; too few left
+    lda #0
+    sta TXR_NJ                  ; the string's byte
+@el:
+    ldx TXR_TA
+    lda ki_lo,x
+    sta ppu_update_ptr_lo
+    lda ki_hi,x
+    sta ppu_update_ptr_hi
+    ldy TXR_NJ
+    lda (ppu_update_ptr_lo),y
+    cmp #$FF
+    beq @end
+    iny
+    cmp #$EC
+    bcs @k
+    sty TXR_NJ
+    ldx KANJI_BUFX
+    jsr TEXT_PUT_TILE           ; a kana cell (X + 1)
+    stx KANJI_BUFX
+    jmp @el
+@k:
+    sbc #$EC                    ; (C set) the store bank
+    sta KANJI_CODE_HI
+    lda (ppu_update_ptr_lo),y
+    sta KANJI_CODE_LO
+    iny
+    sty TXR_NJ
+    lda TXR_NE
+    sta KANJI_M2
+    inc KANJI_UPLOADED          ; (pool pages: the names' kanji placed)
+    jsr pool_tiles              ; V set: in a slot already (no upload)
+    bvs @put
+    lda #REQ_UPLOAD
+    jsr post_wait
+@put:
+    jsr put_tiles
+    stx KANJI_BUFX
+    inc TXR_NE
+    jmp @el
+@end:
+    ldx KANJI_BUFX
+    rts
+
+; scan_page's $F3: a 4-kanji item takes two names' reserved entries.
+ki_scan:
+    lda text_command
+    and #$7F
+    tax
+    lda ki_n,x
+    cmp #4
+    bcc @r
+    inc KANJI_M2
+@r:
+    rts
+
+; ----------------------------------------------------------------------
 ; KANJI_CODE_LO/HI in the page's table (REG_LO/HI 0 .. KANJI_PAGE_N & $1F):
 ; KANJI_M2 = its entry, C clear; a new kanji is added (map mode: the page's
 ; kanji in first-appearance order; the pool: scan_table has added them all
@@ -764,8 +872,9 @@ page_find:
 ; scan_table also builds its table: REG_LO/HI 0-15 = its kanji in
 ; first-appearance order (both variants of a pick, as the compiler counts
 ; them), KANJI_PAGE_N = the entries | its runtime officer names << 5
-; ($F4-$F7 and the tactic pick, at most 3).  scan_content only looks (map
-; mode at a page break: the table still serves the line being drawn).
+; ($F4-$F7, the tactic pick and $F3's item, KITEM; at most 3).
+; scan_content only looks (map mode at a page break: the table still
+; serves the line being drawn).
 ; The text codes as the compiler's page_from_bytes reads them.  X, Y lost.
 ; ----------------------------------------------------------------------
 scan_table:
@@ -789,7 +898,7 @@ scan_page:
     beq @pick                   ; $F0 ctl ...: a kanji pick
     cmp #$F3
     bcc @ins2                   ; $F1 / $F2 n: an inserted word
-    beq @cell                   ; $F3: an inserted name
+    beq @item                   ; $F3: the item's name (KITEM)
     cmp #$F8
     bcc @name                   ; $F4-$F7: a runtime officer name
     beq @call                   ; $F8 lo hi: a call (it returns)
@@ -818,6 +927,8 @@ scan_page:
     tya
     bne @next
     beq @end
+@item:
+    jsr ki_scan                 ; a name's entries; a 4-kanji item two
 @name:
     inc KANJI_M2
     bne @cell                   ; (always)
@@ -959,5 +1070,7 @@ pool_choose:
 
 ; the boot screens' fixed set (fix_put)
 .include "../../decomp/build/kanji/boot_fix.inc"
+; the item names (KITEM)
+.include "../../decomp/build/kanji/msg_items.inc"
 
 msg_end:                        ; (the build reports the engine's size)
