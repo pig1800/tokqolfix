@@ -3821,3 +3821,48 @@ build on the states from before):
   packing it calls are py65-tested.
 - The regression set against the previous build: gy 7, cyy 16, vsy 330,
   ti 6, stdx 211 screenshots, none different.
+
+## The release patch and the READMEs (2026-11-18)
+
+The user's request: the README to say what the project is and what it
+changed, in English and Japanese, switchable on GitHub; their sentence on
+the ending kept in kana; and a BPS patch for a release.
+
+**READMEs.**  GitHub runs no scripts in a README, so the switch is two
+files, `README.md` and `README.ja.md`, each linking the other on its first
+line.  The Japanese file keeps each paragraph and list item on one line:
+GitHub renders a line break inside a paragraph as a space, which shows
+between Japanese sentences.  A bold run must not end right after `。`:
+CommonMark does not close `**` between punctuation and a letter, so the
+`。` goes after it.  The user's four screenshots are in `docs/images`
+(their decision: the one exception to keeping game screenshots out of
+git), enlarged 3x with nearest-neighbour so that they stay sharp at the
+README's 2x size on high-DPI screens.
+
+**The patch** (`tools/make_bps.py`, beat's BPS1).  The encoder takes, at
+each position, the longest run of 4 or more bytes that the source has at
+the same offset (SourceRead) or anywhere (SourceCopy, 6-byte hash, the 48
+most recent candidates), or that the target has already produced
+(TargetCopy, runs included).  It keeps it when it costs less than storing
+the bytes; everything else is TargetRead.  So the original's code and
+data, kept in place or moved (bank 15 is bank 31), come from the player's
+ROM.  The 16-byte header is always TargetRead.  A copy whose header alone
+differs therefore still gives the right ROM if the patcher ignores the
+source checksum.
+
+Measured on `rom_kanji.nes` sha1 `2ed3c37d...` (crc32 `B887E517`):
+
+| Command | Count | Bytes |
+|---|---|---|
+| SourceRead | 61 | 215,221 |
+| SourceCopy | 1,378 | 27,881 |
+| TargetCopy | 1,988 | 205,166 |
+| TargetRead | 2,564 | 76,036 |
+
+The patch is 89,392 bytes.  The tool applies it with its own decoder and
+compares the result with the build.  It checks all three CRC32s
+(source `2CE2E0E3`).  A copy with an iNES 1.0 header (bytes 7-15 zero),
+given its own CRC in the patch, also gives the build.  Not tried with a
+third-party patcher: none is installed here.  A trap met on the way:
+Python's `pos += num()` reads `pos` before `num()` advances it, which
+decoded the metadata length again as a command.

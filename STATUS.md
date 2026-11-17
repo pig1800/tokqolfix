@@ -15,6 +15,10 @@ is in `MEMORY_MAP.md`.
     battery PRG RAM, four-screen nametables.
   - The build lints the fixed bank and regenerates `MEMORY_MAP.md`, whose
     header gives the current sha256.
+- Release patch: `python -I tools/make_bps.py` writes
+  `out/release/tokqolfix.bps` (BPS, from the original ROM to
+  `rom_kanji.nes`), applies it again and compares (2026-11-18).  The patch
+  is a release asset, never committed.
 - Font: every kanji is JF-Dot-Izumi16's own 16-pixel bitmap (its 16 ppem
   strike, `JF-Dot-Izumi16.ttf`; never the outlines).  The 15x15 box is
   anchored bottom right.  璝, which the font lacks, is composed from its
@@ -30,7 +34,7 @@ is in `MEMORY_MAP.md`.
 | 13 | original, patched: the boot screens (fixed kanji set, the speed message, two save records), the attract entry |
 | 14 | original, patched: hooks for the battle, info and army screens, the battle shake, the reward window's template, the reserve list |
 | 15 | free (JAM bytes: nothing maps it) |
-| 16-17 | kanji store: 1,004 of 1,024 glyphs, 256 per 8 KiB bank (banks 32-35) |
+| 16-17 | kanji store: 1,007 of 1,024 glyphs, 256 per 8 KiB bank (banks 32-35) |
 | 18-19 | text: 758 unique messages in four 8 KiB chunks (banks 36-39), read at R7 |
 | 23 | hack bank: the message engine (`kanji_msg.asm`), the battle pool's uploads, the palette tables |
 | 24 | title screen and attract mode (`attract.asm`) |
@@ -241,6 +245,8 @@ UI bank has 0.6 KiB left, the fixed bank 0.4 KiB).
 | `decomp/build.py` | both builds; runs `assets.py`, `text.py`, `kanji_build.py`, `bank15_lint.py`, `memory_map.py` |
 | `tools/kanji_build.py` | the kanji edition's banks; with `kanji_text.py` (text compiler), `kanji_common.py`, `kanji_font.py`, `attract_build.py`, `attract_text.py` |
 | `tools/scroll_scan.py`, `tools/band_trap.py` | text checks; naming a trapped message |
+| `tools/make_bps.py` | the release patch (BPS), checked by applying it |
+| `tools/reserve_move.py` | moves the reserve list of a battery save or Mesen state (original or pre-2026-11-15) to `$6410` |
 | `tools/mesen_run.py` | runs a Lua script in Mesen's test runner on a copied ROM name |
 | `tools/lua_addrs.py` | refreshes the `-- @label@` addresses in Lua scripts from the listings; run it after a change to `hack.asm` or the fixed bank |
 | `tools/mss_to_mmc3.py`, `tools/mss_4screen.py`, `tools/mss_canvas.py` | convert save states of older builds (SUROM, two-screen, before the renderer) |
